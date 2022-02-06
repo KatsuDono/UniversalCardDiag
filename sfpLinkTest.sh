@@ -151,7 +151,7 @@ g4dbirInit() {
 	assignBuses eth bp
 	
 	echo "  Defining PCi args"
-	test -z "$debugMode" || inform "DEBUG1: ${pciArgs[@]}"
+	dmsg inform "DEBUG1: ${pciArgs[@]}"
 	pciArgs=(
 		"--target-bus=$uutSlotBus"
 		
@@ -178,7 +178,7 @@ g4dbirInit() {
 		"--bp-dev-speed=$virtEthDevSpeed"
 		"--bp-dev-width=$virtEthDevWidth"
 	)
-	test -z "$debugMode" || inform "DEBUG2: ${pciArgs[@]}"
+	dmsg inform "DEBUG2: ${pciArgs[@]}"
 }
 
 pe325g2i71Init() {
@@ -326,9 +326,9 @@ trafficTest() {
 			echo -n "1 2" >$orderFile
 			sourceDir="$(pwd)"
 			cd "$rootDir"
-			test -z "$debugMode" || inform "pwd=$(pwd)"
+			dmsg inform "pwd=$(pwd)"
 			execFile="./ispcitxgenoneg1.sh"
-			test -z "$debugMode" || inform "$pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum"
+			dmsg inform "$pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum"
 			execScript "$execFile" "$pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum" "PCI Test Passed" "Failed" "Traffic test FAILED"
 			test "$?" = "0" && echo -e "\e[0;32mPASSED\e[m" || echo -e "\e[0;31mFAILED\e[m"
 			#trfSendRes=$($execFile $pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum 2>&1)
@@ -347,7 +347,7 @@ defineRequirments() {
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn"
 	test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G2BPI71-SR\|PE310G4DBIR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX") && {
-		test -z "$debugMode" || inform "DEBUG1: ${pciArgs[@]}"
+		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR") && {
 			ethKern="i40e"
@@ -442,7 +442,7 @@ defineRequirments() {
 			# let physEthDevSpeed=5
 			# let physEthDevWidth=8
 			# assignBuses eth bp
-			# test -z "$debugMode" || inform "DEBUG1: ${pciArgs[@]}"
+			# dmsg inform "DEBUG1: ${pciArgs[@]}"
 			# pciArgs=(
 				# "--target-bus=$uutSlotBus"
 				# "--eth-buses=$ethBuses"
@@ -457,7 +457,7 @@ defineRequirments() {
 				# "--bp-dev-speed=$physEthDevSpeed"
 				# "--bp-dev-width=$physEthDevWidth"
 			# )
-			# test -z "$debugMode" || inform "DEBUG2: ${pciArgs[@]}"
+			# dmsg inform "DEBUG2: ${pciArgs[@]}"
 		# }
 										  
 		test ! -z $(echo -n $uutPn |grep "PE210G2BPI9") && {
@@ -485,7 +485,7 @@ defineRequirments() {
 			bpCtlMode="bpctl"
 			
 			assignBuses eth bp
-			test -z "$debugMode" || inform "DEBUG1: ${pciArgs[@]}"
+			dmsg inform "DEBUG1: ${pciArgs[@]}"
 			pciArgs=(
 				"--target-bus=$uutSlotBus"
 				"--eth-buses=$ethBuses"
@@ -500,7 +500,7 @@ defineRequirments() {
 				"--bp-dev-speed=$physEthDevSpeed"
 				"--bp-dev-width=$physEthDevWidth"
 			)
-			test -z "$debugMode" || inform "DEBUG2: ${pciArgs[@]}"
+			dmsg inform "DEBUG2: ${pciArgs[@]}"
 		}
 		
 		test ! -z $(echo -n $uutPn |grep "PE325G2I71") && {
@@ -526,7 +526,7 @@ defineRequirments() {
 			let physEthDevWidth=8
 			
 			assignBuses eth
-			test -z "$debugMode" || inform "DEBUG1: ${pciArgs[@]}"
+			dmsg inform "DEBUG1: ${pciArgs[@]}"
 			pciArgs=(
 				"--target-bus=$uutSlotBus"
 				"--eth-buses=$ethBuses"
@@ -536,7 +536,7 @@ defineRequirments() {
 				"--eth-dev-speed=$physEthDevSpeed"
 				"--eth-dev-width=$physEthDevWidth"
 			)
-			test -z "$debugMode" || inform "DEBUG2: ${pciArgs[@]}"
+			dmsg inform "DEBUG2: ${pciArgs[@]}"
 		}
 
 		test ! -z $(echo -n $uutPn |grep "PE31625G4I71L-XR-CX") && {
@@ -561,7 +561,7 @@ defineRequirments() {
 			let physEthDevWidth=8
 			
 			assignBuses eth
-			test -z "$debugMode" || inform "DEBUG1: ${pciArgs[@]}"
+			dmsg inform "DEBUG1: ${pciArgs[@]}"
 			pciArgs=(
 				"--target-bus=$uutSlotBus"
 				"--eth-buses=$ethBuses"
@@ -571,7 +571,7 @@ defineRequirments() {
 				"--eth-dev-speed=$physEthDevSpeed"
 				"--eth-dev-width=$physEthDevWidth"
 			)
-			test -z "$debugMode" || inform "DEBUG2: ${pciArgs[@]}"
+			dmsg inform "DEBUG2: ${pciArgs[@]}"
 		}
 		
 		echoIfExists "  Port count:" "$uutDevQty"
@@ -606,7 +606,7 @@ defineRequirments() {
 		echoIfExists "  Physical Ethernet device width:" "$physEthDevWidth"
 		echoIfExists "  Virtual Ethernet device speed:" "$virtEthDevSpeed"
 		echoIfExists "  Virtual Ethernet device width:" "$virtEthDevWidth"
-		test -z "$debugMode" || inform "DEBUG2: ${pciArgs[@]}"
+		dmsg inform "DEBUG2: ${pciArgs[@]}"
 	} || {
 		exitFail "  PN: $uutPn cannot be processed, requirements not defined"
 	}	
@@ -714,7 +714,7 @@ switchBP() {
 		case "$newState" in
 			inline) {
 				bpctlRes=$($bpCtlCmd $bpBus set_bypass off)
-				test -z "$debugMode" || inform "\t DEBUG: $bpctlRes"
+				dmsg inform "\t DEBUG: $bpctlRes"
 				test ! -z "$(echo $bpctlRes |grep successfully)" &&	{
 					echo -e -n "\t$bpBus: Set to inline mode"
 					sleep 0.1
@@ -807,7 +807,7 @@ netInfoDump() {
 		# echo -e -n "\t $netDesc    Rev: $pnRevDumpRes   $([ $(expr "x$pnRevDumpRes" : "x[0-9]*$") -gt 0 ] && echo -e -n "\e[0;32mOK\e[m" || echo -e -n "\e[0;31mFAIL\e[m")\n"
 		# echo -e -n "\t $netDesc     TN: $tnDumpRes   $([ $(expr "x$tnDumpResCut" : "x[0-9]*$") -gt 0 ] && echo -e -n "\e[0;32mOK\e[m" || echo -e -n "\e[0;31mFAIL\e[m")\n"
 		# echo -e -n "\t $netDesc     TD: $tdDumpResDate   $([ $(expr "x$tdDumpRes" : "x[0-9]*$") -gt 0 ] && echo -e -n "\e[0;32mOK\e[m" || echo -e -n "\e[0;31mFAIL\e[m")\n"
-		test -z "$debugMode" || echo -e "pnDumpRes=$pnDumpRes   baseModelLocal=$baseModelLocal  grep=$(echo $pnDumpRes |grep $baseModelLocal)\n\tverDumpRes=$verDumpRes  pnRevDumpRes=$pnRevDumpRes  tnDumpRes=$tnDumpRes  tdDumpResDate=$tdDumpResDate"
+		dmsg inform "pnDumpRes=$pnDumpRes   baseModelLocal=$baseModelLocal  grep=$(echo $pnDumpRes |grep $baseModelLocal)\n\tverDumpRes=$verDumpRes  pnRevDumpRes=$pnRevDumpRes  tnDumpRes=$tnDumpRes  tdDumpResDate=$tdDumpResDate"
 		test ! -z "$(echo "$pnDumpRes" 2>&1 |xxd |grep 'ffff ffff')" && critWarn "\t $netDesc     PN: EMPTY" || {
 			echo -e -n "\t $netDesc     PN: $pnDumpRes  $(test -z "$(echo $pnDumpRes |grep $baseModelLocal)" && echo -e -n "\e[0;31mFAIL\e[m" || echo -e -n "\e[0;32mOK\e[m")\n"
 		}
@@ -936,10 +936,8 @@ bpSwitchTests() {
 		*) let loopCount=1;;
 	esac
 
-	test -z "$debugMode" || {
-		inform "mastNets: $mastNets"
-		inform "uutNets: $uutNets"
-	}
+	dmsg inform "mastNets: $mastNets"
+	dmsg inform "uutNets: $uutNets"
 	
 	
 	test -z "$virtEthDevQty" && let ethTotalQty=$physEthDevQty || let ethTotalQty=$physEthDevQty+$virtEthDevQty
@@ -948,7 +946,7 @@ bpSwitchTests() {
 		warn "  Reassigning mastNets, excessive amount detected. ($mastNets reduced to " "nnl"
 		mastNets=$(echo $mastNets |cut -d ' ' -f1-$ethTotalQty)
 		warn "$mastNets)" "nnl" "sil"
-		test -z "$debugMode" || inform "mastNets=$mastNets"
+		dmsg inform "mastNets=$mastNets"
 	fi
 	
 		for ((b=1;b<=$loopCount;b++)); do 
@@ -966,11 +964,9 @@ trafficTests() {
 		PE210G2BPI9) inform "Traffic tests are not defined for $baseModel";;
 		PE325G2I71) 
 			source /root/PE325G2I71/library.sh 2>&1 > /dev/null
-			test -z "$debugMode" || {
-				which set_channels
-				which adapt_off
-				which check_receiver
-			}
+			dmsg which set_channels
+			dmsg which adapt_off
+			dmsg which check_receiver
 			allBPBusMode "$mastBpBuses" "bp"
 			sleep $globLnkUpDel
 			trafficTest "$uutSlotNum" 10000 "$baseModel"
@@ -987,7 +983,7 @@ checkIfFailed() {
 	privateVarAssign "checkIfFailed" "severity" "$2"
 	curStep="$1"
 	severity="$2"
-	test -z "$debugMode" || warn "\t checkIfFailed debug: $(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep FAIL)"
+	dmsg warn "\t checkIfFailed debug: $(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep FAIL)"
 	test ! -z "$(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep FAIL)" && {
 		test "$severity" = "warn" && warn "$curStep" ||	exitFail "$curStep"
 	}
@@ -996,7 +992,7 @@ checkIfFailed() {
 assignBuses() {
 	for ARG in "$@"
 	do	
-		test -z "$debugMode" || inform "ASSIGNING BUS: $ARG"
+		dmsg inform "ASSIGNING BUS: $ARG"
 		case "$ARG" in
 			spc) publicVarAssign critical spcBuses $(grep '1180' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;	
 			eth) publicVarAssign critical ethBuses $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
@@ -1020,14 +1016,14 @@ mainTest() {
 	echoSection "PCI Info & Dev Qty"
 	
 		inform "\tUUT bus:"
-		test -z "$debugMode" || echo -e "\tmainTest DEBUG: pciArgs: \n${pciArgs[@]}"
+		dmsg inform "\tmainTest DEBUG: pciArgs: \n${pciArgs[@]}"
 		listDevsPciLib "${pciArgs[@]}" |& tee /tmp/statusChk.log
-		test -z "$debugMode" || echo -e "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+		dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 		
 		inform "\tTraffic gen bus:"
-		test -z "$debugMode" || echo -e "\tmainTest DEBUG: pciArgs: \n${mastPciArgs[@]}"
+		dmsg inform "\tmainTest DEBUG: pciArgs: \n${mastPciArgs[@]}"
 		listDevsPciLib "${mastPciArgs[@]}" |& tee -a /tmp/statusChk.log
-		test -z "$debugMode" || echo -e "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+		dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 	
 	checkIfFailed "PCI Info & Dev Qty failed!" exit
 		
@@ -1035,16 +1031,16 @@ mainTest() {
 		netInfoDump $(echo -n $mastNets|awk '{print $1}') "MASTER" |& tee /tmp/statusChk.log
 		netInfoDump $(echo -n $uutNets|awk '{print $1}') "UUT" |& tee -a /tmp/statusChk.log
 	test -z "$ignDumpFail" && checkIfFailed "Info Dumps failed!" crit || checkIfFailed "Info Dumps failed!" warn
-	test -z "$debugMode" || echo -e "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+	dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 
 	echoSection "BP Switch tests"
 		bpSwitchTests |& tee /tmp/statusChk.log
-		test -z "$debugMode" || echo -e "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+		dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 	checkIfFailed "BP Switch tests failed!" exit
 	
 	echoSection "Traffic tests"
 		trafficTests |& tee /tmp/statusChk.log
-		test -z "$debugMode" || echo -e "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+		dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 	checkIfFailed "Traffic tests failed!" exit
 }
 

@@ -110,6 +110,21 @@ passMsg() {	#nnl = no new line  #sil = silent mode
 	beepSpk pass
 }
 
+dmsg() {
+	test -z "$debugMode" || {
+		local commandExec="$@" lineCount
+
+		# echo -e -n "\n"
+		inform "DEBUG> " nnl
+		$commandExec |& tee /tmp/dbgCmdRes.log
+		lineCount=$(cat /tmp/dbgCmdRes.log | wc -l)
+		test $lineCount -gt 1 && {
+			inform "DEBUG END> "
+			rm -f /tmp/dbgCmdRes.log
+		}
+	}
+}
+
 testFileExist() {
 	local filePath returnOnly silent
 	filePath="$1"
@@ -334,7 +349,7 @@ showPciSlots() {
 			slotBusRoot=$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
 			test -z "$slotBusRoot" && drawPciSlot $slotNum "-- Empty --" || {
 				gatherPciInfo $slotBusRoot
-				test -z "$debugMode" || debugPciVars
+				dmsg debugPciVars
 				drawPciSlot $slotNum $pciInfoDevCapWidth $(lspci -s $slotBus:)
 			}
 		}
@@ -487,7 +502,7 @@ testLinks() {
 	test ! -z "$4" && privateVarAssign "testLinks" "retryCount" "$4" || privateVarAssign "testLinks" "retryCount" "$globLnkAcqRetr"
 
 	for ((r=0;r<=$retryCount;r++)); do 
-		test -z "$debugMode" || echo "try:$r"
+		dmsg inform "try:$r"
 		if [ -z "$linkAcqRes" -a "$linkReq" = "yes" ]; then
 			test $r -gt 0 && sleep $globLnkUpDel
 			case "$uutModel" in
@@ -503,9 +518,9 @@ testLinks() {
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				*) exitFail "testLinks exception, Unknown uutModel: $uutModel"
 			esac
-			test -z "$debugMode" || echo $linkAcqRes
+			dmsg inform $linkAcqRes
 		else
-			test -z "$debugMode" || echo "skipped because not empty"
+			dmsg inform "skipped because not empty"
 		fi
 	done
 	
@@ -526,7 +541,7 @@ getEthRates() {
 	test ! -z "$4" && privateVarAssign "getEthRates" "retryCount" "$4" || privateVarAssign "getEthRates" "retryCount" "$globRtAcqRetr"
 	
 	for ((r=0;r<=$retryCount;r++)); do 
-		test -z "$debugMode" || echo "try:$r"
+		dmsg inform "try:$r"
 		if [ -z "$linkAcqRes" -a "$speedReq" != "Fail" ] || [ "$speedReq" != "Fail" -a -z "$(echo $linkAcqRes |grep $speedReq)" ]; then
 			test $r -gt 0 && sleep 1
 			case "$uutModel" in
@@ -542,12 +557,10 @@ getEthRates() {
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				*) exitFail "getEthRates exception, Unknown uutModel: $uutModel"
 			esac
-			test -z "$debugMode" || echo $linkAcqRes
+			dmsg inform $linkAcqRes
 		else
-			test -z "$debugMode" || {
-				echo $linkAcqRes
-				echo "skipped because not empty"
-			}
+			dmsg inform "linkAcqRes=$linkAcqRes"
+			dmsg inform "skipped because not empty"
 		fi
 	done
 	
@@ -630,8 +643,13 @@ debugPciVars() {
 gatherPciInfo() {
 	local pciInfoDev
 	pciInfoDev="$1"
+	dmsg inform "pciInfoDev=$pciInfoDev"
 	test -z "$pciInfoDev" && exitFail "gatherPciInfo exception, pciInfoDev in undefined" $PROC
 	clearPciVars
+	if [[ ! "$pciInfoDev" == *":"* ]]; then 
+		pciInfoDev="$pciInfoDev:"
+		dmsg inform "pciInfoDev appended, : wasnt found"
+	fi
 	fullPciInfo="$(lspci -nnvvvks $pciInfoDev 2>&1)"
 	pciInfoDevDesc=$(lspci -nns $pciInfoDev |cut -d ':' -f3- |cut -d ' ' -f1-9)
 	pciInfoDevSubs=$(echo "$fullPciInfo" |grep Subsystem: |cut -d ':' -f2- | awk '$1=$1')
@@ -735,60 +753,59 @@ listDevsPciLib() {
 	done
 	
 	test -z "$debugMode" || {
-	
-		echo targBus=$targBus
-		echo accBuses=$accBuses
-		echo spcBuses=$spcBuses
-		echo plxBuses=$plxBuses
-		echo ethBuses=$ethBuses
-		echo bpBuses=$bpBuses
+		dmsg inform "targBus=$targBus"
+		dmsg inform "accBuses=$accBuses"
+		dmsg inform "spcBuses=$spcBuses"
+		dmsg inform "plxBuses=$plxBuses"
+		dmsg inform "ethBuses=$ethBuses"
+		dmsg inform "bpBuses=$bpBuses"
 				
-		echo ethDevId=$ethDevId
-		echo ethVirtDevId=$ethVirtDevId
-		echo accDevId=$accDevId
-		echo spcDevId=$spcDevId
-		echo plxDevId=$plxDevId
-		echo bpDevId=$bpDevId
+		dmsg inform "ethDevId=$ethDevId"
+		dmsg inform "ethVirtDevId=$ethVirtDevId"
+		dmsg inform "accDevId=$accDevId"
+		dmsg inform "spcDevId=$spcDevId"
+		dmsg inform "plxDevId=$plxDevId"
+		dmsg inform "bpDevId=$bpDevId"
 				
-		echo ethDevQtyReq=$ethDevQtyReq
-		echo ethVirtDevQtyReq=$ethVirtDevQtyReq
-		echo accDevQtyReq=$accDevQtyReq
-		echo spcDevQtyReq=$spcDevQtyReq
-		echo plxDevQtyReq=$plxDevQtyReq
-		echo plxDevSubQtyReq=$plxDevSubQtyReq
-		echo plxDevEmptyQtyReq=$plxDevEmptyQtyReq
-		echo bpDevQtyReq=$bpDevQtyReq
+		dmsg inform "ethDevQtyReq=$ethDevQtyReq"
+		dmsg inform "ethVirtDevQtyReq=$ethVirtDevQtyReq"
+		dmsg inform "accDevQtyReq=$accDevQtyReq"
+		dmsg inform "spcDevQtyReq=$spcDevQtyReq"
+		dmsg inform "plxDevQtyReq=$plxDevQtyReq"
+		dmsg inform "plxDevSubQtyReq=$plxDevSubQtyReq"
+		dmsg inform "plxDevEmptyQtyReq=$plxDevEmptyQtyReq"
+		dmsg inform "bpDevQtyReq=$bpDevQtyReq"
 				
-		echo devKernReq=$devKernReq
-		echo ethKernReq=$ethKernReq
-		echo ethVirtKernReq=$ethVirtKernReq
-		echo plxKernReq=$plxKernReq
-		echo accKernReq=$accKernReq
-		echo spcKernReq=$spcKernReq
-		echo bpKernReq=$bpKernReq
+		dmsg inform "devKernReq=$devKernReq"
+		dmsg inform "ethKernReq=$ethKernReq"
+		dmsg inform "ethVirtKernReq=$ethVirtKernReq"
+		dmsg inform "plxKernReq=$plxKernReq"
+		dmsg inform "accKernReq=$accKernReq"
+		dmsg inform "spcKernReq=$spcKernReq"
+		dmsg inform "bpKernReq=$bpKernReq"
 				
-		echo ethDevSpeed=$ethDevSpeed
-		echo ethDevWidth=$ethDevWidth
-		echo ethVirtDevSpeed=$ethVirtDevSpeed
-		echo ethVirtDevWidth=$ethVirtDevWidth
-		echo spcDevSpeed=$spcDevSpeed
-		echo spcDevWidth=$spcDevWidth
-		echo plxDevSpeed=$plxDevSpeed
-		echo plxDevWidth=$plxDevWidth
-		echo plxDevSubSpeed=$plxDevSubSpeed
-		echo plxDevSubWidth=$plxDevSubWidth
-		echo plxDevEmptySpeed=$plxDevEmptySpeed
-		echo plxDevEmptyWidth=$plxDevEmptyWidth
-		echo accDevSpeed=$accDevSpeed
-		echo accDevWidth=$accDevWidth
-		echo bpDevSpeed=$bpDevSpeed
-		echo bpDevWidth=$bpDevWidth
-		echo rootBusSpeedCap=$rootBusSpeedCap
-		echo rootBusWidthCap=$rootBusWidthCap
+		dmsg inform "ethDevSpeed=$ethDevSpeed"
+		dmsg inform "ethDevWidth=$ethDevWidth"
+		dmsg inform "ethVirtDevSpeed=$ethVirtDevSpeed"
+		dmsg inform "ethVirtDevWidth=$ethVirtDevWidth"
+		dmsg inform "spcDevSpeed=$spcDevSpeed"
+		dmsg inform "spcDevWidth=$spcDevWidth"
+		dmsg inform "plxDevSpeed=$plxDevSpeed"
+		dmsg inform "plxDevWidth=$plxDevWidth"
+		dmsg inform "plxDevSubSpeed=$plxDevSubSpeed"
+		dmsg inform "plxDevSubWidth=$plxDevSubWidth"
+		dmsg inform "plxDevEmptySpeed=$plxDevEmptySpeed"
+		dmsg inform "plxDevEmptyWidth=$plxDevEmptyWidth"
+		dmsg inform "accDevSpeed=$accDevSpeed"
+		dmsg inform "accDevWidth=$accDevWidth"
+		dmsg inform "bpDevSpeed=$bpDevSpeed"
+		dmsg inform "bpDevWidth=$bpDevWidth"
+		dmsg inform "rootBusSpeedCap=$rootBusSpeedCap"
+		dmsg inform "rootBusWidthCap=$rootBusWidthCap"
 				
-		echo plxKeyw=$plxKeyw
-		echo plxVirtKeyw=$plxVirtKeyw
-		echo plxEmptyKeyw=$plxEmptyKeyw
+		dmsg inform "plxKeyw=$plxKeyw"
+		dmsg inform "plxVirtKeyw=$plxVirtKeyw"
+		dmsg inform "plxEmptyKeyw=$plxEmptyKeyw"
 		
 	}
 	
@@ -804,7 +821,7 @@ listDevsPciLib() {
 	# privateVarAssign "listDevsPciLib" "slotBus" $(ls -l /sys/bus/pci/devices/ |grep -m1 :$targBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
 
 	slotBus=$targBus
-	test -z "$debugMode" || inform "slotBus=$slotBus"
+	dmsg inform "slotBus=$slotBus"
 	
 	if [ -z "$rootBusSpeedCap" -o -z "$rootBusWidthCap" ]; then
 		warn "  =========================================================  \n" "sil"
@@ -815,7 +832,7 @@ listDevsPciLib() {
 		echo -e "\n\tPCIe root bus" 
 		echo -e "\t -------------------------"
 			gatherPciInfo $slotBus
-			test -z "$debugMode" || debugPciVars
+			dmsg debugPciVars
 			echo -e "\t "'|'" PCIe root bus: $slotBus"
 			echo -e "\t "'|'" Speed required: $rootBusSpeedCap   Width required: $rootBusWidthCap"
 			rootBusSpWdRes="$(speedWidthComp $rootBusSpeedCap $pciInfoDevCapSpeed $rootBusWidthCap $pciInfoDevCapWidth)"
@@ -1069,7 +1086,7 @@ testArrQty() {
 	exptQty=$3
 	errDesc=$4
 	testSeverity=$5 #empty=exit with fail  warn=just warn
-	test -z "$debugMode" || inform "DEBUG> testArrQty: >testArr=$testArr< >exptQty=$exptQty<"
+	dmsg inform "testArrQty: >testArr=$testArr< >exptQty=$exptQty<"
 	test -z "$exptQty" || {
 		test ! -z "$testArr" && {  
 			echo -e "\t$testDesc: "$testArr" $(qtyComp $exptQty $(echo -e -n "$testArr"| tr " " "\n" | grep -c '^') $testSeverity)"

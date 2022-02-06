@@ -17,6 +17,7 @@ parseArgs() {
 			uut-slot-num) uutSlotArg=${VALUE} ;;	
 			uut-pn) pnArg=${VALUE} ;;
 			silent) silentMode=1 ;;
+			skip-init) skipInit=1;;
 			debug) debugMode=1 ;;
 			help) showHelp ;;
 			*) echo "Unknown arg: $ARG"; showHelp
@@ -36,6 +37,8 @@ showHelp() {
 	echo -e "\tPN of UUT\n"
 	echo -e " --silent"
 	echo -e "\tWarning beeps are turned off\n"	
+	echo -e " --skip-init"	
+	echo -e "\tDoes not initializes the card\n"	
 	echo -e " --debug"
 	echo -e "\tDebug mode"		
 	warn "=================================\n"
@@ -106,16 +109,18 @@ PE316IS2LBTLB-CX-INIT() {
 startupInit() {
 	local drvInstallRes
 	echo -e " StartupInit.."
-	case "$baseModel" in
-		PE3IS2CO3LS) PE3IS2CO3-INIT;;
-		PE2ISCO3-CX) PE2ISCO3-CX-INIT;;
-		PE3ISLBEL-FN) PE3ISLBEL-FN-INIT;;
-		PE3ISLBTL-FU) PE3ISLBTL-FU-INIT;;
-		PE3ISLBTL-FN) PE3ISLBTL-FN-INIT;;
-		PE3ISLBLL) PE3ISLBLL-INIT;;
-		PE316IS2LBTLB-CX) PE316IS2LBTLB-CX-INIT;;
-		*) exitFail "Undefined startup init for baseModel: $baseModel" $PROC
-	esac
+	test -z "$skipInit" && {
+		case "$baseModel" in
+			PE3IS2CO3LS) PE3IS2CO3-INIT;;
+			PE2ISCO3-CX) PE2ISCO3-CX-INIT;;
+			PE3ISLBEL-FN) PE3ISLBEL-FN-INIT;;
+			PE3ISLBTL-FU) PE3ISLBTL-FU-INIT;;
+			PE3ISLBTL-FN) PE3ISLBTL-FN-INIT;;
+			PE3ISLBLL) PE3ISLBLL-INIT;;
+			PE316IS2LBTLB-CX) PE316IS2LBTLB-CX-INIT;;
+			*) exitFail "Undefined startup init for baseModel: $baseModel" $PROC
+		esac
+	} || inform "  Skipped init"
 	echo "  Clearing temp log"; rm -f /tmp/statusChk.log 2>&1 > /dev/null
 	echo -e " Done.\n"
 }
@@ -208,6 +213,7 @@ checkRequiredFiles() {
 		done
 	}
 	echo -e " Done."
+    
 }
 
 listDevsQty() {
@@ -612,6 +618,7 @@ mainTest() {
 	local options
 	echo -e "\n  Select test mode:"
 	options=("PCI Info" "QAT Test" "Full test")
+	dmsg inform "options=${options[@]}"
 	case `select_opt "${options[@]}"` in
 		0) pciInfoTest;;
 		1) qatTestStart;;
