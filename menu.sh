@@ -1,5 +1,17 @@
 #!/bin/bash
 
+parseArgs() {
+	for ARG in "$@"
+	do
+		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
+		VALUE=$(echo $ARG |cut -f2 -d=)
+		case "$KEY" in
+			debug) debugMode=1 ;;
+			*) echo "Unknown arg: $ARG"
+		esac
+	done
+}
+
 main() {
 	title="Tool selector menu"
 	btitle="  arturd@silicom.co.il"	
@@ -74,6 +86,7 @@ main() {
 		Exit) exit;;
 		*) exitFail echo "Unknown menu entry: $whptRes"
 	esac
+	unset debugMode
 }
 
 echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
@@ -83,6 +96,7 @@ libPath="/root/multiCard/arturLib.sh"
 if [[ -e "$libPath" ]]; then 
 	echo -e "  \e[0;32mLib found.\e[m"
 	source $libPath
+	parseArgs "$@"
 	main "$@"
 else
 	echo -e "  \e[0;31mLib not found by path: $libPath\e[m"
