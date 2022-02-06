@@ -7,7 +7,7 @@ parseArgs() {
 		VALUE=$(echo $ARG |cut -f2 -d=)
 		case "$KEY" in
 			debug) debugMode=1 ;;
-			*) echo "Unknown arg: $ARG"
+			*) dmsg echo "Unknown arg: $ARG"
 		esac
 	done
 }
