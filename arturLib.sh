@@ -876,18 +876,12 @@ listDevsPciLib() {
 	}
 	
 	
-	test ! -z "$debugMode" && inform "plxOnDevBus=$plxOnDevBus"
+	dmsg inform "plxOnDevBus=$plxOnDevBus"
 	test -z "$plxOnDevBus" && {
-		test ! -z "$debugMode" && {
-			inform "plxOnDevBus is empty"
-			inform "dbg3: >$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq$plxKern$plxDevId<"
-		}
+		dmsg inform "plxOnDevBus is empty\ndbg3: >$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq$plxKern$plxDevId<"
 		test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq$plxKern$plxDevId" || critWarn "  PLX bus empty! PCI info on PLX failed!"
 	} || {
-		test ! -z "$debugMode" && {
-			inform "plxOnDevBus is not empty"
-			inform "PLX is not empty! there is: >$plxOnDevBus<"
-		}
+		dmsg inform "plxOnDevBus is not empty\nPLX is not empty! there is: >$plxOnDevBus<"
 		test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on PLX!"
 		test -z "$plxKern" && exitFail "listDevsPciLib exception, plxKern undefined!"
 		test -z "$plxDevQtyReq" && exitFail "listDevsPciLib exception, plxDevQtyReq undefined, but devices found" || {
@@ -944,7 +938,7 @@ listDevsPciLib() {
 		echo -e "\n"
 	}
 	
-	test ! -z "$debugMode" && inform "accOnDevBus=$accOnDevBus"
+	dmsg inform "accOnDevBus=$accOnDevBus"
 	test -z "$accOnDevBus" && { 
 		test -z "$accKern$accDevQtyReq$accDevSpeed$accDevWidth" || critWarn "  ACC bus empty! PCI info on ACC failed!"
 	} || {
@@ -970,7 +964,7 @@ listDevsPciLib() {
 		echo -e "\n"
 	}
 	
-	test ! -z "$debugMode" && inform "ethOnDevBus=$ethOnDevBus"
+	dmsg inform "ethOnDevBus=$ethOnDevBus"
 	test -z "$ethOnDevBus" && {
 		test -z "$ethDevQtyReq$ethVirtDevQtyReq$ethKernReq$ethDevId" || critWarn "  ETH bus empty! PCI info on ETH failed!"
 	} || {
@@ -1012,7 +1006,7 @@ listDevsPciLib() {
 		echo -e "\n"
 	}
 	
-	test ! -z "$debugMode" && inform "bpOnDevBus=$bpOnDevBus"
+	dmsg inform "bpOnDevBus=$bpOnDevBus"
 	test ! -z "$bpOnDevBus" && {
 		test -z "$bpDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on BP!"
 		test -z "$bpKernReq" && exitFail "listDevsPciLib exception, bpKernReq undefined!"
@@ -1039,7 +1033,7 @@ listDevsPciLib() {
 		test -z "$bpDevQtyReq$bpKernReq$bpDevSpeed$bpDevWidth$bpDevId" || critWarn "  BP bus empty! PCI info on BP failed!"
 	}
 	
-	test ! -z "$debugMode" && inform "spcOnDevBus=$spcOnDevBus"
+	dmsg inform "spcOnDevBus=$spcOnDevBus"
 	test -z "$spcOnDevBus" && {
 		test -z "$spcDevQtyReq$spcKernReq$spcDevSpeed$spcDevWidth$spcDevId" || critWarn "  SPC bus empty! PCI info on SPC failed!"
 	} || {
@@ -1081,12 +1075,12 @@ qtyComp() {
 
 testArrQty() {
 	local testDesc errDesc testArr exptQty testSeverity
-	testDesc=$1
-	testArr=$2
-	exptQty=$3
-	errDesc=$4
+	privateVarAssign "testArrQty" "testDesc" "$1"
+	privateVarAssign "testArrQty" "testArr" "$2"
+	privateVarAssign "testArrQty" "exptQty" "$3"
+	privateVarAssign "testArrQty" "errDesc" "$4"
 	testSeverity=$5 #empty=exit with fail  warn=just warn
-	dmsg inform "testArrQty: >testArr=$testArr< >exptQty=$exptQty<"
+	dmsg inform 'testArrQty: >testArr='"$testArr"'< >exptQty='"$exptQty<"
 	test -z "$exptQty" || {
 		test ! -z "$testArr" && {  
 			echo -e "\t$testDesc: "$testArr" $(qtyComp $exptQty $(echo -e -n "$testArr"| tr " " "\n" | grep -c '^') $testSeverity)"
