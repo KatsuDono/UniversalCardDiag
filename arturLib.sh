@@ -64,19 +64,22 @@ killAllScripts() {
 
 exitFail() {
 	local procId
-	echoFail
+	dmsg inform "exitFail executed, exitExec=$exitExec procId=$procId"
 	test -z "$2" && procId=$PROC || procId=$2
 	test -z "$procId" && echo -e "\texitFail exception, procId not specified"
-	beepSpk fatal 3
 	test -z "$guiMode" && echo -e "\t\e[1;41;33m$1\e[m\n" || msgBox "$1"
 	echo -e "\n"
 	sleep 1
-	kill -9 $procId
-	test "$exitExec" = "1" && {
+	test "$exitExec" = "3" && {
 		critWarn "\t Exit loop detected, exiting forced."
+		kill -9 $procId
 		killAllScripts
 	}
-	let exitExec=1
+	if [[ -e "/tmp/exitMsgExec" ]]; then 
+		echoFail
+		beepSpk fatal 3
+	fi
+	echo 1>/tmp/exitMsgExec
 	exit 1
 }
 
@@ -95,10 +98,26 @@ warn() {	#nnl = no new line  #sil = silent mode
 }
 
 inform() {	#nnl = no new line  #sil = silent mode
-	test -z "$2" && echo -e "\e[0;33m$1\e[m" || {
-		test "$2"="nnl" && echo -e -n "\e[0;33m$1\e[m" || echo -e "\e[0;33m$1\e[m"
-	}
-	test "$3"="sil" || beepSpk info
+	local nnlEn silEn arg key msgNoKeys
+	
+	msgNoKeys="$@"
+	for arg in "$@"
+	do
+		key=$(echo $arg|cut -c3-)
+		case "$key" in
+			sil) silEn=1; msgNoKeys="$(echo "$msgNoKeys"| sed s/"--sil"//)";;
+			nnl) nnlEn=1; msgNoKeys="$(echo "$msgNoKeys"| sed s/"--nnl"//)";;
+		esac
+	done
+
+	echo -e -n "\e[0;33m$msgNoKeys\e[m"
+
+	if [ -z "$nnlEn" ]; then
+		echo -n -e "\n"
+	fi
+	if [ -z "$silEn" ]; then
+		beepSpk info
+	fi
 }
 
 passMsg() {	#nnl = no new line  #sil = silent mode
@@ -111,18 +130,15 @@ passMsg() {	#nnl = no new line  #sil = silent mode
 }
 
 dmsg() {
-	test -z "$debugMode" || {
-		local commandExec="$@" lineCount
-
-		# echo -e -n "\n"
-		inform "DEBUG> " nnl
-		$commandExec |& tee /tmp/dbgCmdRes.log
-		lineCount=$(cat /tmp/dbgCmdRes.log | wc -l)
-		test $lineCount -gt 1 && {
-			inform "DEBUG END> "
-			rm -f /tmp/dbgCmdRes.log
-		}
-	}
+	if [ "$debugMode" == "1" ]; then
+		if [ "$debugBrackets" == "0" ]; then
+			echo -e -n "dbg> "; "$@"
+		else
+			inform "DEBUG> " --nnl
+			"$@"
+			inform "< DEBUG END"
+		fi
+	fi
 }
 
 testFileExist() {
@@ -428,6 +444,10 @@ privateVarAssign() {
 	varName="$1"
 	shift
 	varVal="$*"
+
+	if [ ! "$funcName" == "beepSpk" ]; then
+		dmsg echo "privateVarAssign>  funcName=$funcName  varName=$varName  varVal=$varVal"
+	fi
 	
 	test -z "$funcName" && exitFail "privateVarAssign exception, funcName undefined!"
 	test -z "$varName" && exitFail "privateVarAssign exception, varName undefined!"
@@ -466,11 +486,10 @@ publicVarAssign() {
 speedWidthComp() {
 	local reqSpeed actSpeed reqWidth actWidth testSeverity compRule varAssigner
 	#echo "speedWidthComp debug:  $1  =   $2  =   $3  =   $4"
-	test -z "$debugMode" && varAssigner="privateVarAssign" || varAssigner="publicVarAssign"
-	$varAssigner "speedWidthComp" "reqSpeed" "$1"
-	$varAssigner "speedWidthComp" "actSpeed" "$2"
-	$varAssigner "speedWidthComp" "reqWidth" "$3"
-	$varAssigner "speedWidthComp" "actWidth" "$4"
+	privateVarAssign "speedWidthComp" "reqSpeed" "$1"
+	privateVarAssign "speedWidthComp" "actSpeed" "$2"
+	privateVarAssign "speedWidthComp" "reqWidth" "$3"
+	privateVarAssign "speedWidthComp" "actWidth" "$4"
 	test -z "$5" && compRule="strict" || {
 		test ! -z "$(echo -n $5 |grep -w 'strict\|minimum')" && {
 			case "$5" in
@@ -902,31 +921,36 @@ listDevsPciLib() {
 		subdevInfo=""
 		echo -e "\n\tPLX Devices" 
 		echo -e "\t -------------------------"
+		dmsg inform "plxOnDevBus=$plxOnDevBus"
 		for plxBus in $plxOnDevBus ; do
 			gatherPciInfo $plxBus
-			#debugPciVars
+			dmsg inform "Processing plxBus=$plxBus"
+			# dmsg debugPciVars
 			test -z "$plxKeyw" && exitFail "listDevsPciLib exception, plxKeyw undefined!"
-			#warn "debug keyw:$plxKeyw fullPciInfo: $(echo "$fullPciInfo" |grep -w "$plxKeyw")"
+			dmsg inform " keyw:$plxKeyw fullPciInfo: $(echo "$fullPciInfo" |grep -w "$plxKeyw")"
 			#warn "full PCI: $fullPciInfo"
-			test ! -z "$(echo "$fullPciInfo" |grep -w "$plxKeyw")" && {
-				#echo "DEBUG: $plxBus is physical device"
+			if [ ! -z "$(echo "$fullPciInfo" |grep -w "$plxKeyw")" ]; then
+				dmsg inform ">> $plxBus is physical device"
 				plxDevArr="$plxBus $plxDevArr"
+				dmsg inform "Added plxBus=$plxBus to plxDevArr=$plxDevArr"
 				echo -e "\t "'|'" $plxBus: PLX Physical Device: $pciInfoDevDesc"
 				echo -e -n "\t "'|'" $(speedWidthComp $plxDevSpeed $pciInfoDevSpeed $plxDevWidth $pciInfoDevWidth)"
-			} || {
+			else
 				test -z "$plxVirtKeyw" && exitFail "listDevsPciLib exception, plxVirtKeyw undefined!"
-				test ! -z "$(echo "$fullPciInfo" |grep -w "$plxVirtKeyw")" && {
+				if [ ! -z "$(echo "$fullPciInfo" |grep -w "$plxVirtKeyw")" ]; then
 					plxDevSubArr="$plxBus $plxDevSubArr"
+					dmsg inform "Added plxBus=$plxBus to plxDevSubArr=$plxDevSubArr"
 					echo -e "\t "'|'" $plxBus: PLX Virtual Device: $pciInfoDevDesc"
 					echo -e -n "\t "'|'" $(speedWidthComp $plxDevSubSpeed $pciInfoDevSpeed $plxDevSubWidth $pciInfoDevWidth)"
-					#echo "DEBUG: $plxBus have subordinate"
-				} || {
+					dmsg inform ">> $plxBus have subordinate"
+				else
 					plxDevEmptyArr="$plxBus $plxDevEmptyArr"
+					dmsg inform "Added plxBus=$plxBus to plxDevEmptyArr=$plxDevEmptyArr"
 					echo -e "\t "'|'" $plxBus: PLX Virtual Device \e[0;33m(empty)\e[m: $pciInfoDevDesc"
 					echo -e -n "\t "'|'" $(speedWidthComp $plxDevEmptySpeed $pciInfoDevSpeed $plxDevEmptyWidth $pciInfoDevWidth)"
-					#echo "DEBUG: $plxBus is empty"
-				}
-			}
+					dmsg inform ">> $plxBus is empty"
+				fi
+			fi
 			echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse|grep $plxKern)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
 			#echo -e "\t--------------"
 		done
@@ -953,7 +977,9 @@ listDevsPciLib() {
 		echo -e "\t -------------------------"
 		for accBus in $accOnDevBus ; do
 			gatherPciInfo $accBus
+			dmsg inform "Processing accBus=$accBus"
 			accDevArr="$accBus $accDevArr"
+			dmsg inform "Added accBus=$accBus to accDevArr=$accDevArr"
 			echo -e "\t "'|'" $accBus: ACC Device: $pciInfoDevDesc"
 			echo -e -n "\t "'|'" $(speedWidthComp $accDevSpeed $pciInfoDevSpeed $accDevWidth $pciInfoDevWidth)"
 			echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $accKern)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
@@ -985,17 +1011,20 @@ listDevsPciLib() {
 		echo -e "\t -------------------------"
 		for ethBus in $ethOnDevBus ; do
 			gatherPciInfo $ethBus
-			test ! -z "$(echo "$fullPciInfo" |grep 'Capabilities' |grep -w 'Power Management')" && {
+			dmsg inform "Processing ethBus=$ethBus"
+			if [ ! -z "$(echo "$fullPciInfo" |grep 'Capabilities' |grep -w 'Power Management')" ]; then
 				#echo "DEBUG: $ethBus is physical device"
 				ethDevArr="$ethBus $ethDevArr"
+				dmsg inform "Added ethBus=$ethBus to ethDevArr=$ethDevArr"
 				echo -e "\t "'|'" $ethBus: ETH Physical Device: $pciInfoDevDesc"
 				echo -e -n "\t "'|'" $(speedWidthComp $ethDevSpeed $pciInfoDevSpeed $ethDevWidth $pciInfoDevWidth)"
-			} || {
+			else
 				ethVirtDevArr="$ethBus $ethVirtDevArr"
+				dmsg inform "Added ethBus=$ethBus to ethVirtDevArr=$ethVirtDevArr"
 				echo -e "\t "'|'" $ethBus: ETH Virtual Device: $pciInfoDevDesc"
 				echo -e -n "\t "'|'" $(speedWidthComp $ethVirtDevSpeed $pciInfoDevSpeed $ethVirtDevWidth $pciInfoDevWidth)"
 				#echo "DEBUG: $ethBus have subordinate"
-			}
+			fi
 			echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse|grep $ethKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
 			#echo -e "\t--------------"
 		done
@@ -1020,7 +1049,9 @@ listDevsPciLib() {
 		echo -e "\t -------------------------"
 		for bpBus in $bpOnDevBus ; do
 			gatherPciInfo $bpBus
+			dmsg inform "Processing bpBus=$bpBus"
 			bpDevArr="$bpBus $bpDevArr"
+			dmsg inform "Added bpBus=$bpBus to bpDevArr=$bpDevArr"
 			echo -e "\t "'|'" $bpBus: BP Device: $pciInfoDevDesc"
 			echo -e -n "\t "'|'" $(speedWidthComp $bpDevSpeed $pciInfoDevSpeed $bpDevWidth $pciInfoDevWidth)"
 			echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $bpKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
@@ -1049,7 +1080,9 @@ listDevsPciLib() {
 		echo -e "\t -------------------------"
 		for spcBus in $spcOnDevBus ; do
 			gatherPciInfo $spcBus
+			dmsg inform "Processing spcBus=$spcBus"
 			spcDevArr="$spcBus $spcDevArr"
+			dmsg inform "Added spcBus=$spcBus to spcDevArr=$spcDevArr"
 			echo -e "\t "'|'" $spcBus: SPC Device: $pciInfoDevDesc"
 			echo -e -n "\t "'|'" $(speedWidthComp $spcDevSpeed $pciInfoDevSpeed $spcDevWidth $pciInfoDevWidth)\n\t "'|------'"\n"
 			#echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $spcKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
@@ -1066,26 +1099,35 @@ qtyComp() {
 	reqQty=$1
 	actQty=$2
 	qtySeverity=$3 #empty=exit with fail  warn=just warn
-	test "$reqQty" = "$actQty" && {
+	if [ "$reqQty" = "$actQty" ]; then
 		echo -e -n "\tQty: \e[0;32mOK\e[m"
-	} || {
-		test "$qtySeverity" = "warn" && warn "\tQty: FAIL (expected: $reqQty)" || exitFail "\tQty: FAIL (expected: $reqQty)" $PROC
-	}
+	else
+		if [ "$qtySeverity" = "warn" ]; then
+			warn "\tQty: FAIL (expected: $reqQty)"
+		else
+			exitFail "\tQty: FAIL (expected: $reqQty)" $PROC
+		fi
+	fi
 }
 
 testArrQty() {
 	local testDesc errDesc testArr exptQty testSeverity
+	dmsg inform "testArrQty> 1=$1 2=$2 3=$3 4=$4 5=$5 6=$6"
 	privateVarAssign "testArrQty" "testDesc" "$1"
-	privateVarAssign "testArrQty" "testArr" "$2"
-	privateVarAssign "testArrQty" "exptQty" "$3"
+	testArr=$2
+	exptQty=$3
 	privateVarAssign "testArrQty" "errDesc" "$4"
 	testSeverity=$5 #empty=exit with fail  warn=just warn
 	dmsg inform 'testArrQty: >testArr='"$testArr"'< >exptQty='"$exptQty<"
-	test -z "$exptQty" || {
-		test ! -z "$testArr" && {  
+	if [ -z "$exptQty" ]; then
+		dmsg inform "testArrQty> $testDesc skipped, no qty defined"
+	else
+		if [ ! -z "$testArr" ]; then
 			echo -e "\t$testDesc: "$testArr" $(qtyComp $exptQty $(echo -e -n "$testArr"| tr " " "\n" | grep -c '^') $testSeverity)"
-		} || exitFail "\t$errDesc!"	$PROC
-	}
+		else
+			exitFail "\tQty check failed! $errDesc!" $PROC
+		fi
+	fi
 }
 
 qatConfig() {
@@ -1248,4 +1290,5 @@ echoIfExists() {
 	test -z "$2" || echo "$1 $2"
 }
 
+rm -f /tmp/exitMsgExec
 echo -e '  Loaded module: \tLib for testing (support: arturd@silicom.co.il)'
