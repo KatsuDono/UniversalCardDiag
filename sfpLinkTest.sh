@@ -1,13 +1,14 @@
 #!/bin/bash
 
 declareVars() {
-	ver="v0.01"
+	ver="v0.02"
 	toolName='X710 BP Link Test Tool'
 	title="$toolName $ver"
 	btitle="  arturd@silicom.co.il"	
 	declare -a pciArgs=("null" "null")
 	declare -a mastPciArgs=("null" "null")
 	let exitExec=0
+	let debugBrackets=1
 }
 
 parseArgs() {
@@ -23,6 +24,7 @@ parseArgs() {
 			skip-init) skipInit=1;;
 			silent) silentMode=1 ;;
 			debug) debugMode=1 ;;
+			no-dbg-brk) debugBrackets=0 ;;
 			help) showHelp ;;
 			*) echo "Unknown arg: $ARG"; showHelp
 		esac
@@ -47,6 +49,8 @@ showHelp() {
 	echo -e "\tWarning beeps are turned off\n"	
 	echo -e " --debug"
 	echo -e "\tDebug mode"		
+	echo -e " --no-dbg-brk	"
+	echo -e "\tNo debug brackets"	
 	warn "=================================\n"
 	exit
 }
@@ -1104,5 +1108,5 @@ echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
 	startupInit
 	source /root/PE310G4BPI71/library.sh 2>&1 > /dev/null	
 	main
-	echo -e "See $(inform "--help" "nnl" "sil") for available parameters\n"
+	echo -e "See $(inform "--help" "--nnl" "--sil") for available parameters\n"
 }

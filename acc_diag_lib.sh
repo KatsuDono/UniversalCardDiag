@@ -1,11 +1,13 @@
 #!/bin/bash
 
 declareVars() {
-	ver="v0.02"
+	ver="v0.03"
 	toolName='Universal Acceleration Test Tool'
 	title="$toolName $ver"
 	btitle="  arturd@silicom.co.il"	
 	declare -a pciArgs=("null" "null")
+	declare exitExec=0
+	let debugBrackets=1
 }
 
 parseArgs() {
@@ -19,6 +21,7 @@ parseArgs() {
 			silent) silentMode=1 ;;
 			skip-init) skipInit=1;;
 			debug) debugMode=1 ;;
+			no-dbg-brk) debugBrackets=0 ;;
 			help) showHelp ;;
 			*) echo "Unknown arg: $ARG"; showHelp
 		esac
@@ -40,7 +43,9 @@ showHelp() {
 	echo -e " --skip-init"	
 	echo -e "\tDoes not initializes the card\n"	
 	echo -e " --debug"
-	echo -e "\tDebug mode"		
+	echo -e "\tDebug mode"	
+	echo -e " --no-dbg-brk	"
+	echo -e "\tNo debug brackets"	
 	warn "=================================\n"
 	exit
 }
@@ -109,7 +114,7 @@ PE316IS2LBTLB-CX-INIT() {
 startupInit() {
 	local drvInstallRes
 	echo -e " StartupInit.."
-	test -z "$skipInit" && {
+	if [ -z "$skipInit" ]; then
 		case "$baseModel" in
 			PE3IS2CO3LS) PE3IS2CO3-INIT;;
 			PE2ISCO3-CX) PE2ISCO3-CX-INIT;;
@@ -120,7 +125,9 @@ startupInit() {
 			PE316IS2LBTLB-CX) PE316IS2LBTLB-CX-INIT;;
 			*) exitFail "Undefined startup init for baseModel: $baseModel" $PROC
 		esac
-	} || inform "  Skipped init"
+	else
+		inform "  Skipped init"
+	fi
 	echo "  Clearing temp log"; rm -f /tmp/statusChk.log 2>&1 > /dev/null
 	echo -e " Done.\n"
 }
@@ -461,7 +468,7 @@ defineRequirments() {
 			let rootBusWidthCap=8
 			
 			pciArgs=(
-				"--target-bus=$uutBus"
+				"--target-bus=$uutSlotBus"
 				"--acc-buses=$accBuses"
 				"--plx-buses=$plxBuses"
 				"--spc-buses=$spcBuses"
@@ -541,7 +548,7 @@ defineRequirments() {
 		
 		
 		
-		
+		echoIfExists "  UUT slot bus:" "$uutSlotBus"
 		echoIfExists "  Port count:" "$uutDevQty"
 		echoIfExists "  UUT Kern:" "$uutKern"
 		echoIfExists "  ACC Kern:" "$accKern"
@@ -676,4 +683,4 @@ setEmptyDefaults
 initialSetup
 startupInit
 main
-echo -e "See $(inform "--help" "nnl" "sil") for available parameters\n"
+echo -e "See $(inform "--help" "--nnl" "--sil") for available parameters\n"
