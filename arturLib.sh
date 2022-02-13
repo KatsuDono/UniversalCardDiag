@@ -1151,20 +1151,18 @@ qatConfig() {
 
 qatAction() {
 	local qatDev qatAct
-	test "$1" = "status" && {
+	if [[ "$1" = "status" ]]; then
 		privateVarAssign "qatAction" "qatAct" "$1"
-	} || {
+	else
 		privateVarAssign "qatAction" "qatDev" "$1"
 		privateVarAssign "qatAction" "qatAct" "$2"
-	}
+	fi
 
-	
-	
-	qat_service $qatAct $qatDev
+	qat_service $qatAct $qatDev 2>&1
 }
 
 qatTest() {
-	local execPath busNum forceBgaNum qatDevCut cpaRes cpaTrace kmodExist qatRes forceQat
+	local execPath busNum forceBgaNum qatDevCut cpaRes cpaTrace kmodExist qatRes forceQat qatDevUp
 	privateVarAssign "qatTest" "execPath" "$1"
 	privateVarAssign "qatTest" "busNum" "$2"
 	forceBgaNum="$3"
@@ -1185,7 +1183,7 @@ qatTest() {
 	}
 	
 	# qatDevs=$(ls -l /sys/bus/pci/devices/ |cut -d/ -f5- |grep :$busNum: |awk -F/ '{print $NF}' |cut -d: -f2,3 |uniq)
-	allQatDevs="$(qatAction status 2>&1)"
+	allQatDevs="$(qatAction status)"
 	#echo "$allQatDevs"
 	for bus in $busNum; do
 		qatDevs="$qatDevs $(echo "$allQatDevs"|grep "$bus" |cut -d ' ' -f2)"
@@ -1223,24 +1221,38 @@ qatTest() {
 		#warn "DEBUG: qatDevs=$qatDevs"
 		for qatDev in $qatDevs; do
 			qatDevCut=$(echo $qatDev|rev |cut -c1)
-			#echo "debug: processing dev: qat_dev$qatDevCut"
+			dmsg inform "processing dev: qat_dev$qatDevCut"
 			echo -e "\tStopping QAT device - qat_dev$qatDevCut"
-			qatRes="$(qatAction qat_dev$qatDevCut Stop 2>&1)"
+			qatRes="$(qatAction qat_dev$qatDevCut Stop)"
 			echo -e "\tRestarting QAT device - qat_dev$qatDevCut"
-			test "$forceQat" = "qat_dev$qatDevCut" && qatRes="$(qatAction qat_dev$qatDevCut Restart 0x0 2>&1)" || {
-				test -z "$forceQat" && qatRes="$(qatAction qat_dev$qatDevCut Restart 0x0 2>&1)" || warn "\tItercepted - QAT device qat_dev$qatDevCut is excluded."
+			test "$forceQat" = "qat_dev$qatDevCut" && qatRes="$(qatAction qat_dev$qatDevCut Restart 0x0)" || {
+				test -z "$forceQat" && qatRes="$(qatAction qat_dev$qatDevCut Restart 0x0)" || warn "\tItercepted - QAT device qat_dev$qatDevCut is excluded."
 			}
-			qatRes="$(qatAction status 2>&1)"
-			test "$(echo "$qatRes" |grep qat_dev$qatDevCut |cut -d ' ' -f21)" = "up" && echo -e "\tQAT dev - qat_dev$qatDevCut:\e[0;32m up\e[m" || {
-				test "$forceQat" = "qat_dev$qatDevCut" && exitFail "\tQAT dev - qat_dev$qatDevCut: DOWN (could not be initialized)" || {
-					test -z "$forceQat" && critWarn "\tQAT dev - qat_dev$qatDevCut: DOWN" || warn "\tQAT dev - qat_dev$qatDevCut: DOWN (excluded)"
-				}
-			}
+			qatRes="$(qatAction status)"
+			qatDevUp=$(echo "$qatRes" |grep qat_dev$qatDevCut |awk -F 'state: ' '{print $2}')
+			if [[ "$qatDevUp" = "up" ]]; then 
+				echo -e "\tQAT dev - qat_dev$qatDevCut:\e[0;32m up\e[m" 
+			else
+				if [[ "$forceQat" = "qat_dev$qatDevCut" ]]; then
+					exitFail "\tQAT dev - qat_dev$qatDevCut: DOWN (could not be initialized)" 
+				else
+					if [[ -z "$forceQat" ]]; then
+						critWarn "\tQAT dev - qat_dev$qatDevCut: DOWN" 
+					else
+						warn "\tQAT dev - qat_dev$qatDevCut: DOWN (excluded)"
+					fi
+				fi
+			fi
+			dmsg inform "qatRes> $qatRes <qatRes"
+			dmsg inform "forceQat=$forceQat"
+			dmsg inform "qatDevUp=$qatDevUp"			
 		done
 
 		echo  -e "\n\tStarting acceleration test:"
 
 		cd $CODE_PATH
+		dmsg inform "CODE_PATH=$CODE_PATH"
+		testFileExist "$CODE_PATH/cpa_sample_code"
 
 		let stats=0
 
@@ -1277,7 +1289,7 @@ qatTest() {
 		for qatDev in $qatDevs; do
 			qatDevCut=$(echo $qatDev|rev |cut -c1)
 			echo -e "\tStopping QAT device - qat_dev$qatDevCut"
-			qatRes="$(qatAction qat_dev$qatDevCut Stop 2>&1)"
+			qatRes="$(qatAction qat_dev$qatDevCut Stop)"
 		done
 		#echo "DEBUG: $cpaTrace"
 		killAllScripts "cpa_sample_code"

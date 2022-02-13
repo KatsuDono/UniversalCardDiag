@@ -60,31 +60,59 @@ setEmptyDefaults() {
 	echo -e " Done.\n"
 }
 
+installQat() {
+	local drvInstallRes
+	echo "  Installing QAT$qatVer service"
+	drvInstallRes="$(/root/Scripts/qat_update.sh a /root/QAT$qatVer)"
+	dmsg inform "$drvInstallRes"
+	test -z "$(echo $drvInstallRes |grep 'Acceleration Installation Complete')" && exitFail "Unable to install QAT$qatVer service!" $PROC
+}
+
+startQat() {
+	local qatStartRes
+	echo "  Starting QAT$qatVer service"
+	
+	qatStartRes="$(/etc/init.d/qat_service start 2>&1)"
+	dmsg inform "$qatStartRes"
+	test ! -z "$(echo "$qatStartRes" |grep 'No such file')" && installQat
+	if [[ ! -e "/dev/qat_adf_ctl" ]]; then
+		qatStartRes="$(/etc/init.d/qat_service start 2>&1)"
+		dmsg inform "$qatStartRes"
+		test ! -z "$(echo "$(/etc/init.d/qat_service start)" |grep 'Failed to configure')" && exitFail "Unable to start QAT$qatVer service!" $PROC
+	fi
+}
+
+stopQat() {
+	local qatStopRes
+	echo "  Shutting down QAT$qatVer service"
+	qatStopRes="$(/etc/init.d/qat_service shutdown 2>&1)"
+	dmsg inform "$qatStopRes"
+	if [[ -e "/dev/qat_adf_ctl" ]]; then
+		exitFail "Unable to shutdown QAT$qatVer module!" $PROC
+	fi
+}
+
 initQAT() {
-	local qatVer
-	test -z "$1" && qatVer="$1"
+	test ! -z "$1" && {
+		qatVer="$1"
+		inform "  QAT Ver: $qatVer"
+	}
 	if [[ ! -e "/etc/init.d/qat_service" ]]; then 
-		echo "  Installing QAT$qatVer service"
-		drvInstallRes="$(/root/Scripts/qat_update.sh a /root/QAT$qatVer)"
-		test -z "$(echo $drvInstallRes |grep 'Acceleration Installation Complete')" && exitFail "Unable to install QAT$qatVer service!" $PROC
+		installQat $qatVer
 	fi
 	
 	test "$(lsmod |grep "intel_qat" |awk '{print $1}' | grep -c '^')" = "3" && {
 		echo "  Restarting QAT$qatVer"
-		echo "   Shutting down QAT$qatVer service"
-		/etc/init.d/qat_service shutdown
+		stopQat
 		sleep 3
-		echo "   Starting QAT$qatVer service"
-		/etc/init.d/qat_service start
+		startQat	
 		echo "   Checking QAT$qatVer Status"
-		#/root/QAT17/quickassist/utilities/adf_ctl/adf_ctl status
+		/root/QAT17/quickassist/utilities/adf_ctl/adf_ctl status
 	} || {
-		echo "  Shutting down QAT$qatVer service"
-		test -z "$(/etc/init.d/qat_service shutdown)" || exitFail "Unable to shutdown QAT$qatVer module!" $PROC
-		
 		sleep 2
-		echo "  Starting QAT$qatVer service"
-		test -z "$(echo $(/etc/init.d/qat_service start) |grep 'Restarting all devices')" && exitFail "Unable to start QAT$qatVer service!" $PROC
+		startQat
+		echo "   Checking QAT$qatVer Status"
+		/root/QAT17/quickassist/utilities/adf_ctl/adf_ctl status
 	} 
 }
 
@@ -260,13 +288,22 @@ defineRequirments() {
 			
 			pciArgs=(
 				"--target-bus=$uutSlotBus"
-				"--acc-dev-id=$accDevId"
 				"--acc-buses=$accBuses"
-				"--plx-dev-id=$plxDevId"
 				"--plx-buses=$plxBuses"
+
+				"--acc-dev-id=$accDevId"
+				"--plx-dev-id=$plxDevId"
+
+				"--acc-kernel=$accKern"
+				"--plx-kernel=$plxKern"
+
+				"--acc-dev-qty=$accDevQty"
 				"--plx-dev-qty=$plxDevQty"
 				"--plx-dev-sub-qty=$plxDevSubQty"
 				"--plx-dev-empty-qty=$plxDevEmptyQty"
+
+				"--acc-dev-speed=$accDevSpeed"
+				"--acc-dev-width=$accDevWidth"
 				"--plx-dev-speed=$plxDevSpeed"
 				"--plx-dev-width=$plxDevWidth"
 				"--plx-dev-sub-speed=$plxDevSubSpeed"
