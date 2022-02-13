@@ -218,35 +218,51 @@ beepSpk() {
 }
 
 execScript() {
-	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc
+	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc retStatus
+	declare -a scriptExpect
+	for ARG in "$@"
+	do
+		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
+		VALUE=$(echo $ARG |cut -f2 -d=)
+		case "$KEY" in
+			exp-kw) scriptExpect+=("${VALUE}") ;;	
+		esac
+	done
+
 	scriptPath="$1"
 	scriptArgs="$2"
-	scriptExpect="$3"
-	scriptTraceKeyw="$4"
-	scriptFailDesc="$5"
+	scriptTraceKeyw="$3"
+	scriptFailDesc="$4"
+	dmsg inform "scriptExpect=$scriptExpect"
 	
 	cmdRes="$($scriptPath $scriptArgs 2>&1)"
-	test -z "$(echo "$cmdRes" |grep -w "$scriptExpect")" && {
-		warn "  $scriptFailDesc"
-		test -z "$debugMode" || {
-			inform "pwd=$(pwd)"
-			echo -e "\n\e[0;31m -- TRACE START --\e[0;33m\n"
-			echo -e "$(echo "$cmdRes" |grep -A 99 -w "$scriptTraceKeyw")"
-			echo -e "\n\e[0;31m --- TRACE END ---\e[m\n"
-			
-			echo -e "\n\e[0;31m -- FULL TRACE START --\e[0;33m\n"
-			echo -e "$cmdRes"
-			echo -e "\n\e[0;31m --- FULL TRACE END ---\e[m\n"
-		}
-		return 1
-	} || {
-		test -z "$debugMode" || {
-			echo -e "\n\e[0;31m -- FULL TRACE START --\e[0;33m\n"
-			echo -e "$cmdRes"
-			echo -e "\n\e[0;31m --- FULL TRACE END ---\e[m\n"
-		}
-		return 0
-	}
+	for expKw in "${scriptExpect[@]}"; do
+		dmsg inform "execScript loop> procerssing kw=>$expKw<"
+		if [[ ! $(echo "$cmdRes" |tail -n 10) =~ $expKw ]]; then
+			critWarn "\t  Test: $expKw - FAILED"
+			dmsg inform ">${expKw}< wasnt found in $(echo "$cmdRes" |tail -n 10)"
+			test -z "$debugMode" || {
+				inform "pwd=$(pwd)"
+				echo -e "\n\e[0;31m -- TRACE START --\e[0;33m\n"
+				echo -e "$(echo "$cmdRes" |grep -A 99 -w "$scriptTraceKeyw")"
+				echo -e "\n\e[0;31m --- TRACE END ---\e[m\n"
+				
+				echo -e "\n\e[0;31m -- FULL TRACE START --\e[0;33m\n"
+				echo -e "$cmdRes"
+				echo -e "\n\e[0;31m --- FULL TRACE END ---\e[m\n"
+			}
+			let retStatus++
+		else
+			inform "\t  Test: $expKw - PASSED"
+			test -z "$debugMode" || {
+				echo -e "\n\e[0;31m -- FULL TRACE START --\e[0;33m\n"
+				echo -e "$cmdRes"
+				echo -e "\n\e[0;31m --- FULL TRACE END ---\e[m\n"
+			}
+		fi
+	done
+	unset cmdRes
+	return $retStatus
 }
 
 function select_option {
@@ -535,6 +551,7 @@ testLinks() {
 				PE210G2BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
+				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				*) exitFail "testLinks exception, Unknown uutModel: $uutModel"
 			esac
 			dmsg inform $linkAcqRes
@@ -574,6 +591,7 @@ getEthRates() {
 				PE210G2BPI9) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				*) exitFail "getEthRates exception, Unknown uutModel: $uutModel"
 			esac
 			dmsg inform $linkAcqRes

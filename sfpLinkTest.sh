@@ -196,6 +196,10 @@ pe31625gi71lInit() {
 	inform "  Raising global link up delay to 5 seconds"
 	#publicVarAssign warn globLnkUpDel "5"
 }
+m4E310g4i71Init() {
+	echo "  Loading i40e module"
+	test -z "$(lsmod |grep i40e)" && ./loadmod.sh i40e 2>&1 > /dev/null
+}
 
 startupInit() {
 	local drvInstallRes
@@ -209,6 +213,7 @@ startupInit() {
 			PE210G2BPI9) bpi71SrInit;;
 			PE325G2I71) pe325g2i71Init;;
 			PE31625G4I71L)	pe31625gi71lInit;;
+			M4E310G4I71)	m4E310g4i71Init;;
 			*) exitFail "Unknown baseModel: $baseModel"
 		esac
 	}
@@ -270,6 +275,13 @@ checkRequiredFiles() {
 				"/root/PE31625G4I71L"
 			)
 		;;
+		M4E310G4I71) 
+			echo "  File list: M4E310G4I71"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/M4E310G4I71"
+			)
+		;;
 		*) exitFail "Unknown baseModel: $baseModel"
 	esac
 	
@@ -300,6 +312,7 @@ setupLinks() {
 			PE210G2BPI9) linkSetup=$(link_setup $allNets);;
 			PE325G2I71) linkSetup=$(link_setup $allNets);;
 			PE31625G4I71L) linkSetup=$(link_setup $allNets);;
+			M4E310G4I71) linkSetup=$(link_setup $allNets);;
 			*) exitFail "setupLinks exception, unknown baseModelLocal: $baseModelLocal"
 		esac		
 		test -z "$(echo $linkSetup |grep "Failed")" || echo -e "\e[0;31m   Link setup failed!\e[m" && echo -e "\e[0;32m   Link setup passed.\e[m"	
@@ -307,14 +320,14 @@ setupLinks() {
 }
 
 trafficTest() {
-	local pcktCnt dropAllowed slotNum pn portQty sendDelay queryCnt orderFile execFile sourceDir rootDir
+	local pcktCnt dropAllowed slotNum pn portQty sendDelay queryCnt orderFile execFile sourceDir rootDir buffSize
 	privateVarAssign "trafficTest" "slotNum" "$1"
 	shift
 	privateVarAssign "trafficTest" "pcktCnt" "$1"
 	shift 
 	privateVarAssign "trafficTest" "pn" "$1"
 	
-	echo -e -n "\tTraffic test, (profile $pn): "
+	echo -e "\tTraffic tests (profile $pn): \n"
 	
 	case "$pn" in
 		PE310G4BPI71-SR) inform "Traffic test is not defined for $baseModel";;
@@ -327,18 +340,34 @@ trafficTest() {
 			queryCnt=1
 			rootDir="/root/PE325G2I71"
 			orderFile="order"
-			echo -n "1 2" >$orderFile
+			echo -n "1 2" >$rootDir/$orderFile
 			sourceDir="$(pwd)"
 			cd "$rootDir"
 			dmsg inform "pwd=$(pwd)"
 			execFile="./ispcitxgenoneg1.sh"
 			dmsg inform "$pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum"
-			execScript "$execFile" "$pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum" "PCI Test Passed" "Failed" "Traffic test FAILED"
-			test "$?" = "0" && echo -e "\e[0;32mPASSED\e[m" || echo -e "\e[0;31mFAILED\e[m"
+			execScript "$execFile" "$pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
 			#trfSendRes=$($execFile $pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum 2>&1)
 			#echo "$trfSendRes"
 		;;
 		PE31625G4I71L) inform "Traffic test is not defined for $baseModel";;
+		M4E310G4I71) 
+			portQty=4
+			sendDelay=0x0
+			buffSize=4096
+			rootDir="/root/M4E310G4I71"
+			orderFile="order"
+			echo -n "1 2 3 4" >$rootDir/$orderFile
+			sourceDir="$(pwd)"
+			cd "$rootDir"
+			dmsg inform "pwd=$(pwd)"
+			execFile="./pcitxgenohup1.sh"
+			dmsg inform "$pcktCnt $sendDelay $buffSize $portQty $orderFile $slotNum" #Bus Error Test Failed
+			execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+			write_err
+		;;
 		*) warn "trafficTest exception, unknown pn: $pn"
 	esac
 	
@@ -350,7 +379,7 @@ trafficTest() {
 defineRequirments() {
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn"
-	test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G2BPI71-SR\|PE310G4DBIR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX") && {
+	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G2BPI71-SR\|PE310G4DBIR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP") ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR") && {
@@ -577,6 +606,42 @@ defineRequirments() {
 			)
 			dmsg inform "DEBUG2: ${pciArgs[@]}"
 		}
+
+		test ! -z $(echo -n $uutPn |grep "M4E310G4I71-XR-CP") && {
+			ethKern="i40e"
+			let physEthDevQty=4
+			verDumpOffset="0x817"
+			let verDumpLen=5
+			pnDumpOffset="0x850"
+			let pnDumpLen=28
+			pnRevDumpOffset="0x86C"
+			let pnRevDumpLen=4
+			tnDumpOffset="0x880"
+			let tnDumpLen=13
+			tdDumpOffset="0x872"
+			let tdDumpLen=6
+			baseModel="M4E310G4I71"
+			syncPn="M4E310G4I71"
+			physEthDevId="1572"
+			bpCtlMode="bpctl"
+			
+			let physEthDevSpeed=8
+			let physEthDevWidth=8
+			
+			assignBuses eth
+			dmsg inform "DEBUG1: ${pciArgs[@]}"
+			pciArgs=(
+				"--target-bus=$uutSlotBus"
+				"--eth-buses=$ethBuses"
+				"--eth-dev-id=$physEthDevId"
+				"--eth-kernel=$ethKern"
+				"--eth-dev-qty=$physEthDevQty"
+				"--eth-dev-speed=$physEthDevSpeed"
+				"--eth-dev-width=$physEthDevWidth"
+			)
+			dmsg inform "DEBUG2: ${pciArgs[@]}"
+		}
+		
 		
 		echoIfExists "  Port count:" "$uutDevQty"
 		echoIfExists "  Net count:" "$uutNetQty"
@@ -611,9 +676,9 @@ defineRequirments() {
 		echoIfExists "  Virtual Ethernet device speed:" "$virtEthDevSpeed"
 		echoIfExists "  Virtual Ethernet device width:" "$virtEthDevWidth"
 		dmsg inform "DEBUG2: ${pciArgs[@]}"
-	} || {
+	else
 		exitFail "  PN: $uutPn cannot be processed, requirements not defined"
-	}	
+	fi
 	
 	echo -e "  Defining requirements for the master"
 	let mastPciSpeedReq=8
@@ -878,6 +943,10 @@ netInfoDump() {
 			dumpRegsPE310GxBPI71 
 			printRegsPE310GxBPI71
 		;;
+		M4E310G4I71)
+			dumpRegsPE310GxBPI71 
+			printRegsPE310GxBPI71
+		;;
 		*) exitFail "Unknown baseModelLocal: $baseModelLocal"
 	esac
 }
@@ -976,6 +1045,13 @@ trafficTests() {
 			trafficTest "$uutSlotNum" 10000 "$baseModel"
 		;;
 		PE31625G4I71L) inform "Traffic tests are not defined for $baseModel";;
+		M4E310G4I71) 
+			allBPBusMode "$mastBpBuses" "bp"
+			inform "\t  Sourcing $baseModel lib."
+			source /root/M4E310G4I71/library.sh 2>&1 > /dev/null
+			sleep $globLnkUpDel
+			trafficTest "$uutSlotNum" 100000 "$baseModel"
+		;;
 		*) warn "trafficTests exception, unknown baseModel: $baseModel"
 	esac
 }

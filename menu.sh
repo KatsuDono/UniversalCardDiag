@@ -43,6 +43,7 @@ main() {
 		"sfpD5" 	"| PE325G2I71-XR-CX"
 		"sfpD5-1" 	"| PE325G2I71-XR-SP"
 		"sfpD6" 	"| PE31625G4I71L-XR-CX"
+		"sfpD7" 	"| M4E310G4I71-XR-CP2"
 		"delim" 	"==========================="
 		"delim" 	"|  Etc.."
 		"transRep" "| PE310G4BPI71-SR (transceiver repair)"
@@ -75,6 +76,7 @@ main() {
 		sfpD5) 		/root/multiCard/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-CX" $@;;
 		sfpD5-1)	/root/multiCard/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-SP" $@;;
 		sfpD6) 		/root/multiCard/sfpLinkTest.sh --uut-pn="PE31625G4I71L-XR-CX" $@;;
+		sfpD7) 		/root/multiCard/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
 		showSlots) 	showPciSlots;;
 		transRep)	
 			testFileExist "/root/PE310G4BPI71"
