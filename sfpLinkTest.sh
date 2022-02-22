@@ -20,7 +20,7 @@ parseArgs() {
 			uut-slot-num) uutSlotArg=${VALUE} ;;	
 			master-slot-num) masterSlotArg=${VALUE} ;;
 			uut-pn) pnArg=${VALUE} ;;
-			igonre-dumps-fail) ignDumpFail=1;;
+			ignore-dumps-fail) ignDumpFail=1;;
 			skip-init) skipInit=1;;
 			silent) silentMode=1 ;;
 			debug) debugMode=1 ;;
@@ -102,7 +102,7 @@ g4dbirInit() {
 	drvInstallRes="$(rdif stop; rmmod $ethKern;insmod /root/PE310G4DBIR/fm10k.ko;echo status=$?)"
 	#
 	#drvInstallRes="$(rdif stop; rmmod $ethKern;insmod /root/PE310G4DBIR/fm10k-0.27.1.sl.3.12/src/fm10k.ko;echo status=$?)"
-	test -z "$(echo $drvInstallRes |grep 'status=0')" && warn "Unable to Remounting fm10k module!"
+	test -z "$(echo $drvInstallRes |grep 'status=0')" && warn "Unable to remount fm10k module!"
 	
 	echo "  Compiling and installing bypass control module"
 	test "$(which bprdctl_util)" = "/usr/bin/bprdctl_util" || {
@@ -119,7 +119,7 @@ g4dbirInit() {
 	test -z "$(bprdctl_util all set_bp_manuf |grep fail)" || exitFail "Unable to reset BP switches to default configuration!"
 	
 	echo "  Switching all BP switches to inline mode"
-	test -z "$(bprdctl_util all set_bypass off |grep fail)" || exitFail "Unable to BP switches to inline mode!"	
+	test -z "$(bprdctl_util all set_bypass off |grep fail)" || exitFail "Unable to switch BP switches to inline mode!"	
 		
 	echo "  Setting up redirector control"
 	test "$(which rdifctl)" = "/usr/bin/rdifctl" || {
@@ -128,7 +128,7 @@ g4dbirInit() {
 	}
 	
 	echo "  Switching all BP switches to inline mode"
-	test -z "$(bprdctl_util all set_bypass off |grep fail)" || exitFail "Unable to BP switches to inline mode!"	
+	test -z "$(bprdctl_util all set_bypass off |grep fail)" || exitFail "Unable to switch BP switches to inline mode!"	
 	
 	echo "  Starting RDIF"
 	rdifStartRes="$(/root/PE310G4DBIR/rdif_bpstart.sh ./ $uutSlotNum)"
@@ -370,10 +370,7 @@ trafficTest() {
 		;;
 		*) warn "trafficTest exception, unknown pn: $pn"
 	esac
-	
 	cd "$sourceDir"
-	
-	# 
 }
 
 defineRequirments() {
@@ -790,7 +787,7 @@ switchBP() {
 					bpctlRes=$($bpCtlCmd $bpBus get_bypass |cut -d ' ' -f6-)
 					test ! -z "$(echo "$bpctlRes" |grep 'non-Bypass')" && bpctlRes="\e[0;32minline\e[m" ||  bpctlRes="\e[0;31mbypass\e[m"
 					echo -e ", checking: $bpctlRes mode"
-				} || exitFail "\t$bpBus: was unable to set to inline mode!"
+				} || exitFail "\t$bpBus: failed to to set to inline mode!"
 			} ;;	
 			bp) {
 				bpctlRes=$($bpCtlCmd $bpBus set_bypass on)
@@ -800,7 +797,7 @@ switchBP() {
 					bpctlRes=$($bpCtlCmd $bpBus get_bypass |cut -d ' ' -f6-)
 					test ! -z "$(echo "$bpctlRes" |grep 'non-Bypass')" && bpctlRes="\e[0;31minline\e[m" ||  bpctlRes="\e[0;32mbypass\e[m"
 					echo -e ", checking: $bpctlRes mode"
-				} || exitFail "\t$bpBus: was unable to set to bypass mode!"
+				} || exitFail "\t$bpBus: failed to set to bypass mode!"
 			} ;;	
 			*) exitFail "switchBP exception, unknown state: $newState"
 		esac	
@@ -1064,7 +1061,7 @@ checkIfFailed() {
 	curStep="$1"
 	severity="$2"
 	dmsg warn "\t checkIfFailed debug: $(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep FAIL)"
-	test ! -z "$(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep FAIL)" && {
+	test ! -z "$(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep -e 'EXCEPTION\|UNABLE\|FAIL')" && {
 		test "$severity" = "warn" && warn "$curStep" ||	exitFail "$curStep"
 	}
 }

@@ -46,12 +46,13 @@ main() {
 		"sfpD7" 	"| M4E310G4I71-XR-CP2"
 		"delim" 	"==========================="
 		"delim" 	"|  Etc.."
-		"transRep" "| PE310G4BPI71-SR (transceiver repair)"
+		"transRep" "| PE310G4BPI71-SR (transceiver check"
+		"transRep1" "| PE310G4BPI71-SR (transceiver clone)"
 		"delim" 	"==========================="
 		"Exit" 		"| Exit"
 		"delim" 	"==========================="
 	)
-	#subfArg="acc ACC_Diagnostics sfpD SFP-based_Diagnostics Exit Exit"
+	
 	testFileExist "/root/multiCard/acc_diag_lib.sh"
 	testFileExist "/root/multiCard/sfpLinkTest.sh"
 	whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" 29 45 20 ${cardArgs[@]} 3>&2 2>&1 1>&3)
@@ -83,6 +84,12 @@ main() {
 			cd /root/PE310G4BPI71
 			testFileExist "/root/PE310G4BPI71/sfpDiag.sh"
 			/root/PE310G4BPI71/sfpDiag.sh --full-reg-ver --show-fail-regs --sfp-read-count=5 --show-sn
+		;;
+		transRep1)	
+			testFileExist "/root/PE310G4BPI71"
+			cd /root/PE310G4BPI71
+			testFileExist "/root/PE310G4BPI71/sfpClone.sh"
+			/root/PE310G4BPI71/sfpClone.sh
 		;;
 		delim) exit;;
 		Exit) exit;;

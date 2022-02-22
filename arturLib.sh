@@ -239,7 +239,7 @@ execScript() {
 	for expKw in "${scriptExpect[@]}"; do
 		dmsg inform "execScript loop> procerssing kw=>$expKw<"
 		if [[ ! $(echo "$cmdRes" |tail -n 10) =~ $expKw ]]; then
-			critWarn "\t  Test: $expKw - FAILED"
+			critWarn "\tTest: $expKw - NO"
 			dmsg inform ">${expKw}< wasnt found in $(echo "$cmdRes" |tail -n 10)"
 			test -z "$debugMode" || {
 				inform "pwd=$(pwd)"
@@ -253,7 +253,7 @@ execScript() {
 			}
 			let retStatus++
 		else
-			inform "\t  Test: $expKw - PASSED"
+			inform "\tTest: $expKw - YES"
 			test -z "$debugMode" || {
 				echo -e "\n\e[0;31m -- FULL TRACE START --\e[0;33m\n"
 				echo -e "$cmdRes"
@@ -596,8 +596,8 @@ getEthRates() {
 			esac
 			dmsg inform $linkAcqRes
 		else
-			dmsg inform "linkAcqRes=$linkAcqRes"
-			dmsg inform "skipped because not empty"
+			dmsg echo "getEthRates> linkAcqRes=$linkAcqRes"
+			dmsg echo "getEthRates> skipped because not empty"
 		fi
 	done
 	
