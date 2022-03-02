@@ -351,8 +351,30 @@ function select_opt {
     return $result
 }
 
+assignBusesInfo() {
+	local bpCtlRes
+	bpCtlRes=$(bpctl_start 2>&1 > /dev/null)
+	bpCtlRes=$(bprdctl_start 2>&1 > /dev/null)	
+
+	for ARG in "$@"
+	do	
+		dmsg inform "ASSIGNING BUS: $ARG"
+		case "$ARG" in
+			spc) publicVarAssign silent spcBuses $(grep '1180' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;	
+			eth) publicVarAssign silent ethBuses $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
+			plx) publicVarAssign silent plxBuses $(grep '0604' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
+			acc) publicVarAssign silent accBuses $(grep '0b40' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
+			bp) 
+				publicVarAssign silent bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1)
+				publicVarAssign silent bprdBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1)
+			;;
+			*) exitFail "assignBuses exception, unknown bus type: $ARG"
+		esac
+	done
+}
+
 drawPciSlot() {		
-	local addEl excessSymb cutText color slotWidthInfo
+	local addEl excessSymb cutText color slotWidthInfo pciInfoRes curLine curLineCut
 	slotNum=$1
 	shift
 	test ! -z "$(echo $* |grep '\-\- Empty \-\-')" || {
@@ -364,17 +386,35 @@ drawPciSlot() {
 	let excessSymb=56-${#cutText}
 	for ((e=0;e<=excessSymb;e++)); do addEl="$addEl "; done
 	test "$cutText" = "-- Empty --" && color='\e[0;31m' || color='\e[0;32m'
-	  
+
 	echo -e "\n\t-------------------------------------------------------------------------"
 	echo -e "\t░ Slot: $slotNum  ░  $color$cutText$addEl\e[m ░$slotWidthInfo"
+	test -z "$pciArgs" || {
+		echo -e "\t░      - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -      ░"
+		pciInfoRes="$(listDevsPciLib "${pciArgs[@]}")"
+		unset pciArgs
+		echo "${pciInfoRes[@]}" | while read curLine ; do	
+			addEl=""
+			curLineCut=$(echo $curLine |cut -c1-68)
+			let excessSymb=68-${#curLineCut}
+			for ((e=0;e<=excessSymb;e++)); do addEl="$addEl "; done
+			echo -e "\t░ $curLineCut$addEl ░"
+		done
+
+	}
 	echo -e -n "\t-------------------------------------------------------------------------"
 }
 
 showPciSlots() {
-	local slotBuses slotNum slotBusRoot
+	local slotBuses slotNum slotBusRoot bpBusesTotal
 	echoSection "PCI Slots"
 	slotBuses=$(dmidecode -t slot |grep Bus |cut -d: -f3)
 	let slotNum=0
+	assignBusesInfo spc eth plx acc bp
+	bpBusesTotal=$bpBuses
+	if [[ ! -z "$bprdBuses" ]]; then
+		test -z "$bpBusesTotal" && bpBusesTotal=$bprdBuses || bpBusesTotal="$bpBuses $bprdBuses"
+	fi
 	for slotBus in $slotBuses; do
 		let slotNum=$slotNum+1
 		test "$slotBus" = "ff" && drawPciSlot $slotNum "-- Empty --" || {
@@ -382,6 +422,17 @@ showPciSlots() {
 			test -z "$slotBusRoot" && drawPciSlot $slotNum "-- Empty --" || {
 				gatherPciInfo $slotBusRoot
 				dmsg debugPciVars
+				declare -a pciArgs=(
+					"--plx-keyw=Physical Slot:"
+					"--plx-virt-keyw=ABWMgmt+"
+					"--spc-buses=$spcBuses"
+					"--eth-buses=$ethBuses"
+					"--plx-buses=$plxBuses"
+					"--acc-buses=$accBuses"
+					"--bp-buses=$bpBuses"
+					"--info-mode"
+					"--target-bus=$slotBusRoot"
+				)
 				drawPciSlot $slotNum $pciInfoDevCapWidth $(lspci -s $slotBus:)
 			}
 		}
@@ -430,8 +481,63 @@ syncFilesFromServ() {
 
 		echo -e "   Done."
 		test "$seqPn" = "Scripts" || let syncExecuted=1
-		checkRequiredFiles
+		type checkRequiredFiles >/dev/null 2>&1 && checkRequiredFiles
 	} || exitFail "Repetative sync requested. Seems that declared files requirments cant be met. Call for help"
+}
+
+function selectProgVer () {
+	local subfCount currDir searchDir searchDirFolders
+	privateVarAssign "selectProgVer" "fwPath" "$*"
+
+	currDir=$(pwd)
+	cd $fwPath
+	searchDirFolders=(*/)
+
+	subfCount=${#searchDirFolders[@]}
+	if [[ ! -z $subfCount ]]; then
+		echo "    There are ${#searchDirFolders[@]} versions available"
+		select dir in "${searchDirFolders[@]}"; do 
+			echo "    Ver: $(basename ${dir}) selected"'!'
+			cd ${dir} >/dev/null
+			break
+		done
+		fwPath=$(pwd)
+		return 0
+	else
+		exitFail "No versions folder found in $(pwd)"
+		cd $currDir
+		return 1
+	fi
+
+}
+
+getFwFromServ() {
+	local seqPn syncPn 
+	privateVarAssign "getFwFromServ" "seqPn" "$1"
+	privateVarAssign "getFwFromServ" "syncPn" "$2"
+	
+	echo -e "   Syncing FW files from server.."
+	
+	echo -e -n "    Creating PN folder /root/$seqPn: "; echoRes "mkdir -p /root/$seqPn"
+	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"
+	echo -e -n "    Creating PN folder /mnt/$syncPn: "; echoRes "mkdir -p /mnt/$syncPn"
+	
+	echo -e -n "    Mounting FW folder to /mnt/$syncPn: "; echoRes "mount.cifs \\\\172.30.0.4\\e\\Server_DB\\$syncPn\\PRG /mnt/$syncPn"' -o user=LinuxCopy,pass=LnX5CpY'
+
+	selectProgVer "/mnt/$syncPn"
+	selVerRes=$?
+
+	if [[ $selVerRes -eq 0 ]]; then
+		
+		echo -e -n "    Removing old .bin files from /root/$seqPn: "; echoRes "rm -f /root/$seqPn/*.bin"
+		echo -e -n "    Syncing FW files to /root/$seqPn: "; echoRes "rsync -r --ignore-existing --chmod=D=rwx,F=rw $fwPath/ /root/$seqPn"
+		echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"
+		
+		echo -e "   Done."
+		cd /root/$seqPn
+	else
+		exitFail "Failed to select programing FW version!"
+	fi
 }
 
 acquireVal() {
@@ -494,6 +600,7 @@ publicVarAssign() {
 			fatal) exitFail "$errMsg" ;;
 			critical) critWarn "$errMsg" ;;
 			warn) warn "$errMsg" ;;
+			silent) ;;
 			*) exitFail "  publicVarAssign exception, varSeverity not in range: $varSeverity" $PROC
 		esac
 	}
@@ -718,7 +825,7 @@ listDevsPciLib() {
 	local rootBusWidthCap rootBusSpeedCap
 	local spcBuses spcDevId spcDevQtyReq spcKernReq spcDevSpeed spcDevWidth spcOnDevBus
 	local plxKeyw plxVirtKeyw plxEmptyKeyw
-	local listPciArg argsTotal
+	local listPciArg argsTotal infoMode
 	
 	argsTotal=$*
 	
@@ -785,6 +892,8 @@ listDevsPciLib() {
 			plx-virt-keyw)			plxVirtKeyw=${VALUE} ;;
 			plx-empty-keyw)			plxEmptyKeyw=${VALUE} ;;
 			
+			info-mode)				infoMode="true" ;;
+
 			*) echo "listDevsPciLib exception, unknown arg: $listPciArg"; exit 1
 		esac
 	done
@@ -844,6 +953,7 @@ listDevsPciLib() {
 		dmsg inform "plxVirtKeyw=$plxVirtKeyw"
 		dmsg inform "plxEmptyKeyw=$plxEmptyKeyw"
 		
+		dmsg inform "infoMode=$infoMode"
 	}
 	
 	#devId=$pciDevId
@@ -860,24 +970,26 @@ listDevsPciLib() {
 	slotBus=$targBus
 	dmsg inform "slotBus=$slotBus"
 	
-	if [ -z "$rootBusSpeedCap" -o -z "$rootBusWidthCap" ]; then
-		warn "  =========================================================  \n" "sil"
-		warn "  ===     PCIe root bus requirments are undefined!!     ===  \n" "sil"
-		warn "  =========================================================  \n" "sil"
+	if [[ -z $infoMode ]]; then
+		if [ -z "$rootBusSpeedCap" -o -z "$rootBusWidthCap" ]; then
+			warn "  =========================================================  \n" "sil"
+			warn "  ===     PCIe root bus requirments are undefined!!     ===  \n" "sil"
+			warn "  =========================================================  \n" "sil"
 
-	else
-		echo -e "\n\tPCIe root bus" 
-		echo -e "\t -------------------------"
-			gatherPciInfo $slotBus
-			dmsg debugPciVars
-			echo -e "\t "'|'" PCIe root bus: $slotBus"
-			echo -e "\t "'|'" Speed required: $rootBusSpeedCap   Width required: $rootBusWidthCap"
-			rootBusSpWdRes="$(speedWidthComp $rootBusSpeedCap $pciInfoDevCapSpeed $rootBusWidthCap $pciInfoDevCapWidth)"
-			echo -e -n "\t "'|'" $rootBusSpWdRes\n"
-		echo -e "\t -------------------------"
-		test ! -z "$(echo "$rootBusSpWdRes" |grep FAIL)" && exitFail "Root bus speed is incorrect! Check PCIe BIOS settings."
+		else
+			echo -e "\n\tPCIe root bus" 
+			echo -e "\t -------------------------"
+				gatherPciInfo $slotBus
+				dmsg debugPciVars
+				echo -e "\t "'|'" PCIe root bus: $slotBus"
+				echo -e "\t "'|'" Speed required: $rootBusSpeedCap   Width required: $rootBusWidthCap"
+				rootBusSpWdRes="$(speedWidthComp $rootBusSpeedCap $pciInfoDevCapSpeed $rootBusWidthCap $pciInfoDevCapWidth)"
+				echo -e -n "\t "'|'" $rootBusSpWdRes\n"
+			echo -e "\t -------------------------"
+			test ! -z "$(echo "$rootBusSpWdRes" |grep FAIL)" && exitFail "Root bus speed is incorrect! Check PCIe BIOS settings."
+		fi
 	fi
-	
+
 	test ! -z "$plxBuses" && {
 		for bus in $plxBuses ; do
 			exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -v $slotBus |grep -w $bus)
@@ -919,26 +1031,30 @@ listDevsPciLib() {
 		test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq$plxKern$plxDevId" || critWarn "  PLX bus empty! PCI info on PLX failed!"
 	} || {
 		dmsg inform "plxOnDevBus is not empty\nPLX is not empty! there is: >$plxOnDevBus<"
-		test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on PLX!"
-		test -z "$plxKern" && exitFail "listDevsPciLib exception, plxKern undefined!"
-		test -z "$plxDevQtyReq" && exitFail "listDevsPciLib exception, plxDevQtyReq undefined, but devices found" || {
-			test -z "$plxDevSpeed" && exitFail "listDevsPciLib exception, plxDevSpeed undefined!"
-			test -z "$plxDevWidth" && exitFail "listDevsPciLib exception, plxDevWidth undefined!"
-		}
-		test ! -z "$plxDevSubQtyReq" && {
-			test -z "$plxDevSubSpeed" && exitFail "listDevsPciLib exception, plxDevSubSpeed undefined!"
-			test -z "$plxDevSubWidth" && exitFail "listDevsPciLib exception, plxDevSubWidth undefined!"
-		}
-		test ! -z "$plxDevEmptyQtyReq" && {
-			test -z "$plxDevEmptySpeed" && exitFail "listDevsPciLib exception, plxDevEmptySpeed undefined!"
-			test -z "$plxDevEmptyWidth" && exitFail "listDevsPciLib exception, plxDevEmptyWidth undefined!"
-		}
+		if [[ -z $infoMode ]]; then
+			test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on PLX!"
+			test -z "$plxKern" && exitFail "listDevsPciLib exception, plxKern undefined!"
+			test -z "$plxDevQtyReq" && exitFail "listDevsPciLib exception, plxDevQtyReq undefined, but devices found" || {
+				test -z "$plxDevSpeed" && exitFail "listDevsPciLib exception, plxDevSpeed undefined!"
+				test -z "$plxDevWidth" && exitFail "listDevsPciLib exception, plxDevWidth undefined!"
+			}
+			test ! -z "$plxDevSubQtyReq" && {
+				test -z "$plxDevSubSpeed" && exitFail "listDevsPciLib exception, plxDevSubSpeed undefined!"
+				test -z "$plxDevSubWidth" && exitFail "listDevsPciLib exception, plxDevSubWidth undefined!"
+			}
+			test ! -z "$plxDevEmptyQtyReq" && {
+				test -z "$plxDevEmptySpeed" && exitFail "listDevsPciLib exception, plxDevEmptySpeed undefined!"
+				test -z "$plxDevEmptyWidth" && exitFail "listDevsPciLib exception, plxDevEmptyWidth undefined!"
+			}
+		fi
 		plxDevArr=""
 		plxDevSubArr=""
 		plxDevEmptyArr=""
 		subdevInfo=""
-		echo -e "\n\tPLX Devices" 
-		echo -e "\t -------------------------"
+		if [[ -z $infoMode ]]; then
+			echo -e "\n\tPLX Devices" 
+			echo -e "\t -------------------------"
+		fi
 		dmsg inform "plxOnDevBus=$plxOnDevBus"
 		for plxBus in $plxOnDevBus ; do
 			gatherPciInfo $plxBus
@@ -951,82 +1067,120 @@ listDevsPciLib() {
 				dmsg inform ">> $plxBus is physical device"
 				plxDevArr="$plxBus $plxDevArr"
 				dmsg inform "Added plxBus=$plxBus to plxDevArr=$plxDevArr"
-				echo -e "\t "'|'" $plxBus: PLX Physical Device: $pciInfoDevDesc"
-				echo -e -n "\t "'|'" $(speedWidthComp $plxDevSpeed $pciInfoDevSpeed $plxDevWidth $pciInfoDevWidth)"
+				if [[ -z $infoMode ]]; then
+					echo -e "\t "'|'" $plxBus: PLX Physical Device: $pciInfoDevDesc"
+					echo -e -n "\t "'|'" $(speedWidthComp $plxDevSpeed $pciInfoDevSpeed $plxDevWidth $pciInfoDevWidth)"
+				else
+					echo -e "$plxBus: PLX Phys: $pciInfoDevDesc"
+					echo -e -n "\t  $pciInfoDevLnkSta"
+				fi
 			else
 				test -z "$plxVirtKeyw" && exitFail "listDevsPciLib exception, plxVirtKeyw undefined!"
 				if [ ! -z "$(echo "$fullPciInfo" |grep -w "$plxVirtKeyw")" ]; then
 					plxDevSubArr="$plxBus $plxDevSubArr"
 					dmsg inform "Added plxBus=$plxBus to plxDevSubArr=$plxDevSubArr"
-					echo -e "\t "'|'" $plxBus: PLX Virtual Device: $pciInfoDevDesc"
-					echo -e -n "\t "'|'" $(speedWidthComp $plxDevSubSpeed $pciInfoDevSpeed $plxDevSubWidth $pciInfoDevWidth)"
+					if [[ -z $infoMode ]]; then
+						echo -e "\t "'|'" $plxBus: PLX Virtual Device: $pciInfoDevDesc"
+						echo -e -n "\t "'|'" $(speedWidthComp $plxDevSubSpeed $pciInfoDevSpeed $plxDevSubWidth $pciInfoDevWidth)"
+					else
+						echo -e "$plxBus: PLX Virt: $pciInfoDevDesc"
+						echo -e -n "\t  $pciInfoDevLnkSta"
+					fi
 					dmsg inform ">> $plxBus have subordinate"
 				else
 					plxDevEmptyArr="$plxBus $plxDevEmptyArr"
 					dmsg inform "Added plxBus=$plxBus to plxDevEmptyArr=$plxDevEmptyArr"
-					echo -e "\t "'|'" $plxBus: PLX Virtual Device \e[0;33m(empty)\e[m: $pciInfoDevDesc"
-					echo -e -n "\t "'|'" $(speedWidthComp $plxDevEmptySpeed $pciInfoDevSpeed $plxDevEmptyWidth $pciInfoDevWidth)"
+					if [[ -z $infoMode ]]; then
+						echo -e "\t "'|'" $plxBus: PLX Virtual Device \e[0;33m(empty)\e[m: $pciInfoDevDesc"
+						echo -e -n "\t "'|'" $(speedWidthComp $plxDevEmptySpeed $pciInfoDevSpeed $plxDevEmptyWidth $pciInfoDevWidth)"
+					else
+						echo -e "$plxBus: PLX Virt Empty: $pciInfoDevDesc"
+						echo -e -n "\t  $pciInfoDevLnkSta"
+					fi
 					dmsg inform ">> $plxBus is empty"
 				fi
 			fi
-			echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse|grep $plxKern)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
-			#echo -e "\t--------------"
+			if [[ -z $infoMode ]]; then
+				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse|grep $plxKern)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			else
+				test -z "$pciInfoDevKernUse" && echo " Kern: not loaded" || echo " Kern: $pciInfoDevKernUse"
+			fi
 		done
-		echo -e "\t -------------------------"
-		echo -e "\n\n\tPLX Device count" 
-		testArrQty "  Physical" "$plxDevArr" "$plxDevQtyReq" "No PLX physical devices found on UUT" "warn"
-		testArrQty "  Virtual" "$plxDevSubArr" "$plxDevSubQtyReq" "No PLX virtual devices found on UUT" "warn"
-		testArrQty "  Virtual (empty)" "$plxDevEmptyArr" "$plxDevEmptyQtyReq" "No PLX virtual devices (empty) found on UUT" "warn"
-		echo -e "\n"
+		if [[ -z $infoMode ]]; then
+			echo -e "\t -------------------------"
+			echo -e "\n\n\tPLX Device count" 
+			testArrQty "  Physical" "$plxDevArr" "$plxDevQtyReq" "No PLX physical devices found on UUT" "warn"
+			testArrQty "  Virtual" "$plxDevSubArr" "$plxDevSubQtyReq" "No PLX virtual devices found on UUT" "warn"
+			testArrQty "  Virtual (empty)" "$plxDevEmptyArr" "$plxDevEmptyQtyReq" "No PLX virtual devices (empty) found on UUT" "warn"
+			echo -e "\n"
+		fi
 	}
 	
 	dmsg inform "accOnDevBus=$accOnDevBus"
 	test -z "$accOnDevBus" && { 
 		test -z "$accKern$accDevQtyReq$accDevSpeed$accDevWidth" || critWarn "  ACC bus empty! PCI info on ACC failed!"
 	} || {
-		test -z "$accKern" && exitFail "listDevsPciLib exception, accKern undefined!"
-		test -z "$accDevQtyReq" && exitFail "listDevsPciLib exception, accDevQtyReq undefined, but devices found" || {
-			test -z "$accDevSpeed" && exitFail "listDevsPciLib exception, accDevSpeed undefined!"
-			test -z "$accDevWidth" && exitFail "listDevsPciLib exception, accDevWidth undefined!"
-		}
+		if [[ -z $infoMode ]]; then
+			test -z "$accKern" && exitFail "listDevsPciLib exception, accKern undefined!"
+			test -z "$accDevQtyReq" && exitFail "listDevsPciLib exception, accDevQtyReq undefined, but devices found" || {
+				test -z "$accDevSpeed" && exitFail "listDevsPciLib exception, accDevSpeed undefined!"
+				test -z "$accDevWidth" && exitFail "listDevsPciLib exception, accDevWidth undefined!"
+			}
+		fi
 		accDevArr=""  
 		subdevInfo=""
-		echo -e "\n\tACC Devices" 
-		echo -e "\t -------------------------"
+		if [[ -z $infoMode ]]; then
+			echo -e "\n\tACC Devices" 
+			echo -e "\t -------------------------"
+		fi
 		for accBus in $accOnDevBus ; do
 			gatherPciInfo $accBus
 			dmsg inform "Processing accBus=$accBus"
 			accDevArr="$accBus $accDevArr"
 			dmsg inform "Added accBus=$accBus to accDevArr=$accDevArr"
-			echo -e "\t "'|'" $accBus: ACC Device: $pciInfoDevDesc"
-			echo -e -n "\t "'|'" $(speedWidthComp $accDevSpeed $pciInfoDevSpeed $accDevWidth $pciInfoDevWidth)"
-			echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $accKern)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			if [[ -z $infoMode ]]; then
+				echo -e "\t "'|'" $accBus: ACC Device: $pciInfoDevDesc"
+				echo -e -n "\t "'|'" $(speedWidthComp $accDevSpeed $pciInfoDevSpeed $accDevWidth $pciInfoDevWidth)"
+			else
+				echo -e "$accBus: ACC: $pciInfoDevDesc"
+				echo -e -n "\t  $pciInfoDevLnkSta"
+			fi
+			if [[ -z $infoMode ]]; then
+				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $accKern)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			else
+				test -z "$pciInfoDevKernUse" && echo " Kern: not loaded" || echo " Kern: $pciInfoDevKernUse"
+			fi
 		done
-		echo -e "\t -------------------------"
-		echo -e "\n\n\tACC Device count" 
-		testArrQty "  ACC Devices" "$accDevArr" "$accDevQty" "No ACC devices found on UUT" "warn"
-		echo -e "\n"
+		if [[ -z $infoMode ]]; then
+			echo -e "\t -------------------------"
+			echo -e "\n\n\tACC Device count" 
+			testArrQty "  ACC Devices" "$accDevArr" "$accDevQty" "No ACC devices found on UUT" "warn"
+			echo -e "\n"
+		fi
 	}
 	
 	dmsg inform "ethOnDevBus=$ethOnDevBus"
 	test -z "$ethOnDevBus" && {
 		test -z "$ethDevQtyReq$ethVirtDevQtyReq$ethKernReq$ethDevId" || critWarn "  ETH bus empty! PCI info on ETH failed!"
 	} || {
-		test -z "$ethDevQtyReq$ethVirtDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on ETH!"
-		test -z "$ethKernReq" && exitFail "listDevsPciLib exception, ethKernReq undefined!"
-		test -z "$ethDevQtyReq" && exitFail "listDevsPciLib exception, ethDevQtyReq undefined, but devices found" || {
-			test -z "$ethDevSpeed" && exitFail "listDevsPciLib exception, ethDevSpeed undefined!"
-			test -z "$ethDevWidth" && exitFail "listDevsPciLib exception, ethDevWidth undefined!"
-		}
-		test ! -z "$ethVirtDevQtyReq" && {
-			test -z "$ethVirtDevSpeed" && exitFail "listDevsPciLib exception, ethVirtDevSpeed undefined!"
-			test -z "$ethVirtDevWidth" && exitFail "listDevsPciLib exception, ethVirtDevWidth undefined!"
-		}
-
+		if [[ -z $infoMode ]]; then
+			test -z "$ethDevQtyReq$ethVirtDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on ETH!"
+			test -z "$ethKernReq" && exitFail "listDevsPciLib exception, ethKernReq undefined!"
+			test -z "$ethDevQtyReq" && exitFail "listDevsPciLib exception, ethDevQtyReq undefined, but devices found" || {
+				test -z "$ethDevSpeed" && exitFail "listDevsPciLib exception, ethDevSpeed undefined!"
+				test -z "$ethDevWidth" && exitFail "listDevsPciLib exception, ethDevWidth undefined!"
+			}
+			test ! -z "$ethVirtDevQtyReq" && {
+				test -z "$ethVirtDevSpeed" && exitFail "listDevsPciLib exception, ethVirtDevSpeed undefined!"
+				test -z "$ethVirtDevWidth" && exitFail "listDevsPciLib exception, ethVirtDevWidth undefined!"
+			}
+		fi
 		ethDevArr=""
 		ethVirtDevArr=""
-		echo -e "\n\tETH Devices" 
-		echo -e "\t -------------------------"
+		if [[ -z $infoMode ]]; then
+			echo -e "\n\tETH Devices" 
+			echo -e "\t -------------------------"
+		fi
 		for ethBus in $ethOnDevBus ; do
 			gatherPciInfo $ethBus
 			dmsg inform "Processing ethBus=$ethBus"
@@ -1034,50 +1188,80 @@ listDevsPciLib() {
 				#echo "DEBUG: $ethBus is physical device"
 				ethDevArr="$ethBus $ethDevArr"
 				dmsg inform "Added ethBus=$ethBus to ethDevArr=$ethDevArr"
-				echo -e "\t "'|'" $ethBus: ETH Physical Device: $pciInfoDevDesc"
-				echo -e -n "\t "'|'" $(speedWidthComp $ethDevSpeed $pciInfoDevSpeed $ethDevWidth $pciInfoDevWidth)"
+				if [[ -z $infoMode ]]; then
+					echo -e "\t "'|'" $ethBus: ETH Physical Device: $pciInfoDevDesc"
+					echo -e -n "\t "'|'" $(speedWidthComp $ethDevSpeed $pciInfoDevSpeed $ethDevWidth $pciInfoDevWidth)"
+				else
+					echo -e "$ethBus: ETH Phys: $pciInfoDevDesc"
+					echo -e -n "\t  $pciInfoDevLnkSta"
+				fi
 			else
 				ethVirtDevArr="$ethBus $ethVirtDevArr"
 				dmsg inform "Added ethBus=$ethBus to ethVirtDevArr=$ethVirtDevArr"
-				echo -e "\t "'|'" $ethBus: ETH Virtual Device: $pciInfoDevDesc"
-				echo -e -n "\t "'|'" $(speedWidthComp $ethVirtDevSpeed $pciInfoDevSpeed $ethVirtDevWidth $pciInfoDevWidth)"
-				#echo "DEBUG: $ethBus have subordinate"
+				if [[ -z $infoMode ]]; then
+					echo -e "\t "'|'" $ethBus: ETH Virtual Device: $pciInfoDevDesc"
+					echo -e -n "\t "'|'" $(speedWidthComp $ethVirtDevSpeed $pciInfoDevSpeed $ethVirtDevWidth $pciInfoDevWidth)"
+					#echo "DEBUG: $ethBus have subordinate"
+				else
+					echo -e "$ethBus: ETH Virt: $pciInfoDevDesc"
+					echo -e -n "\t  $pciInfoDevLnkSta"
+				fi
 			fi
-			echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse|grep $ethKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			if [[ -z $infoMode ]]; then
+				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse|grep $ethKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			else
+				test -z "$pciInfoDevKernUse" && echo " Kern: not loaded" || echo " Kern: $pciInfoDevKernUse"
+			fi
 			#echo -e "\t--------------"
 		done
-		echo -e "\t -------------------------"
-		echo -e "\n\n\tETH Device count" 
-		testArrQty "  Physical" "$ethDevArr" "$ethDevQtyReq" "No ETH physical devices found on UUT" "warn"
-		testArrQty "  Virtual" "$ethVirtDevArr" "$ethVirtDevQtyReq" "No ETH virtual devices found on UUT" "warn"
-		echo -e "\n"
+		if [[ -z $infoMode ]]; then
+			echo -e "\t -------------------------"
+			echo -e "\n\n\tETH Device count" 
+			testArrQty "  Physical" "$ethDevArr" "$ethDevQtyReq" "No ETH physical devices found on UUT" "warn"
+			testArrQty "  Virtual" "$ethVirtDevArr" "$ethVirtDevQtyReq" "No ETH virtual devices found on UUT" "warn"
+			echo -e "\n"
+		fi
 	}
 	
 	dmsg inform "bpOnDevBus=$bpOnDevBus"
 	test ! -z "$bpOnDevBus" && {
-		test -z "$bpDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on BP!"
-		test -z "$bpKernReq" && exitFail "listDevsPciLib exception, bpKernReq undefined!"
-		test -z "$bpDevQtyReq" && exitFail "listDevsPciLib exception, bpDevQtyReq undefined, but devices found" || {
-			test -z "$bpDevSpeed" && exitFail "listDevsPciLib exception, bpDevSpeed undefined!"
-			test -z "$bpDevWidth" && exitFail "listDevsPciLib exception, bpDevWidth undefined!"
-		}
-		
+		if [[ -z $infoMode ]]; then
+			test -z "$bpDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on BP!"
+			test -z "$bpKernReq" && exitFail "listDevsPciLib exception, bpKernReq undefined!"
+			test -z "$bpDevQtyReq" && exitFail "listDevsPciLib exception, bpDevQtyReq undefined, but devices found" || {
+				test -z "$bpDevSpeed" && exitFail "listDevsPciLib exception, bpDevSpeed undefined!"
+				test -z "$bpDevWidth" && exitFail "listDevsPciLib exception, bpDevWidth undefined!"
+			}
+		fi
 		bpDevArr=""  
-		echo -e "\n\tBP Devices" 
-		echo -e "\t -------------------------"
+		if [[ -z $infoMode ]]; then
+			echo -e "\n\tBP Devices" 
+			echo -e "\t -------------------------"
+		fi
 		for bpBus in $bpOnDevBus ; do
 			gatherPciInfo $bpBus
 			dmsg inform "Processing bpBus=$bpBus"
 			bpDevArr="$bpBus $bpDevArr"
 			dmsg inform "Added bpBus=$bpBus to bpDevArr=$bpDevArr"
-			echo -e "\t "'|'" $bpBus: BP Device: $pciInfoDevDesc"
-			echo -e -n "\t "'|'" $(speedWidthComp $bpDevSpeed $pciInfoDevSpeed $bpDevWidth $pciInfoDevWidth)"
-			echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $bpKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			if [[ -z $infoMode ]]; then
+				echo -e "\t "'|'" $bpBus: BP Device: $pciInfoDevDesc"
+				echo -e -n "\t "'|'" $(speedWidthComp $bpDevSpeed $pciInfoDevSpeed $bpDevWidth $pciInfoDevWidth)"
+			else
+				echo -e "$bpBus: BP Dev: $pciInfoDevDesc"
+				echo -e -n "\t  $pciInfoDevLnkSta"
+			fi
+			if [[ -z $infoMode ]]; then
+				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $bpKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			else
+				test -z "$pciInfoDevKernUse" && echo " Kern: not loaded" || echo " Kern: $pciInfoDevKernUse"
+			fi			
 		done
-		echo -e "\t -------------------------"
-		echo -e "\n\n\tBP Device count" 
-		testArrQty "  BP Devices" "$bpDevArr" "$bpDevQtyReq" "No BP devices found on UUT" "warn"
-		echo -e "\n"
+		if [[ -z $infoMode ]]; then
+			echo -e "\t -------------------------"
+			echo -e "\n\n\tBP Device count" 
+			testArrQty "  BP Devices" "$bpDevArr" "$bpDevQtyReq" "No BP devices found on UUT" "warn"
+			echo -e "\n"
+		fi
 	} || {
 		test -z "$bpDevQtyReq$bpKernReq$bpDevSpeed$bpDevWidth$bpDevId" || critWarn "  BP bus empty! PCI info on BP failed!"
 	}
@@ -1086,29 +1270,45 @@ listDevsPciLib() {
 	test -z "$spcOnDevBus" && {
 		test -z "$spcDevQtyReq$spcKernReq$spcDevSpeed$spcDevWidth$spcDevId" || critWarn "  SPC bus empty! PCI info on SPC failed!"
 	} || {
-		test -z "$spcDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on SPC!"
-		#test -z "$spcKernReq" && exitFail "listDevsPciLib exception, spcKernReq undefined!"
-		test -z "$spcDevQtyReq" && exitFail "listDevsPciLib exception, spcDevQtyReq undefined, but devices found" || {
-			test -z "$spcDevSpeed" && exitFail "listDevsPciLib exception, spcDevSpeed undefined!"
-			test -z "$spcDevWidth" && exitFail "listDevsPciLib exception, spcDevWidth undefined!"
-		}
-		
+		if [[ -z $infoMode ]]; then
+			test -z "$spcDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on SPC!"
+			#test -z "$spcKernReq" && exitFail "listDevsPciLib exception, spcKernReq undefined!"
+			test -z "$spcDevQtyReq" && exitFail "listDevsPciLib exception, spcDevQtyReq undefined, but devices found" || {
+				test -z "$spcDevSpeed" && exitFail "listDevsPciLib exception, spcDevSpeed undefined!"
+				test -z "$spcDevWidth" && exitFail "listDevsPciLib exception, spcDevWidth undefined!"
+			}
+		fi
 		spcDevArr=""  
-		echo -e "\n\tSPC Devices" 
-		echo -e "\t -------------------------"
+		if [[ -z $infoMode ]]; then
+			echo -e "\n\tSPC Devices" 
+			echo -e "\t -------------------------"
+		fi
 		for spcBus in $spcOnDevBus ; do
 			gatherPciInfo $spcBus
 			dmsg inform "Processing spcBus=$spcBus"
 			spcDevArr="$spcBus $spcDevArr"
 			dmsg inform "Added spcBus=$spcBus to spcDevArr=$spcDevArr"
-			echo -e "\t "'|'" $spcBus: SPC Device: $pciInfoDevDesc"
-			echo -e -n "\t "'|'" $(speedWidthComp $spcDevSpeed $pciInfoDevSpeed $spcDevWidth $pciInfoDevWidth)\n\t "'|------'"\n"
-			#echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $spcKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			if [[ -z $infoMode ]]; then
+				echo -e "\t "'|'" $spcBus: SPC Device: $pciInfoDevDesc"
+				echo -e -n "\t "'|'" $(speedWidthComp $spcDevSpeed $pciInfoDevSpeed $spcDevWidth $pciInfoDevWidth)\n\t "'|------'"\n"
+			else
+				echo -e "$spcBus: SPC Dev: $pciInfoDevDesc"
+				echo -e -n "\t  $pciInfoDevLnkSta"			
+			fi
+			if [[ -z $infoMode ]]; then
+				echo null_placeholder > /dev/null
+				#echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $spcKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+			else
+				test -z "$pciInfoDevKernUse" && echo " Kern: not loaded" || echo " Kern: $pciInfoDevKernUse"
+			fi	
+			
 		done
-		#echo -e "\t -------------------------"
-		echo -e "\n\n\tSPC Device count" 
-		testArrQty "  SPC Devices" "$spcDevArr" "$spcDevQtyReq" "No SPC devices found on UUT" "warn"
-		echo -e "\n"
+		if [[ -z $infoMode ]]; then
+			echo -e "\t -------------------------"
+			echo -e "\n\n\tSPC Device count" 
+			testArrQty "  SPC Devices" "$spcDevArr" "$spcDevQtyReq" "No SPC devices found on UUT" "warn"
+			echo -e "\n"
+		fi
 	}
 }
 
