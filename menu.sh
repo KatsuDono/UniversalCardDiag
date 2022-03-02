@@ -7,6 +7,7 @@ parseArgs() {
 		VALUE=$(echo $ARG |cut -f2 -d=)
 		case "$KEY" in
 			debug) debugMode=1 ;;
+			menu-choice) menuChoice=${VALUE} ;;
 			*) dmsg echo "Unknown arg: $ARG"
 		esac
 	done
@@ -53,31 +54,33 @@ main() {
 		"delim" 	"==========================="
 	)
 	
-	testFileExist "/root/multiCard/acc_diag_lib.sh"
-	testFileExist "/root/multiCard/sfpLinkTest.sh"
-	whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" 29 45 20 ${cardArgs[@]} 3>&2 2>&1 1>&3)
+	testFileExist "/root/multiCard/"
+	export MC_SCRIPT_PATH=/root/multiCard
+	testFileExist "${MC_SCRIPT_PATH}/acc_diag_lib.sh"
+	testFileExist "${MC_SCRIPT_PATH}/sfpLinkTest.sh"
+	test -z "$menuChoice" && whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" 29 45 20 ${cardArgs[@]} 3>&2 2>&1 1>&3) || whptRes=$menuChoice
 	case "$whptRes" in
-		acc) 		/root/multiCard/acc_diag_lib.sh;;
-		acc1)		/root/multiCard/acc_diag_lib.sh --uut-pn="PE3IS2CO3LS" $@;;
-		acc2)		/root/multiCard/acc_diag_lib.sh --uut-pn="PE3IS2CO3LS-CX" $@;;
-		acc3)		/root/multiCard/acc_diag_lib.sh --uut-pn="PE2ISCO3-CX" $@;;
-		acc4)		/root/multiCard/acc_diag_lib.sh --uut-pn="PE3ISLBTL" $@;;
-		acc4-1)		/root/multiCard/acc_diag_lib.sh --uut-pn="PE3ISLBTL-FU" $@;;
-		acc4-2)		/root/multiCard/acc_diag_lib.sh --uut-pn="PE3ISLBTL-FN" $@;;
-		acc5)		/root/multiCard/acc_diag_lib.sh --uut-pn="PE3ISLBLL" $@;;
-		acc6)		/root/multiCard/acc_diag_lib.sh --uut-pn="PE316IS2LBTLB-CX" $@;;
-		acc7)		/root/multiCard/acc_diag_lib.sh --uut-pn="P3IMB-M-P1" $@;;
-		sfpD1) 		/root/multiCard/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SR" $@;;
-		sfpD1-1)	/root/multiCard/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SRSD-BC8" $@;;
-		sfpD1-2)	/root/multiCard/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SR-SD" $@;;
-		sfpD1-3)	/root/multiCard/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SRD-SD" $@;;
-		sfpD2) 		/root/multiCard/sfpLinkTest.sh --uut-pn="PE310G4BPI71-SR" $@;;
-		sfpD3) 		/root/multiCard/sfpLinkTest.sh --uut-pn="PE310G2BPI71-SR" $@;;
-		sfpD4) 		/root/multiCard/sfpLinkTest.sh --uut-pn="PE310G4DBIR" $@;;
-		sfpD5) 		/root/multiCard/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-CX" $@;;
-		sfpD5-1)	/root/multiCard/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-SP" $@;;
-		sfpD6) 		/root/multiCard/sfpLinkTest.sh --uut-pn="PE31625G4I71L-XR-CX" $@;;
-		sfpD7) 		/root/multiCard/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
+		acc) 		${MC_SCRIPT_PATH}/acc_diag_lib.sh;;
+		acc1)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3IS2CO3LS" $@;;
+		acc2)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3IS2CO3LS-CX" $@;;
+		acc3)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE2ISCO3-CX" $@;;
+		acc4)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3ISLBTL" $@;;
+		acc4-1)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3ISLBTL-FU" $@;;
+		acc4-2)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3ISLBTL-FN" $@;;
+		acc5)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3ISLBLL" $@;;
+		acc6)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE316IS2LBTLB-CX" $@;;
+		acc7)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="P3IMB-M-P1" $@;;
+		sfpD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SR" $@;;
+		sfpD1-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SRSD-BC8" $@;;
+		sfpD1-2)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SR-SD" $@;;
+		sfpD1-3)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SRD-SD" $@;;
+		sfpD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI71-SR" $@;;
+		sfpD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G2BPI71-SR" $@;;
+		sfpD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4DBIR" $@;;
+		sfpD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-CX" $@;;
+		sfpD5-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-SP" $@;;
+		sfpD6) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE31625G4I71L-XR-CX" $@;;
+		sfpD7) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
 		showSlots) 	showPciSlots;;
 		transRep)	
 			testFileExist "/root/PE310G4BPI71"

@@ -20,6 +20,8 @@ parseArgs() {
 			uut-slot-num) uutSlotArg=${VALUE} ;;	
 			master-slot-num) masterSlotArg=${VALUE} ;;
 			uut-pn) pnArg=${VALUE} ;;
+			uut-tn) tnArg=${VALUE} ;;
+			uut-rev) revArg=${VALUE} ;;
 			ignore-dumps-fail) ignDumpFail=1;;
 			skip-init) skipInit=1;;
 			silent) silentMode=1 ;;
@@ -40,8 +42,12 @@ showHelp() {
 	echo -e " --uut-slot-num=NUMBER"
 	echo -e "\tUse specific slot for UUT\n"
 	echo -e " --master-slot-num=NUMBER"
-	echo -e "\tPN of UUT\n"
+	echo -e "\tProduct number of UUT\n"
 	echo -e " --uut-pn=NUMBER"	
+	echo -e "\tTracking number of UUT\n"
+	echo -e " --uut-tn=NUMBER"	
+	echo -e "\tRevision of UUT\n"
+	echo -e " --uut-rev=NUMBER"	
 	echo -e "\tUse specific slot for traffic generation card\n"	
 	echo -e " --skip-init"	
 	echo -e "\tDoes not initializes the card\n"	
@@ -207,7 +213,7 @@ startupInit() {
 	test "$skipInit" = "1" || {
 		echo "  Searching $baseModel init sequence.."
 		case "$baseModel" in
-			PE310G4BPI71-SR) bpi71SrInit;;
+			PE310G4BPI71) bpi71SrInit;;
 			PE310G2BPI71-SR) bpi71SrInit;;
 			PE310G4DBIR) g4dbirInit;;
 			PE210G2BPI9) bpi71SrInit;;
@@ -233,8 +239,8 @@ checkRequiredFiles() {
 	)
 	
 	case "$baseModel" in
-		PE310G4BPI71-SR) 
-			echo "  File list: PE310G4BPI71-SR"						
+		PE310G4BPI71) 
+			echo "  File list: PE310G4BPI71"						
 		;;
 		PE310G2BPI71-SR) 
 			echo "  File list: PE310G2BPI71-SR"
@@ -284,7 +290,7 @@ checkRequiredFiles() {
 		;;
 		*) exitFail "Unknown baseModel: $baseModel"
 	esac
-	
+
 	test ! -z "$(echo ${filesArr[@]})" && {
 		for filePath in "${filesArr[@]}";
 		do
@@ -297,6 +303,180 @@ checkRequiredFiles() {
 		done
 	}
 	echo -e " Done."
+}
+
+checkFwFile() {
+	local fwFilePath
+	privateVarAssign "checkFwFile" "fwFilePath" "$*"
+
+	testFileExist "$fwFilePath" "true"
+	test "$?" = "1" && {
+		echo -e "  \e[0;31mfail.\e[m"
+		exitFail "FW file not found!"
+	} || echo -e "  \e[0;32mok.\e[m"
+}
+
+checkFWFiles() {
+	local filePath filesArr
+	echo -e " Checking required FW files.."
+	
+	declare -a filesArr=(
+		"/root/multiCard/arturLib.sh"
+	)
+
+	if [[ -z "$fwPath" ]]; then
+		getFwFromServ "$baseModel" "$fwSyncPn"
+	fi
+
+	fwFolder=$(basename $fwPath)
+
+	case "$fwSyncPn" in
+		Pe310g4bpi71.SR)
+			echo "  FW Files list: PE310G4BPI71-SR"	
+			case "$fwFolder" in
+				3.30)	fwFileName="PE310G4BPi71-SRD_2v00.bin"	;;
+				3.50)	fwFileName="PE310G4BPi71-SRD_3v00.bin"	;;
+				3.80)	fwFileName="PE310G4BPi71-SRD_5v00.bin"	;;
+				5.50)	fwFileName="PE310G4BPi71-SRD_8r15-7v00.bin"	;;
+				*) warn "checkFWFiles exception, unknown fwFolder: $fwFolder"
+			esac
+		;;
+		PE310G2BPI71-SR)
+			echo "  FW Files list: PE310G2BPI71-SR"
+			inform "\t UNDEFINED!"
+		;;
+		PE310G4DBIR)
+			echo "  FW Files list: PE310G4DBIR"
+			inform "\t UNDEFINED!"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/PE310G4DBIR"
+			)
+		;;
+		PE210G2BPI9)
+			echo "  FW Files list: PE210G2BPI9"
+			inform "\t UNDEFINED!"
+		;;
+		PE325G2I71)
+			echo "  FW Files list: PE325G2I71"
+			inform "\t UNDEFINED!"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/PE325G2I71"
+			)
+		;;
+		PE31625G4I71L)
+			echo "  FW Files list: PE31625G4I71L-XR-CX"
+			inform "\t UNDEFINED!"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/PE31625G4I71L"
+			)
+		;;
+		M4E310G4I71)
+			echo "  FW Files list: M4E310G4I71"
+			inform "\t UNDEFINED!"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/M4E310G4I71"
+			)
+		;;
+		*) exitFail "checkFWFiles exception, unknown baseModel: $baseModel"
+	esac
+	
+	declare -a filesArr=(
+		${filesArr[@]}
+		"$baseModelPath"
+		"$baseModelPath/$fwFileName"
+	)
+
+
+	echo "  FW Path: $fwPath"
+	echo "  FW File: $fwFileName"
+
+	test ! -z "$(echo ${filesArr[@]})" && {
+		for filePath in "${filesArr[@]}";
+		do
+			testFileExist "$filePath" "true"
+			test "$?" = "1" && {
+				echo -e "  \e[0;31mfail.\e[m"
+				echo -e "  \e[0;33mPath: $filePath does not exist! Starting sync.\e[m"
+				getFwFromServ "$baseModel" "$fwSyncPn"
+			} || echo -e "  \e[0;32mok.\e[m"
+		done
+	}
+
+	echo -e " Done."
+}
+
+patchFwFile() {
+	local rev revOffset track trackOffset timePatch timeOffset patchedFwFile revEndAddr trackEndAddr status
+	privateVarAssign "patchFwFile" "revOffset" "$1" 	;shift
+	privateVarAssign "patchFwFile" "rev" "$1" 			;shift
+	privateVarAssign "patchFwFile" "trackOffset" "$1" 	;shift
+	privateVarAssign "patchFwFile" "track" "$1" 		;shift
+	test -z "$fwFileName" && warn "patchFwFile exception, fwFileName is undefined"
+	timePatch=$(date --rfc-3339=date |tr -d '-' |cut -c 3-8)
+
+	patchedFwFile=$(echo -n "$baseModelPath/${fwFileName%.*}_patched.${fwFileName##*.}")
+	cp "$baseModelPath/$fwFileName" "$patchedFwFile"
+
+	echo -e "   Patching FW file.."
+	echo -e "    Base FW file: $baseModelPath/$fwFileName"
+	echo -e "    Patched FW file: $patchedFwFile"
+	echo -e "    Tracking: $track"
+	echo -e "    Revision: $rev"
+	echo -e "    Date: $timePatch"
+	
+	if [[ -e "$patchedFwFile" ]]; then
+		fwCurSize=$(stat -L -- "$patchedFwFile" |grep Size: |awk '{print $2}')
+		revOffset=$((16#$(echo -n "$revOffset" | tr '[:lower:]' '[:upper:]' |rev |awk -F'X0' '{print $1}' |rev)))
+		trackOffset=$((16#$(echo -n "$trackOffset" | tr '[:lower:]' '[:upper:]' |rev |awk -F'X0' '{print $1}' |rev)))
+		let timeOffset=$revOffset+6
+		revEndAddr=$(( $revOffset + $(echo -n $rev | wc -c) ))
+		timeEndAddr=$(( $timeOffset + $(echo -n $timePatch | wc -c) ))
+		trackEndAddr=$(( $trackOffset + $(echo -n $track | wc -c) ))
+		
+		dmsg inform "fwCurSize=$fwCurSize\nrevOffset=$revOffset\ntrackOffset=$trackOffset\nrevEndAddr=$revEndAddr\ntrackEndAddr=$trackEndAddr\ntimePatch=$timePatch\ntimeEndAddr=$timeEndAddr"
+
+		if (( "$fwCurSize" >= "$revEndAddr" )); then
+			echo -n "$rev" | dd bs=1 seek=$revOffset of="$patchedFwFile" conv=notrunc >/dev/null 2>&1
+			if [[ "$?" -eq "0" ]]; then echo "    Revision patched."; else exitFail "  Failed to patch revision"'!'; let status+=$?; fi
+		else
+			exitFail "patchFwFile exception, revision length exceeds the FW size and cannot be patched onto it!"
+		fi
+		if (( "$fwCurSize" >= "$timeEndAddr" )); then
+			echo -n "$timePatch" | dd bs=1 seek=$timeOffset of="$patchedFwFile" conv=notrunc >/dev/null 2>&1
+			if [[ "$?" -eq "0" ]]; then echo "    Date patched."; else exitFail "  Failed to patch date"'!'; let status+=$?; fi
+		else
+			exitFail "patchFwFile exception, date length exceeds the FW size and cannot be patched onto it!"
+		fi
+		if (( "$fwCurSize" >= "$trackEndAddr" )); then
+			echo -n "$track" | dd bs=1 seek=$trackOffset of="$patchedFwFile" conv=notrunc >/dev/null 2>&1
+			if [[ "$?" -eq "0" ]]; then echo "    Tracking patched."; else exitFail "  Failed to patch tracking"'!'; let status+=$?; fi
+		else
+			exitFail "patchFwFile exception, track length exceeds the FW size and cannot be patched onto it!"
+		fi
+
+
+		if [[ "$status" -eq "0" ]]; then
+			echo -e "   Patching done!"
+		else
+			exitFail "\tFW Patching failed!"
+		fi
+	else
+		exitFail "patchFwFile exception, patchedFwFile is not found by path: $patchedFwFile"
+	fi
+}
+
+burnCardFw() {
+	privateVarAssign "burnCardFw" "slotNum" "$1"
+	# $uutSlotBus
+	acquireVal "UUT Tracking number" tnArg uutTn
+	acquireVal "UUT Revision" revArg uutRev
+
+	checkFWFiles
+	patchFwFile $pnRevDumpOffset $uutRev $tnDumpOffset $uutTn
 }
 
 setupLinks() {
@@ -393,8 +573,10 @@ defineRequirments() {
 			let tnDumpLen=13
 			tdDumpOffset="0x872"
 			let tdDumpLen=6
-			baseModel="PE310G4BPI71-SR"
+			baseModel="PE310G4BPI71"
 			syncPn="PE310G4BPI71-SR"
+			fwSyncPn="Pe310g4bpi71.SR"
+			baseModelPath="/root/PE310G4BPI71"
 			physEthDevId="15A4"
 			bpCtlMode="bpctl"
 			
@@ -770,7 +952,7 @@ switchBP() {
 	privateVarAssign "switchBP" "newState" "$2"
 	test ! -z "$(echo -n $mastBpBuses |grep $bpBus)" && baseModelLocal="$mastBaseModel" || baseModelLocal="$baseModel"
 	case "$baseModelLocal" in
-		PE310G4BPI71-SR) bpCtlCmd="bpctl_util";;
+		PE310G4BPI71) bpCtlCmd="bpctl_util";;
 		PE310G2BPI71-SR) bpCtlCmd="bpctl_util";;
 		PE310G4DBIR) bpCtlCmd="bprdctl_util";;
 		PE210G2BPI9) bpCtlCmd="bpctl_util";;
@@ -915,7 +1097,7 @@ netInfoDump() {
 	}
 	
 	case "$baseModelLocal" in
-		PE310G4BPI71-SR) 
+		PE310G4BPI71) 
 			dumpRegsPE310GxBPI71 
 			printRegsPE310GxBPI71
 		;;
@@ -1028,7 +1210,7 @@ bpSwitchTests() {
 
 trafficTests() {
 	case "$baseModel" in
-		PE310G4BPI71-SR) inform "Traffic tests are not defined for $baseModel";;
+		PE310G4BPI71) inform "Traffic tests are not defined for $baseModel";;
 		PE310G2BPI71-SR) inform "Traffic tests are not defined for $baseModel";;
 		PE310G4DBIR) inform "Traffic tests are not defined for $baseModel";;
 		PE210G2BPI9) inform "Traffic tests are not defined for $baseModel";;
@@ -1077,7 +1259,7 @@ assignBuses() {
 			acc) publicVarAssign critical accBuses $(grep '0b40' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
 			bp) 
 				case "$baseModel" in
-					PE310G4BPI71-SR) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
+					PE310G4BPI71) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 					PE310G2BPI71-SR) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 					PE310G4DBIR) publicVarAssign critical bpBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 					PE210G2BPI9) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
@@ -1179,7 +1361,7 @@ echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
 	setEmptyDefaults
 	initialSetup
 	startupInit
-	source /root/PE310G4BPI71/library.sh 2>&1 > /dev/null	
+	source /root/PE310G4BPI71/library.sh 2>&1 > /dev/null
 	main
 	echo -e "See $(inform "--help" "--nnl" "--sil") for available parameters\n"
 }
