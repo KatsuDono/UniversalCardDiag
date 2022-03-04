@@ -495,7 +495,7 @@ function selectProgVer () {
 
 	subfCount=${#searchDirFolders[@]}
 	if [[ ! -z $subfCount ]]; then
-		echo "    There are ${#searchDirFolders[@]} versions available"
+		echo "    here are ${#searchDirFolders[@]} versions available"
 		select dir in "${searchDirFolders[@]}"; do 
 			echo "    Ver: $(basename ${dir}) selected"'!'
 			cd ${dir} >/dev/null
@@ -648,8 +648,9 @@ testLinks() {
 		if [ -z "$linkAcqRes" -a "$linkReq" = "yes" ]; then
 			test $r -gt 0 && sleep $globLnkUpDel
 			case "$uutModel" in
-				PE310G4BPI71-SR) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
+				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE310G2BPI71-SR) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
+				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE310G4DBIR) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
 					test "$netId" = "0" && linkReq="no"
@@ -688,8 +689,9 @@ getEthRates() {
 		if [ -z "$linkAcqRes" -a "$speedReq" != "Fail" ] || [ "$speedReq" != "Fail" -a -z "$(echo $linkAcqRes |grep $speedReq)" ]; then
 			test $r -gt 0 && sleep 1
 			case "$uutModel" in
-				PE310G4BPI71-SR) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G2BPI71-SR) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4DBIR) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
 					test "$netId" = "0" && speedReq="Fail"
@@ -750,6 +752,26 @@ net2bus() {
 	privateVarAssign "net2bus" "net" "$1"
 	bus=$(grep PCI_SLOT_NAME /sys/class/net/*/device/uevent |grep "$net" |cut -d ':' -f3-)
 	test -z "$bus" && exitFail "net2bus exception, bus returned nothing!" $PROC || echo -e -n "$bus"
+}
+
+filterDevsOnBus() {
+	local sourceBus filterDevs devsTotal
+	privateVarAssign "devsOnBus" "sourceBus" "$1"	;shift
+	privateVarAssign "devsOnBus" "filterDevs" "$*"
+	privateVarAssign "devsOnBus" "devsOnSourceBus" $(ls -l /sys/bus/pci/devices/ |grep $sourceBus |awk -F/ '{print $NF}')
+
+	for devName in ${filterDevs[@]}; do
+		for devOnSourceBus in "${devsOnSourceBus[@]}"; do
+			echo "$devOnSourceBus"
+		done | grep "$devName" > /dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			devsTotal+=( "$devName" )
+			dmsg inform "$devName is from source bus devs list"
+		else
+			dmsg inform "$devName is not related to source bus"
+		fi
+	done
+	if [[ ! -z "$devsTotal" ]]; then echo -n ${devsTotal[@]}; fi
 }
 
 clearPciVars() {

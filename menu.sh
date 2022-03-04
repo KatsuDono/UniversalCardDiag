@@ -7,6 +7,13 @@ parseArgs() {
 		VALUE=$(echo $ARG |cut -f2 -d=)
 		case "$KEY" in
 			debug) debugMode=1 ;;
+			help)
+				echoSection "ACC diagnostics"
+				${MC_SCRIPT_PATH}/acc_diag_lib.sh --help
+				echoSection "SFP diagnostics"
+				${MC_SCRIPT_PATH}/sfpLinkTest.sh --help
+				exit
+			;;
 			menu-choice) menuChoice=${VALUE} ;;
 			*) dmsg echo "Unknown arg: $ARG"
 		esac
@@ -39,6 +46,7 @@ main() {
 		"sfpD1-2" 	"| PE210G2BPI9-SR-SD"
 		"sfpD1-3" 	"| PE210G2BPI9-SRD-SD"
 		"sfpD2" 	"| PE310G4BPI71-SR"
+		"sfpD2-1" 	"| PE310G4BPI71-LR"
 		"sfpD3" 	"| PE310G2BPI71-SR"
 		"sfpD4" 	"| PE310G4DBIR"
 		"sfpD5" 	"| PE325G2I71-XR-CX"
@@ -46,16 +54,17 @@ main() {
 		"sfpD6" 	"| PE31625G4I71L-XR-CX"
 		"sfpD7" 	"| M4E310G4I71-XR-CP2"
 		"delim" 	"==========================="
+		"delim" 	"|  RJ45 CARDS"
+		"rjD1" 		"| PE310G4BPI40"
+		"delim" 	"==========================="
 		"delim" 	"|  Etc.."
-		"transRep" "| PE310G4BPI71-SR (transceiver check"
+		"transRep" 	"| PE310G4BPI71-SR (transceiver check"
 		"transRep1" "| PE310G4BPI71-SR (transceiver clone)"
 		"delim" 	"==========================="
 		"Exit" 		"| Exit"
 		"delim" 	"==========================="
 	)
-	
-	testFileExist "/root/multiCard/"
-	export MC_SCRIPT_PATH=/root/multiCard
+
 	testFileExist "${MC_SCRIPT_PATH}/acc_diag_lib.sh"
 	testFileExist "${MC_SCRIPT_PATH}/sfpLinkTest.sh"
 	test -z "$menuChoice" && whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" 29 45 20 ${cardArgs[@]} 3>&2 2>&1 1>&3) || whptRes=$menuChoice
@@ -75,12 +84,14 @@ main() {
 		sfpD1-2)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SR-SD" $@;;
 		sfpD1-3)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SRD-SD" $@;;
 		sfpD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI71-SR" $@;;
+		sfpD2-1) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI71-LR" $@;;
 		sfpD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G2BPI71-SR" $@;;
 		sfpD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4DBIR" $@;;
 		sfpD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-CX" $@;;
 		sfpD5-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-SP" $@;;
 		sfpD6) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE31625G4I71L-XR-CX" $@;;
 		sfpD7) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
+		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40" $@;;
 		showSlots) 	showPciSlots;;
 		transRep)	
 			testFileExist "/root/PE310G4BPI71"
@@ -105,6 +116,7 @@ echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
 trap "exit 1" 10
 PROC="$$"
 libPath="/root/multiCard/arturLib.sh"
+export MC_SCRIPT_PATH=/root/multiCard
 if [[ -e "$libPath" ]]; then 
 	echo -e "  \e[0;32mLib found.\e[m"
 	source $libPath
