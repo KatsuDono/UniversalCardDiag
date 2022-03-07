@@ -130,14 +130,18 @@ passMsg() {	#nnl = no new line  #sil = silent mode
 }
 
 dmsg() {
-	if [ "$debugMode" == "1" ]; then
-		if [ "$debugBrackets" == "0" ]; then
-			echo -e -n "dbg> "; "$@"
-		else
-			inform "DEBUG> " --nnl
-			"$@"
-			inform "< DEBUG END"
+	if [[ ! -z "$@" ]]; then
+		if [ "$debugMode" == "1" ]; then
+			if [ "$debugBrackets" == "0" ]; then
+				echo -e -n "dbg> "; "$@"
+			else
+				inform "DEBUG> " --nnl
+				"$@"
+				inform "< DEBUG END"
+			fi
 		fi
+	else
+		inform "dmsg exception, input parameters undefined!"
 	fi
 }
 
@@ -377,7 +381,7 @@ drawPciSlot() {
 	local addEl excessSymb cutText color slotWidthInfo pciInfoRes curLine curLineCut
 	slotNum=$1
 	shift
-	test ! -z "$(echo $* |grep '\-\- Empty \-\-')" || {
+	test ! -z "$(echo $* |grep '\-\- Empty ')" || {
 		widthInfo=$1
 		shift
 		slotWidthInfo="  Width Cap: $widthInfo"
@@ -385,7 +389,8 @@ drawPciSlot() {
 	cutText=$(echo $* |cut -c1-56)
 	let excessSymb=56-${#cutText}
 	for ((e=0;e<=excessSymb;e++)); do addEl="$addEl "; done
-	test "$cutText" = "-- Empty --" && color='\e[0;31m' || color='\e[0;32m'
+	test ! -z "$(echo $cutText |grep '\-\- Empty ')" && color='\e[0;31m' || color='\e[0;32m'
+	#test "$cutText" = "-- Empty --" && color='\e[0;31m' || color='\e[0;32m'
 
 	echo -e "\n\t-------------------------------------------------------------------------"
 	echo -e "\t░ Slot: $slotNum  ░  $color$cutText$addEl\e[m ░$slotWidthInfo"
@@ -406,7 +411,7 @@ drawPciSlot() {
 }
 
 showPciSlots() {
-	local slotBuses slotNum slotBusRoot bpBusesTotal
+	local slotBuses slotNum slotBusRoot bpBusesTotal 
 	echoSection "PCI Slots"
 	slotBuses=$(dmidecode -t slot |grep Bus |cut -d: -f3)
 	let slotNum=0
@@ -417,27 +422,67 @@ showPciSlots() {
 	fi
 	for slotBus in $slotBuses; do
 		let slotNum=$slotNum+1
-		test "$slotBus" = "ff" && drawPciSlot $slotNum "-- Empty --" || {
-			slotBusRoot=$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
-			test -z "$slotBusRoot" && drawPciSlot $slotNum "-- Empty --" || {
-				gatherPciInfo $slotBusRoot
-				dmsg debugPciVars
-				declare -a pciArgs=(
-					"--plx-keyw=Physical Slot:"
-					"--plx-virt-keyw=ABWMgmt+"
-					"--spc-buses=$spcBuses"
-					"--eth-buses=$ethBuses"
-					"--plx-buses=$plxBuses"
-					"--acc-buses=$accBuses"
-					"--bp-buses=$bpBuses"
-					"--info-mode"
-					"--target-bus=$slotBusRoot"
-				)
-				drawPciSlot $slotNum $pciInfoDevCapWidth $(lspci -s $slotBus:)
-			}
-		}
+		if [[ "$slotBus" = "ff" ]]; then 
+			drawPciSlot $slotNum "-- Empty --" 
+		else
+			falseDetect=$(ls /sys/bus/pci/devices/ |grep -w "0000:$slotBus")
+			#slotBusRoot=$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
+			#test -z "$slotBusRoot" && drawPciSlot $slotNum "-- Empty --" || {
+			if [[ -z "$falseDetect" ]]; then
+				drawPciSlot $slotNum "-- Empty (dmi failure) --"
+			else
+				test -z "$slotBus" && drawPciSlot $slotNum "-- Empty --" || {
+					gatherPciInfo $slotBus
+					dmsg debugPciVars
+					declare -a pciArgs=(
+						"--plx-keyw=Physical Slot:"
+						"--plx-virt-keyw=ABWMgmt+"
+						"--spc-buses=$spcBuses"
+						"--eth-buses=$ethBuses"
+						"--plx-buses=$plxBuses"
+						"--acc-buses=$accBuses"
+						"--bp-buses=$bpBuses"
+						"--info-mode"
+						"--target-bus=$slotBus"
+					)
+					drawPciSlot $slotNum $pciInfoDevCapWidth $(lspci -s $slotBus:)
+				}
+			fi
+		fi
 	done
 	echo -e "\n\n"
+}
+
+function selectSlot () {
+	local slotBuses slotBus busesOnSlots devsOnSlots populatedSlots slotSelRes totalDevList populatedBuses selDesc activeSlots
+	
+	privateVarAssign "selectSlot" "selDesc" "$1"
+	echo -e "$selDesc"
+
+	slotBuses=$(dmidecode -t slot |grep Bus |cut -d: -f3)
+	let slotNum=1
+	for slotBus in $slotBuses; do
+		if [[ ! "$slotBus" = "ff" ]]; then
+			busesOnSlots+=( "$slotBus" )
+			devsOnSlots+=( "$(lspci -s $slotBus: |cut -c1-70 |head -n 1)" )
+			populatedSlots+=( "$slotNum" )
+		fi
+		let slotNum+=1
+	done
+	if [[ ! -z "${devsOnSlots[@]}" ]]; then
+		for ((e=0;e<=${#busesOnSlots[@]};e++)); 
+		do 
+			if [[ ! -z "${devsOnSlots[$e]}" ]]; then
+				populatedBuses+=(${busesOnSlots[$e]})
+				activeSlots+=(${populatedSlots[$e]})
+				totalDevList+=("Slot ${populatedSlots[$e]} : ${devsOnSlots[$e]}")
+			fi
+		done
+		slotSelRes=$(select_opt "${totalDevList[@]}")
+		return ${activeSlots[$slotSelRes]}
+	else
+		warn "selectSlot exception, no populated slots detected!"
+	fi
 }
 
 echoRes() {
@@ -651,6 +696,7 @@ testLinks() {
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE310G2BPI71-SR) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
+				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE310G4DBIR) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
 					test "$netId" = "0" && linkReq="no"
@@ -692,6 +738,7 @@ getEthRates() {
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G2BPI71-SR) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4DBIR) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
 					test "$netId" = "0" && speedReq="Fail"
@@ -711,8 +758,8 @@ getEthRates() {
 	done
 	
 	test ! -z "$linkAcqRes" && {
-		test -z "$(echo $linkAcqRes |grep $speedReq)" && {
-			echo -e -n "\e[0;31m$(echo $linkAcqRes |cut -d: -f2-)\e[m" 
+		test -z "$(echo $linkAcqRes |sed 's/[^0-9]*//g' |grep -x $speedReq)" && {
+			echo -e -n "\e[0;31m$(echo $linkAcqRes |cut -d: -f2-) (FAIL)\e[m" 
 		} || {
 			test "$speedReq" = "Fail" && echo -e -n "\e[0;32m-\e[m" || echo -e -n "\e[0;32m$(echo $linkAcqRes |cut -d: -f2-)\e[m"
 		}
@@ -756,9 +803,15 @@ net2bus() {
 
 filterDevsOnBus() {
 	local sourceBus filterDevs devsTotal
-	privateVarAssign "devsOnBus" "sourceBus" "$1"	;shift
-	privateVarAssign "devsOnBus" "filterDevs" "$*"
-	privateVarAssign "devsOnBus" "devsOnSourceBus" $(ls -l /sys/bus/pci/devices/ |grep $sourceBus |awk -F/ '{print $NF}')
+	if [[ -z "$debugMode" ]]; then  # it is messing up assignBuses because of debug messages
+		privateVarAssign "devsOnBus" "sourceBus" "$1"	;shift
+		privateVarAssign "devsOnBus" "filterDevs" "$*"
+		privateVarAssign "devsOnBus" "devsOnSourceBus" $(ls -l /sys/bus/pci/devices/ |grep $sourceBus |awk -F/ '{print $NF}')
+	else
+		sourceBus="$1"	;shift
+		filterDevs="$*"
+		devsOnSourceBus=$(ls -l /sys/bus/pci/devices/ |grep $sourceBus |awk -F/ '{print $NF}')
+	fi
 
 	for devName in ${filterDevs[@]}; do
 		for devOnSourceBus in "${devsOnSourceBus[@]}"; do
@@ -766,9 +819,10 @@ filterDevsOnBus() {
 		done | grep "$devName" > /dev/null 2>&1
 		if [ $? -eq 0 ]; then
 			devsTotal+=( "$devName" )
-			dmsg inform "$devName is from source bus devs list"
+			#dmsg inform "$devName is from source bus devs list"
 		else
-			dmsg inform "$devName is not related to source bus"
+			echo -n "" #placeholder
+			#dmsg inform "$devName is not related to source bus"
 		fi
 	done
 	if [[ ! -z "$devsTotal" ]]; then echo -n ${devsTotal[@]}; fi
@@ -848,6 +902,7 @@ listDevsPciLib() {
 	local spcBuses spcDevId spcDevQtyReq spcKernReq spcDevSpeed spcDevWidth spcOnDevBus
 	local plxKeyw plxVirtKeyw plxEmptyKeyw
 	local listPciArg argsTotal infoMode
+	local netRes
 	
 	argsTotal=$*
 	
@@ -987,9 +1042,11 @@ listDevsPciLib() {
 	#}
 	test -z "$targBus" && exitFail "listDevsPciLib exception, targBus is undefined"
 	# slotBus root is now defined earlier
-	# privateVarAssign "listDevsPciLib" "slotBus" $(ls -l /sys/bus/pci/devices/ |grep -m1 :$targBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
+	dmsg inform "SLOTBUS=$slotBus"
+	dmsg inform "targBus=$targBus"
+	privateVarAssign "listDevsPciLib" "slotBus" "$(ls -l /sys/bus/pci/devices/ |grep -m1 :$targBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')"
 
-	slotBus=$targBus
+	#slotBus=$targBus
 	dmsg inform "slotBus=$slotBus"
 	
 	if [[ -z $infoMode ]]; then
@@ -1014,14 +1071,14 @@ listDevsPciLib() {
 
 	test ! -z "$plxBuses" && {
 		for bus in $plxBuses ; do
-			exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -v $slotBus |grep -w $bus)
+			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || plxOnDevBus=$(echo $plxOnDevBus $bus)
 		done
 	}
 	test ! -z "$accBuses" && {
 		for bus in $accBuses ; do
 			#exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -w $bus)
-			exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -v $slotBus |grep -w $bus)
+			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
 
 			test -z "$exist" || accOnDevBus=$(echo $accOnDevBus $bus)
 		done
@@ -1035,13 +1092,13 @@ listDevsPciLib() {
 	test ! -z "$ethBuses" && {
 		for bus in $ethBuses ; do
 			#exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -w $bus)
-			exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -v $slotBus |grep -w $bus)
+			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || ethOnDevBus=$(echo $ethOnDevBus $bus)
 		done
 	}
 	test ! -z "$bpBuses" && {
 		for bus in $bpBuses ; do
-			exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -w $bus)
+			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || bpOnDevBus=$(echo $bpOnDevBus $bus)
 		done
 	}
@@ -1214,7 +1271,8 @@ listDevsPciLib() {
 					echo -e "\t "'|'" $ethBus: ETH Physical Device: $pciInfoDevDesc"
 					echo -e -n "\t "'|'" $(speedWidthComp $ethDevSpeed $pciInfoDevSpeed $ethDevWidth $pciInfoDevWidth)"
 				else
-					echo -e "$ethBus: ETH Phys: $pciInfoDevDesc"
+					netRes=$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $ethBus|awk -F/ '{print $NF}')
+					echo -e "$ethBus: ETH Phys (\e[0;33m$netRes\e[m): $pciInfoDevDesc"
 					echo -e -n "\t  $pciInfoDevLnkSta"
 				fi
 			else
@@ -1225,7 +1283,8 @@ listDevsPciLib() {
 					echo -e -n "\t "'|'" $(speedWidthComp $ethVirtDevSpeed $pciInfoDevSpeed $ethVirtDevWidth $pciInfoDevWidth)"
 					#echo "DEBUG: $ethBus have subordinate"
 				else
-					echo -e "$ethBus: ETH Virt: $pciInfoDevDesc"
+					netRes=$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $ethBus|awk -F/ '{print $NF}')
+					echo -e "$ethBus: ETH Virt (\e[0;33m$netRes\e[m): $pciInfoDevDesc"
 					echo -e -n "\t  $pciInfoDevLnkSta"
 				fi
 			fi
@@ -1539,7 +1598,11 @@ qatTest() {
 }
 
 echoIfExists() {
-	test -z "$2" || echo "$1 $2"
+	test -z "$2" || {
+		echo -n "$1 "
+		shift
+		echo "$*"
+	}
 }
 
 rm -f /tmp/exitMsgExec

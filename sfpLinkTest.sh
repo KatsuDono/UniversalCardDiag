@@ -174,7 +174,7 @@ g4dbirInit() {
 	echo "  Defining PCi args"
 	dmsg inform "DEBUG1: ${pciArgs[@]}"
 	pciArgs=(
-		"--target-bus=$uutSlotBus"
+		"--target-bus=$uutBus"
 		
 		"--eth-buses=$ethBuses"
 		"--bp-buses=$bpBuses"
@@ -227,12 +227,13 @@ startupInit() {
 			PE310G4BPI71) bpi71SrInit;;
 			PE310G2BPI71-SR) bpi71SrInit;;
 			PE310G4BPI40) pe310g4bpi40Init;;
+			PE310G4I40) pe310g4bpi40Init;;
 			PE310G4DBIR) g4dbirInit;;
 			PE210G2BPI9) bpi71SrInit;;
 			PE325G2I71) pe325g2i71Init;;
 			PE31625G4I71L)	pe31625gi71lInit;;
 			M4E310G4I71)	m4E310g4i71Init;;
-			*) exitFail "Unknown baseModel: $baseModel"
+			*) exitFail "startupInit exception, unknown baseModel: $baseModel"
 		esac
 	}
 	echo -e "  Initializing master"
@@ -240,12 +241,13 @@ startupInit() {
 			PE310G4BPI71) bpi71SrInit;;
 			PE310G2BPI71-SR) bpi71SrInit;;
 			PE310G4BPI40) pe310g4bpi40Init;;
+			PE310G4I40) pe310g4bpi40Init;;
 			PE310G4DBIR) g4dbirInit;;
 			PE210G2BPI9) bpi71SrInit;;
 			PE325G2I71) pe325g2i71Init;;
 			PE31625G4I71L)	pe31625gi71lInit;;
 			M4E310G4I71)	m4E310g4i71Init;;
-			*) exitFail "Unknown mastBaseModel: $mastBaseModel"
+			*) exitFail "startupInit exception, unknown mastBaseModel: $mastBaseModel"
 		esac
 	echo "  Clearing temp log"; rm -f /tmp/statusChk.log 2>&1 > /dev/null
 	echo -e " Done.\n"
@@ -277,6 +279,14 @@ checkRequiredFiles() {
 				${filesArr[@]}				
 				"/root/PE310G4BPI40"
 				"/root/PE310G4BPI40/loadmod.sh"
+			)	
+		;;
+		PE310G4I40) 
+			echo "  File list: PE310G4I40"
+			declare -a filesArr=(
+				${filesArr[@]}				
+				"/root/PE310G4I40"
+				"/root/PE310G4I40/loadmod.sh"
 			)	
 		;;
 		PE310G4DBIR) 
@@ -322,7 +332,7 @@ checkRequiredFiles() {
 				"/root/M4E310G4I71"
 			)
 		;;
-		*) exitFail "Unknown baseModel: $baseModel"
+		*) exitFail "checkRequiredFiles exception, unknown baseModel: $baseModel"
 	esac
 
 	test ! -z "$(echo ${filesArr[@]})" && {
@@ -523,6 +533,7 @@ setupLinks() {
 			PE310G4BPI71) linkSetup=$(link_setup $allNets);;
 			PE310G2BPI71-SR) linkSetup=$(link_setup $allNets);;
 			PE310G4BPI40) linkSetup=$(link_setup $allNets);;
+			PE310G4I40) linkSetup=$(link_setup $allNets);;
 			PE310G4DBIR) linkSetup="$(/root/PE310G4DBIR/iplinkup.sh $uutSlotNum)";;
 			PE210G2BPI9) linkSetup=$(link_setup $allNets);;
 			PE325G2I71) linkSetup=$(link_setup $allNets);;
@@ -559,7 +570,36 @@ trafficTest() {
 			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
 		;;
 		PE310G2BPI71-SR) inform "Traffic test is not defined for $baseModel";;
-		PE310G4BPI40) inform "Traffic test is not defined for $baseModel";;
+		PE310G4BPI40) 
+			portQty=4
+			sendDelay=0x0
+			minSpeed=900
+			execFile="./pcipktgen.sh"  
+			rootDir="/root/PE310G4BPI40"
+			orderFile="order"
+			echo -n "1 2 3 4" >$rootDir/$orderFile
+			sourceDir="$(pwd)"
+			cd "$rootDir"
+			dmsg inform "pwd=$(pwd)"
+			dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
+			execScript "$execFile" "$pcktCnt $sendDelay $minSpeed $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Pktgen Test Passed" --exp-kw="PCI Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+		;;
+		PE310G4I40) 
+			portQty=4
+			sendDelay=0x0
+			minSpeed=900
+			execFile="./pcipktgen.sh"  
+			rootDir="/root/PE310G4I40"
+			orderFile="order"
+			echo -n "1 2 3 4" >$rootDir/$orderFile
+			sourceDir="$(pwd)"
+			cd "$rootDir"
+			dmsg inform "pwd=$(pwd)"
+			dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
+			execScript "$execFile" "$pcktCnt $sendDelay $minSpeed $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Pktgen Test Passed" --exp-kw="PCI Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+		;;
 		PE310G4DBIR) inform "Traffic test is not defined for $baseModel";;
 		PE210G2BPI9) inform "Traffic test is not defined for $baseModel";;
 		PE325G2I71) 
@@ -601,10 +641,19 @@ trafficTest() {
 	cd "$sourceDir" > /dev/null 2>&1
 }
 
+	# 0x002                       10baseT Full
+	# 0x008                       100baseT Full
+	# 0x020                       1000baseT Full
+	# 0x800000000000              2500baseT Full
+	# 0x1000000000000             5000baseT Full
+	# 0x1000                      10000baseT Full
+	# 0x80000000000               10000baseSR Full
+	# 0x100000000000              10000baseLR Full
+
 defineRequirments() {
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn"
-	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE310G4BPI40\|PE310G2BPI71-SR\|PE310G4DBIR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP") ]]; then
+	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE310G4DBIR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP") ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR") && {
@@ -633,7 +682,7 @@ defineRequirments() {
 			
 			assignBuses eth bp
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--eth-buses=$ethBuses"
 				"--eth-dev-id=$physEthDevId"
 				"--eth-kernel=$ethKern"
@@ -674,7 +723,7 @@ defineRequirments() {
 			
 			assignBuses eth bp
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--eth-buses=$ethBuses"
 				"--eth-dev-id=$physEthDevId"
 				"--eth-kernel=$ethKern"
@@ -700,6 +749,7 @@ defineRequirments() {
 			baseModelPath="/root/PE310G4BPI40"
 			physEthDevId="15A4"
 			bpCtlMode="bpctl"
+			uutDRates=("100" "1000" "10000")
 			
 			let physEthDevSpeed=5
 			let physEthDevWidth=8
@@ -719,7 +769,7 @@ defineRequirments() {
 
 			assignBuses plx eth bp
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--plx-buses=$plxBuses"
 				"--eth-buses=$ethBuses"
 				"--bp-buses=$bpBuses"
@@ -749,6 +799,62 @@ defineRequirments() {
 				"--eth-dev-width=$physEthDevWidth"
 				"--bp-dev-speed=$physEthDevSpeed"
 				"--bp-dev-width=$physEthDevWidth"
+			)
+		}
+
+		test ! -z $(echo -n $uutPn |grep "PE310G4I40") && {
+			ethKern="ixgbe"
+			let physEthDevQty=4
+			baseModel="PE310G4I40"
+			syncPn="PE310G4I40"
+			# fwSyncPn="Pe310g4bpi71.LR"
+			baseModelPath="/root/PE310G4I40"
+			physEthDevId="15A4"
+			uutDRates=("100" "1000" "10000")
+			
+			let physEthDevSpeed=5
+			let physEthDevWidth=8
+			
+			plxKern="pcieport"
+			let plxDevQty=1
+			let plxDevSubQty=2
+			let plxDevEmptyQty=1
+			plxDevId="8724"
+			let plxDevSpeed=8
+			let plxDevWidth=8
+			let plxDevSubSpeed=5
+			let plxDevSubWidth=8
+			plxDevEmptySpeed="2.5"
+			let plxDevEmptyWidth=0
+			
+
+			assignBuses plx eth
+			pciArgs=(
+				"--target-bus=$uutBus"
+				"--plx-buses=$plxBuses"
+				"--eth-buses=$ethBuses"
+
+				"--plx-dev-id=$plxDevId"
+				"--eth-dev-id=$physEthDevId"
+
+				"--plx-kernel=$plxKern"
+				"--eth-kernel=$ethKern"
+
+				"--plx-dev-qty=$plxDevQty"
+				"--plx-dev-sub-qty=$plxDevSubQty"
+				"--plx-dev-empty-qty=$plxDevEmptyQty"
+				"--eth-dev-qty=$physEthDevQty"
+
+				"--plx-dev-speed=$plxDevSpeed"
+				"--plx-dev-width=$plxDevWidth"
+				"--plx-dev-sub-speed=$plxDevSubSpeed"
+				"--plx-dev-sub-width=$plxDevSubWidth"
+				"--plx-dev-empty-speed=$plxDevEmptySpeed"
+				"--plx-dev-empty-width=$plxDevEmptyWidth"
+				"--plx-keyw=Physical Slot:"
+				"--plx-virt-keyw=ABWMgmt+"
+				"--eth-dev-speed=$physEthDevSpeed"
+				"--eth-dev-width=$physEthDevWidth"
 			)
 		}
 
@@ -809,7 +915,7 @@ defineRequirments() {
 			# assignBuses eth bp
 			# dmsg inform "DEBUG1: ${pciArgs[@]}"
 			# pciArgs=(
-				# "--target-bus=$uutSlotBus"
+				# "--target-bus=$uutBus"
 				# "--eth-buses=$ethBuses"
 				# "--eth-dev-id=$physEthDevId"
 				# "--eth-kernel=$ethKern"
@@ -852,7 +958,7 @@ defineRequirments() {
 			assignBuses eth bp
 			dmsg inform "DEBUG1: ${pciArgs[@]}"
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--eth-buses=$ethBuses"
 				"--eth-dev-id=$physEthDevId"
 				"--eth-kernel=$ethKern"
@@ -893,7 +999,7 @@ defineRequirments() {
 			assignBuses eth
 			dmsg inform "DEBUG1: ${pciArgs[@]}"
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--eth-buses=$ethBuses"
 				"--eth-dev-id=$physEthDevId"
 				"--eth-kernel=$ethKern"
@@ -928,7 +1034,7 @@ defineRequirments() {
 			assignBuses eth
 			dmsg inform "DEBUG1: ${pciArgs[@]}"
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--eth-buses=$ethBuses"
 				"--eth-dev-id=$physEthDevId"
 				"--eth-kernel=$ethKern"
@@ -963,7 +1069,7 @@ defineRequirments() {
 			assignBuses eth
 			dmsg inform "DEBUG1: ${pciArgs[@]}"
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--eth-buses=$ethBuses"
 				"--eth-dev-id=$physEthDevId"
 				"--eth-kernel=$ethKern"
@@ -980,6 +1086,7 @@ defineRequirments() {
 		echoIfExists "  BP count:" "$uutBpDevQty"
 		echoIfExists "  Physical Ethernet device count:" "$physEthDevQty"
 		echoIfExists "  Virtual Ethernet device count:" "$virtEthDevQty"
+		echoIfExists "  UUT Data rates:" ${uutDRates[@]}
 		echoIfExists "  UUT Physical Ethernet Kernel:" "$ethKern"
 		echoIfExists "  UUT Virtual Ethernet Kernel:" "$ethVirtKern"
 		echoIfExists "  Version dump offset:" "$verDumpOffset"
@@ -1036,7 +1143,7 @@ defineRequirments() {
 		mastDevId=1572
 		mastKern="i40e"
 		
-		mastPciArgs=("--target-bus=$mastSlotBus"
+		mastPciArgs=("--target-bus=$mastBus"
 				"--eth-buses=$mastEthBuses"
 				"--eth-dev-id=$mastDevId"
 				"--eth-kernel=$mastKern"
@@ -1076,7 +1183,7 @@ defineRequirments() {
 		mastPlxDevEmptySpeed="2.5"
 		let mastPlxDevEmptyWidth=0
 		mastPciArgs=(
-			"--target-bus=$mastSlotBus"
+			"--target-bus=$mastBus"
 			"--plx-buses=$plxBuses"
 			"--eth-buses=$ethBuses"
 			"--bp-buses=$mastBpBuses"
@@ -1113,12 +1220,13 @@ defineRequirments() {
 		PE310G4BPI71) mastSfpSrDefine;;
 		PE310G2BPI71-SR) mastSfpSrDefine;;
 		PE310G4BPI40) mastRjDefine;;
+		PE310G4I40) mastRjDefine;;
 		PE310G4DBIR) mastSfpSrDefine;;
 		PE210G2BPI9) mastSfpSrDefine;;
 		PE325G2I71) mastSfpSrDefine;;
 		PE31625G4I71L) mastSfpSrDefine;;
 		M4E310G4I71) mastSfpSrDefine;;
-		*) exitFail "defineRequirments exception, Unknown baseModel: $baseModel"
+		*) exitFail "defineRequirments exception, unknown baseModel: $baseModel"
 	esac
 
 	echoIfExists "  mastPciSpeedReq:" "$mastPciSpeedReq"
@@ -1177,14 +1285,15 @@ switchBP() {
 	local bpBus newState bpCtlCmd baseModelLocal
 	privateVarAssign "switchBP" "bpBus" "$1"
 	privateVarAssign "switchBP" "newState" "$2"
-	test ! -z "$(echo -n $mastBpBuses |grep $bpBus)" && baseModelLocal="$mastBaseModel" || baseModelLocal="$baseModel"
+	dmsg inform "switchBP, switching bpBus:$bpBus to state newState:$newState"
+	if [[ ! -z "$(echo -n $mastBpBuses |grep $bpBus)" ]]; then baseModelLocal="$mastBaseModel"; else baseModelLocal="$baseModel"; fi
 	case "$baseModelLocal" in
 		PE310G4BPI71) bpCtlCmd="bpctl_util";;
 		PE310G2BPI71-SR) bpCtlCmd="bpctl_util";;
 		PE310G4BPI40) bpCtlCmd="bpctl_util";;
 		PE310G4DBIR) bpCtlCmd="bprdctl_util";;
 		PE210G2BPI9) bpCtlCmd="bpctl_util";;
-		*) exitFail "Unknown baseModel: $baseModelLocal"
+		*) exitFail "switchBP exception, unknown baseModel: $baseModelLocal"
 	esac
 	test ! -z "$(echo $bpBuses$mastBpBuses |grep $bpBus)" && {
 		case "$newState" in
@@ -1229,6 +1338,7 @@ allBPBusMode() {
 	local bpBuses bpBus bpMode
 	bpBuses="$1"
 	bpMode="$2"
+	dmsg inform "allBPBusMode, switching all bpBuses:$bpBuses to state bpMode:$bpMode"
 	for bpBus in $bpBuses; do switchBP "$bpBus" "$bpMode"; done
 	echo -e -n "\n"
 }
@@ -1337,6 +1447,9 @@ netInfoDump() {
 		PE310G4BPI40) 
 			warn "  dumps not implemented for PE310G4BPI40"
 		;;
+		PE310G4I40) 
+			warn "  dumps not implemented for PE310G4I40"
+		;;
 		PE310G4DBIR) 
 			dumpRegsPE310G4DBIR
 			printRegsPE310G4DBIR
@@ -1363,7 +1476,9 @@ netInfoDump() {
 }
 
 bpSwitchTestsLoop() {
-	test ! -z "$bpBuses" && {
+	dmsg inform "bpDevQty=$bpDevQty bpBuses=$bpBuses"
+	test ! -z "$bpDevQty" && {
+		if [[ -z "$bpBuses" ]]; then exitFail "bpSwitchTestsLoop exception, bpBuses undefined!"; fi
 		allBPBusMode "$bpBuses" "inline"
 		allBPBusMode "$mastBpBuses" "inline"
 		sleep $globLnkUpDel
@@ -1403,12 +1518,113 @@ bpSwitchTestsLoop() {
 	allBPBusMode "$mastBpBuses" "inline"
 }
 
+checkCardDRate() {
+	local targRate targNets targModel targRole
+	privateVarAssign "checkCardDRate" "targRole" "$1"
+	shift
+	privateVarAssign "checkCardDRate" "targModel" "$1"
+	shift
+	privateVarAssign "checkCardDRate" "targRate" "$1"
+	shift
+	privateVarAssign "checkCardDRate" "targNets" "$*"
+
+	allNetAct "$targNets" "Check Data rates on $targRole nets" "getEthRates" "$targRate" "$targModel"
+}
+
+setDRate() {
+	local targRate targNets targModel targRole
+	privateVarAssign "checkCardDRate" "targNet" "$1"
+	privateVarAssign "checkCardDRate" "targRole" "$2"
+	privateVarAssign "checkCardDRate" "targModel" "$3"
+	privateVarAssign "checkCardDRate" "targRate" "$4"
+	
+
+	case "$targModel" in
+		PE310G4BPI71) 		warn "setDRate, not implemented for $targModel";;
+		PE310G2BPI71-SR) 	warn "setDRate, not implemented for $targModel";;
+		PE310G4BPI40) 		drateRes=$(ethtool -s $targNet speed $targRate duplex full autoneg off);;
+		PE310G4I40) 		drateRes=$(ethtool -s $targNet speed $targRate duplex full autoneg off);;
+		PE310G4DBIR) 		warn "setDRate, not implemented for $targModel";;
+		PE210G2BPI9) 		warn "setDRate, not implemented for $targModel";;
+		PE325G2I71) 		warn "setDRate, not implemented for $targModel";;
+		PE31625G4I71L) 		warn "setDRate, not implemented for $targModel";;
+		M4E310G4I71) 		warn "setDRate, not implemented for $targModel";;
+		*) exitFail "setDRate exception, Unknown targModel: $targModel"
+	esac
+
+	dmsg inform "drateRes=$drateRes"
+	test ! -z "$drateRes" && echo -e -n "\e[0;31mFAIL\e[m" || echo -e -n "\e[0;32mOK\e[m"
+}
+
+setCardDRate() {
+	local targRate targNets targModel targRole
+	privateVarAssign "setCardDRate" "targRole" "$1"
+	shift
+	privateVarAssign "setCardDRate" "targModel" "$1"
+	shift
+	privateVarAssign "setCardDRate" "targRate" "$1"
+	shift
+	privateVarAssign "setCardDRate" "targNets" "$*"
+
+	allNetAct "$targNets" "Set data rate to $targRate on $targRole" "setDRate" "$targRole" "$baseModel" "$targRate"
+}
+
+resetCardDrate() {
+	local targNet targSpeeds
+	privateVarAssign "resetCardDrate" "targNet" "$1"
+	shift
+	privateVarAssign "resetCardDrate" "targSpeeds" "$*"
+
+	dmsg inform "executing: ethtool -s $targNet $targSpeeds duplex full autoneg on"
+	rstRes=$(ethtool -s $targNet $targSpeeds duplex full autoneg on)
+	dmsg inform "rstRes=$rstRes"
+	test ! -z "$rstRes" && echo -e -n "\e[0;31mFAIL\e[m" || echo -e -n "\e[0;32mOK\e[m"
+}
+
+	# 0x002                       10baseT Full
+	# 0x008                       100baseT Full
+	# 0x020                       1000baseT Full
+	# 0x800000000000              2500baseT Full
+	# 0x1000000000000             5000baseT Full
+	# 0x1000                      10000baseT Full
+	# 0x80000000000               10000baseSR Full
+	# 0x100000000000              10000baseLR Full
+
+dataRateTest() {
+	local drate drateArg
+	dmsg inform "uutDRates=${uutDRates[@]}"
+	dmsg inform "uutDRates count=${#uutDRates[@]}"
+	if [[ ! "${#uutDRates[@]}" = "0" ]]; then
+		for drate in "${uutDRates[@]}"; 
+		do
+			drateArg+="speed $drate "
+			setCardDRate "UUT" "$baseModel" $drate $uutNets
+			setCardDRate "MASTER" "$mastBaseModel" $drate $mastNets
+			sleep $globLnkUpDel
+
+			checkCardDRate "UUT" "$baseModel" $drate $uutNets
+			allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel"
+			checkCardDRate "MASTER" "$mastBaseModel" $drate $mastNets
+			allNetAct "$mastNets" "Check links are UP on MASTER" "testLinks" "yes" "$mastBaseModel"
+		done
+
+		allNetAct "$uutNets" "Reseting data rate on UUT" "resetCardDrate" $drateArg
+		allNetAct "$mastNets" "Reseting data rate on MASTER" "resetCardDrate" $drateArg
+	else
+		warn "dataRateTest skipped, uutDRates is undefined!"
+	fi
+}
+
 bpSwitchTests() {
 	local options loopCount ethTotalQty firstBpEth
 	
 	echo -e "\n  Checking BP FW"
-	firstBpEth=$(echo $bpBuses |awk '{print $1}')
-	test -z "$firstBpEth" && warn "  Unable to acquire firstBpEth!" || checkBpFw "$firstBpEth" "$bpCtlMode"
+	if [[ ! -z "$bpBuses" ]]; then
+		firstBpEth=$(echo $bpBuses |awk '{print $1}')
+		test -z "$firstBpEth" && warn "  Unable to acquire firstBpEth!" || checkBpFw "$firstBpEth" "$bpCtlMode"
+	else
+		inform "\t Skipped, because no bpBuses present"
+	fi
 	echo -e "\n"
 	
 	echo -e "\n  Loop count:"
@@ -1444,13 +1660,28 @@ trafficTests() {
 	case "$baseModel" in
 		PE310G4BPI71) 
 			allBPBusMode "$mastBpBuses" "inline"
+			allBPBusMode "$bpBuses" "inline"
 			inform "\t  Sourcing $baseModel lib."
 			source /root/PE310G4BPI71/library.sh 2>&1 > /dev/null
 			sleep $globLnkUpDel
 			trafficTest "$uutSlotNum" 100000 "$baseModel"
 		;;
 		PE310G2BPI71-SR) inform "Traffic tests are not defined for $baseModel";;
-		PE310G4BPI40) inform "Traffic tests are not defined for $baseModel";;
+		PE310G4BPI40) 
+			allBPBusMode "$mastBpBuses" "bp"
+			allBPBusMode "$bpBuses" "inline"
+			inform "\t  Sourcing $baseModel lib."
+			source /root/PE310G4BPI40/library.sh 2>&1 > /dev/null
+			sleep $globLnkUpDel
+			trafficTest "$uutSlotNum" 1000000 "$baseModel"
+		;;
+		PE310G4I40) 
+			allBPBusMode "$mastBpBuses" "bp"
+			inform "\t  Sourcing $baseModel lib."
+			source /root/PE310G4I40/library.sh 2>&1 > /dev/null
+			sleep $globLnkUpDel
+			trafficTest "$uutSlotNum" 1000000 "$baseModel"
+		;;
 		PE310G4DBIR) inform "Traffic tests are not defined for $baseModel";;
 		PE210G2BPI9) inform "Traffic tests are not defined for $baseModel";;
 		PE325G2I71) 
@@ -1475,16 +1706,25 @@ trafficTests() {
 }
 
 checkIfFailed() {
-	local curStep severity
+	local curStep severity errMsg
 	
 	privateVarAssign "checkIfFailed" "curStep" "$1"
 	privateVarAssign "checkIfFailed" "severity" "$2"
 	curStep="$1"
 	severity="$2"
-	dmsg warn "\t checkIfFailed debug: $(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep FAIL)"
-	test ! -z "$(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep -e 'EXCEPTION\|UNABLE\|FAIL')" && {
-		test "$severity" = "warn" && warn "$curStep" ||	exitFail "$curStep"
-	}
+	if [[ -e "/tmp/statusChk.log" ]]; then
+		errMsg="$(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep -e 'EXCEPTION\|FAIL')"
+		dmsg inform "checkIfFailed debug:\n=========================================================="
+		dmsg inform ">$errMsg<"
+		dmsg inform "\n==========================================================\ncheckIfFailed debug END"
+		if [[ ! -z "$errMsg" ]]; then
+			if [[ "$severity" = "warn" ]]; then
+				warn "$curStep" 
+			else
+				exitFail "$curStep"
+			fi
+		fi
+	fi
 }
 
 assignBuses() {
@@ -1499,7 +1739,7 @@ assignBuses() {
 			bp) 
 				case "$baseModel" in
 					PE310G4BPI40) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
-					PE310G4BPI71) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
+					PE310G4BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 					PE310G2BPI71-SR) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 					PE310G4DBIR) publicVarAssign critical bpBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 					PE210G2BPI9) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
@@ -1512,35 +1752,80 @@ assignBuses() {
 }
 
 mainTest() {
-	echoSection "PCI Info & Dev Qty"
-	
-		inform "\tUUT bus:"
-		dmsg inform "\tmainTest DEBUG: pciArgs: \n${pciArgs[@]}"
-		listDevsPciLib "${pciArgs[@]}" |& tee /tmp/statusChk.log
-		dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-		
-		inform "\tTraffic gen bus:"
-		dmsg inform "\tmainTest DEBUG: pciArgs: \n${mastPciArgs[@]}"
-		listDevsPciLib "${mastPciArgs[@]}" |& tee -a /tmp/statusChk.log
-		dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-	
-	checkIfFailed "PCI Info & Dev Qty failed!" exit
-		
-	echoSection "Info Dumps"
-		netInfoDump $(echo -n $mastNets|awk '{print $1}') "MASTER" |& tee /tmp/statusChk.log
-		netInfoDump $(echo -n $uutNets|awk '{print $1}') "UUT" |& tee -a /tmp/statusChk.log
-	test -z "$ignDumpFail" && checkIfFailed "Info Dumps failed!" crit || checkIfFailed "Info Dumps failed!" warn
-	dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+	local pciTest dumpTest bpTest drateTest trfTest
+	echo -e "\n  Select tests:"
+	options=("Full test" "PCI test" "Dump test" "BP Switch test" "Data rate test" "Traffic test")
+	case `select_opt "${options[@]}"` in
+		0) 
+			pciTest=1
+			dumpTest=1
+			bpTest=1
+			drateTest=1
+			trfTest=1
+		;;
+		1) pciTest=1;;
+		2) dumpTest=1;;
+		3) bpTest=1;;
+		4) drateTest=1;;
+		5) trfTest=1;;
+		*) exitFail "mainTest exception, unknown option";;
+	esac
 
-	echoSection "BP Switch tests"
-		bpSwitchTests |& tee /tmp/statusChk.log
-		dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-	checkIfFailed "BP Switch tests failed!" exit
-	
-	echoSection "Traffic tests"
-		trafficTests |& tee /tmp/statusChk.log
-		dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-	checkIfFailed "Traffic tests failed!" exit
+	dmsg inform "pciTest=$pciTest dumpTest=$dumpTest bpTest=$bpTest drateTest=$drateTest trfTest=$trfTest"
+
+	if [[ ! -z "$pciTest" ]]; then
+		echoSection "PCI Info & Dev Qty"
+
+			inform "\tUUT bus:"
+			# dmsg inform "\tmainTest DEBUG: pciArgs: \n${pciArgs[@]}"
+			listDevsPciLib "${pciArgs[@]}" |& tee /tmp/statusChk.log
+			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+			
+			inform "\tTraffic gen bus:"
+			# dmsg inform "\tmainTest DEBUG: pciArgs: \n${mastPciArgs[@]}"
+			listDevsPciLib "${mastPciArgs[@]}" |& tee -a /tmp/statusChk.log
+			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+		
+		checkIfFailed "PCI Info & Dev Qty failed!" exit
+	else
+		inform "\tPCI test skipped"
+	fi
+		
+	if [[ ! -z "$dumpTest" ]]; then
+		echoSection "Info Dumps"
+			netInfoDump $(echo -n $mastNets|awk '{print $1}') "MASTER" |& tee /tmp/statusChk.log
+			netInfoDump $(echo -n $uutNets|awk '{print $1}') "UUT" |& tee -a /tmp/statusChk.log
+		test -z "$ignDumpFail" && checkIfFailed "Info Dumps failed!" crit || checkIfFailed "Info Dumps failed!" warn
+		# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+	else
+		inform "\tDump test skipped"
+	fi
+
+	if [[ ! -z "$bpTest" ]]; then
+		echoSection "BP Switch tests"
+			bpSwitchTests |& tee /tmp/statusChk.log
+			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+		checkIfFailed "BP Switch tests failed!" exit
+	else
+		inform "\tBP Switch test skipped"
+	fi
+
+	if [[ ! -z "$drateTest" ]]; then
+		echoSection "Data rate tests"
+			dataRateTest
+		checkIfFailed "Data rate tests failed!" exit
+	else
+		inform "\tData rate test skipped"
+	fi
+
+	if [[ ! -z "$trfTest" ]]; then
+		echoSection "Traffic tests"
+			trafficTests |& tee /tmp/statusChk.log
+			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+		checkIfFailed "Traffic tests failed!" exit
+	else
+		inform "\tTraffic test skipped"
+	fi
 }
 
 assignNets() {
@@ -1548,13 +1833,25 @@ assignNets() {
 }
 
 initialSetup(){
-	acquireVal "UUT slot" uutSlotArg uutSlotNum
-	acquireVal "Traffic gen slot" masterSlotArg mastSlotNum
+	
+	if [[ -z "$uutSlotArg" ]]; then 
+		selectSlot "  Select UUT:"
+		uutSlotNum=$?
+		dmsg inform "uutSlotNum=$uutSlotNum"
+	else acquireVal "UUT slot" uutSlotArg uutSlotNum; fi
+
+	if [[ -z "$masterSlotArg" ]]; then 
+		selectSlot "\n  Select MASTER:"
+		mastSlotNum=$?
+		dmsg inform "mastSlotNum=$mastSlotNum"
+	else acquireVal "Traffic gen slot" masterSlotArg mastSlotNum; fi
+
+	if [[ "$mastSlotNum" = "$uutSlotNum" ]]; then exitFail "Illegal slot selected!"; fi
+
 	acquireVal "Part Number" pnArg uutPn
 	
 	publicVarAssign warn uutBus $(dmidecode -t slot |grep "Bus Address:" |cut -d: -f3 |head -n $uutSlotNum |tail -n 1)
 	publicVarAssign warn mastBus $(dmidecode -t slot |grep "Bus Address:" |cut -d: -f3 |head -n $mastSlotNum |tail -n 1)
-	# publicVarAssign warn uutSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 $uutBus |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
 	publicVarAssign fatal uutSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$uutBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
 	publicVarAssign fatal mastSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$mastBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
 	publicVarAssign fatal devsOnUutSlotBus $(ls -l /sys/bus/pci/devices/ |grep $uutSlotBus |awk -F/ '{print $NF}')
@@ -1564,17 +1861,12 @@ initialSetup(){
 	publicVarAssign warn mastNets $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep 0000:$mastBus |awk -F/ '{print $NF}')
 	assignNets
 	test "$uutBus" = "ff" && exitFail "Card not detected, uutBus=ff"
-	#publicVarAssign warn mastSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 $mastBus |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
-	# publicVarAssign warn ethBuses $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-)
-	# uutEthBuses="$(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2- |grep $uutBus:)"
 	dmsg inform " assigning master eth buses on bus: $mastBus"
-	#publicVarAssign warn mastEthBuses $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2- |grep $mastBus:)
 	publicVarAssign warn mastEthBuses $(filterDevsOnBus $mastSlotBus $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-))
 	
 	preInitBpStartup
 	
 	dmsg inform " assigning master bp buses on bus: $mastBus"
-	#publicVarAssign warn mastBpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $mastBus:)
 	publicVarAssign warn mastBpBuses $(filterDevsOnBus $mastSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1))
 
 	defineRequirments

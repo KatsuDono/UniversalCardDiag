@@ -287,7 +287,7 @@ defineRequirments() {
 			let plxDevEmptyWidth=0
 			
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--acc-buses=$accBuses"
 				"--plx-buses=$plxBuses"
 
@@ -324,7 +324,7 @@ defineRequirments() {
 			let accDevWidth=8
 			
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--acc-dev-id=$accDevId"
 				"--acc-buses=$accBuses"
 				"--acc-kernel=$accKern"
@@ -350,7 +350,7 @@ defineRequirments() {
 			plxDevSubSpeed="2.5"
 			let plxDevSubWidth=1
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--acc-buses=$accBuses"
 				"--plx-buses=$plxBuses"
 				"--acc-dev-id=$accDevId"
@@ -393,7 +393,7 @@ defineRequirments() {
 			ethDevSpeed="2.5"
 			let ethDevWidth=1
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--acc-buses=$accBuses"
 				"--plx-buses=$plxBuses"
 				"--eth-buses=$ethBuses"
@@ -461,7 +461,7 @@ defineRequirments() {
 			let spcDevSpeed=5
 			let spcDevWidth=16
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--acc-buses=$accBuses"
 				"--spc-buses=$spcBuses"
 				"--eth-buses=$ethBuses"
@@ -505,7 +505,7 @@ defineRequirments() {
 			let rootBusWidthCap=8
 			
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--acc-buses=$accBuses"
 				"--plx-buses=$plxBuses"
 				"--spc-buses=$spcBuses"
@@ -560,7 +560,7 @@ defineRequirments() {
 			spcDevSpeed="2.5"
 			let spcDevWidth=1
 			pciArgs=(
-				"--target-bus=$uutSlotBus"
+				"--target-bus=$uutBus"
 				"--acc-buses=$accBuses"
 				"--spc-buses=$spcBuses"
 				"--eth-buses=$ethBuses"
@@ -672,7 +672,14 @@ mainTest() {
 }
 
 initialSetup(){
-	acquireVal "UUT slot" uutSlotArg uutSlotNum
+	# acquireVal "UUT slot" uutSlotArg uutSlotNum
+
+	if [[ -z "$uutSlotArg" ]]; then 
+		selectSlot "  Select UUT:"
+		uutSlotNum=$?
+		dmsg inform "uutSlotNum=$uutSlotNum"
+	else acquireVal "UUT slot" uutSlotArg uutSlotNum; fi
+
 	acquireVal "Part Number" pnArg uutPn
 	test ! -z "echo $uutPn |grep '#'" && uutPn=$(echo $uutPn |cut -d '#' -f2-)
 	

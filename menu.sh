@@ -55,7 +55,8 @@ main() {
 		"sfpD7" 	"| M4E310G4I71-XR-CP2"
 		"delim" 	"==========================="
 		"delim" 	"|  RJ45 CARDS"
-		"rjD1" 		"| PE310G4BPI40"
+		"rjD1" 		"| PE310G4BPI40-T"
+		"rjD2" 		"| PE310G4I40-T"
 		"delim" 	"==========================="
 		"delim" 	"|  Etc.."
 		"transRep" 	"| PE310G4BPI71-SR (transceiver check"
@@ -91,7 +92,8 @@ main() {
 		sfpD5-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-SP" $@;;
 		sfpD6) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE31625G4I71L-XR-CX" $@;;
 		sfpD7) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
-		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40" $@;;
+		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@;;
+		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@;;
 		showSlots) 	showPciSlots;;
 		transRep)	
 			testFileExist "/root/PE310G4BPI71"
