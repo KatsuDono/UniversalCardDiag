@@ -66,7 +66,7 @@ exitFail() {
 	local procId
 	dmsg inform "exitFail executed, exitExec=$exitExec procId=$procId"
 	test -z "$2" && procId=$PROC || procId=$2
-	test -z "$procId" && echo -e "\texitFail exception, procId not specified"
+	test -z "$procId" && echo -e "\t\e[1;41;33mexitFail exception, procId not specified\e[m"
 	test -z "$guiMode" && echo -e "\t\e[1;41;33m$1\e[m\n" || msgBox "$1"
 	echo -e "\n"
 	sleep 1
@@ -80,7 +80,7 @@ exitFail() {
 		beepSpk fatal 3
 	fi
 	echo 1>/tmp/exitMsgExec
-	exit 1
+	if [[ -z "$debugNoExit" ]]; then exit 1; fi
 }
 
 critWarn() {	#nnl = no new line
@@ -145,6 +145,87 @@ dmsg() {
 	fi
 }
 
+function createLog () {
+	local pingTest localTime ntpTime status ntpRet
+
+	for ARG in "$@"; do
+		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
+		VALUE=$(echo $ARG |cut -f2 -d=)
+		case "$KEY" in
+			debug) debugMode=1 ;;
+			help)
+				echoSection "ACC diagnostics"
+				${MC_SCRIPT_PATH}/acc_diag_lib.sh --help
+				echoSection "SFP diagnostics"
+				${MC_SCRIPT_PATH}/sfpLinkTest.sh --help
+				exit
+			;;
+			menu-choice) menuChoice=${VALUE} ;;
+			*) dmsg echo "Unknown arg: $ARG"
+		esac
+	done
+
+	echo "Creating log.."
+	if [[ ! -z "$1" ]]; then
+		logPath=$1
+		logPn=$2
+	fi
+	logFile="'/tmp/'"$trackNum"_"
+	localTime=$(date --date="+2 hours" '+%d-%m-%Y_%H-%M')
+	if [[ -z "$localTime" ]]; then 
+		echo "Local date cannot be acquired!"
+		status+=1
+	fi
+	pingTest=$(echo -n "$(ping -c1 -w1 8.8.8.8 2>&1)" |grep 'ttl=')
+	if [[ ! -z "$pingTest" ]]; then
+		ntpRet=$(rdate -p time.nist.gov 2>&1)
+		if [[ "$?" = "0" ]]; then
+			ntpTime=$(date --date="$ntpRet +2 hours" '+%d-%m-%Y_%H-%M')
+			if [[ "$(echo -n "$localTime" |cut -c1-10)" = "$(echo -n "$ntpTime" |cut -c1-10)" ]]; then 
+				echo " Local time validated by NTP."
+				logFile+="$localTime"
+				status+=0
+			else 
+				echo " Local time cant be trusted, using NTP!"
+				logFile+="$ntpTime"
+				status+=0
+			fi
+		else
+			echo " NTP could not return time!"
+		fi
+	else
+		echo -e ' NO INTERNET CONNECTION!'
+	fi
+
+	if [[ -z "$ntpTime" ]]; then
+		echo -e ' Fallback to local..'
+		if [ $(date --date="+2 hours" '+%Y') -lt 2022 ]; then 
+			echo " Local date is lesser than year 2022 and cannot be trusted!"
+			logFile+="UNKNOWN-DATE"
+			status+=0
+		else 
+			echo " Local time validated by year."
+			logFile+="$localTime"
+			status+=0
+		fi
+	fi
+
+	logFile+=".log"
+	echo -e "Log created.\nLog file: $logFile\n"
+	return $status
+}
+
+function getTracking () {
+	echo -e -n "\n\tEnter tracking: "
+	read -r trackNum
+	if [[ "${#trackNum}" = "13" ]]; then
+		return 0
+	else 
+		return 1
+	fi
+}
+
+
 testFileExist() {
 	local filePath returnOnly silent
 	filePath="$1"
@@ -196,7 +277,7 @@ function installBeep {
 beepSpk() {
 	local beepMode beepCount
 	privateVarAssign "beepSpk" "beepMode" "$1"
-	test -z "$debugMode" && {
+	if [ -z "$debugMode" -a -z "$globalMute" ]; then
 		test -z "$2" && let beepCount=1 || let beepCount=$1
 		if command -v beep > /dev/null 2>&1; then 
 			let beepInstalled=1
@@ -218,18 +299,21 @@ beepSpk() {
 			pass) test "$beepInstalled" = "0" && beepNoExec || beep -f 523 -l 90 -n -f 659 -l 90 -n -f 783 -l 90 -n -f 1046 -l 90;;
 			*) exitFail "beepSpk exception, unknown beepMode: $beepMode"
 		esac
-	}
+	fi
 }
 
 execScript() {
 	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc retStatus
 	declare -a scriptExpect
+	declare -a scriptPrint
+	let retStatus=0
 	for ARG in "$@"
 	do
 		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
 		VALUE=$(echo $ARG |cut -f2 -d=)
 		case "$KEY" in
 			exp-kw) scriptExpect+=("${VALUE}") ;;	
+			verb-kw) scriptPrint+=("${VALUE}") ;;
 		esac
 	done
 
@@ -238,7 +322,7 @@ execScript() {
 	scriptTraceKeyw="$3"
 	scriptFailDesc="$4"
 	dmsg inform "scriptExpect=$scriptExpect"
-	
+	dmsg inform "cmd=$scriptPath $scriptArgs"
 	cmdRes="$($scriptPath $scriptArgs 2>&1)"
 	for expKw in "${scriptExpect[@]}"; do
 		dmsg inform "execScript loop> procerssing kw=>$expKw<"
@@ -247,10 +331,6 @@ execScript() {
 			dmsg inform ">${expKw}< wasnt found in $(echo "$cmdRes" |tail -n 10)"
 			test -z "$debugMode" || {
 				inform "pwd=$(pwd)"
-				echo -e "\n\e[0;31m -- TRACE START --\e[0;33m\n"
-				echo -e "$(echo "$cmdRes" |grep -A 99 -w "$scriptTraceKeyw")"
-				echo -e "\n\e[0;31m --- TRACE END ---\e[m\n"
-				
 				echo -e "\n\e[0;31m -- FULL TRACE START --\e[0;33m\n"
 				echo -e "$cmdRes"
 				echo -e "\n\e[0;31m --- FULL TRACE END ---\e[m\n"
@@ -265,6 +345,11 @@ execScript() {
 			}
 		fi
 	done
+	if [[ ! "$retStatus" = "0" ]]; then
+		echo -e "\n\t\e[0;31m -- TRACE START --\e[0;33m\n"
+		echo -e "$(echo "$cmdRes" |grep -B 10 -A 99 -w "$scriptTraceKeyw")"
+		echo -e "\n\t\e[0;31m --- TRACE END ---\e[m\n"
+	fi
 	unset cmdRes
 	return $retStatus
 }
@@ -412,14 +497,59 @@ drawPciSlot() {
 
 showPciSlots() {
 	local slotBuses slotNum slotBusRoot bpBusesTotal 
+	local pciBridges pciBr slotBrPhysNum pciBrInfo rootBus slotArr dmiSlotInfo
 	echoSection "PCI Slots"
 	slotBuses=$(dmidecode -t slot |grep Bus |cut -d: -f3)
 	let slotNum=0
+	let maxSlots=$(dmidecode -t slot |grep Handle |wc -l)
+	declare -A slotArr
 	assignBusesInfo spc eth plx acc bp
 	bpBusesTotal=$bpBuses
 	if [[ ! -z "$bprdBuses" ]]; then
 		test -z "$bpBusesTotal" && bpBusesTotal=$bprdBuses || bpBusesTotal="$bpBuses $bprdBuses"
 	fi
+	
+	for slotBus in $slotBuses; do
+		if [[ ! "$slotBus" = "ff" ]]; then 
+			populatedRootBuses+=( "$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' )" )
+		fi	
+	done
+
+	pciBridges=$( echo -n "${populatedRootBuses[@]}" |tr ' ' '\n' |sort |uniq)
+	for pciBr in $pciBridges; do
+		pciBrInfo="$(lspci -vvvs $pciBr)"
+		
+		slotBrPhysNum=$(echo "$pciBrInfo" |grep SltCap -A1 |tail -n 1 |cut -d# -f2 |cut -c1)
+		slotWidthCap=$(echo "$pciBrInfo" |grep -m1 LnkCap: |awk '{print $7}' |cut -d, -f1 |cut -c2-)
+
+		slotArr[0,$slotBrPhysNum]=$slotWidthCap
+	done
+
+	dmiSlotInfo="$(dmidecode -t slot)"
+	for ((i=1;i<=$maxSlots;i++)) do 
+		slotArr[4,$i]=$(echo "$dmiSlotInfo" |grep Handle |head -n$i |tail -n1 |cut -d, -f1 |awk '{print $2}')
+		slotArr[2,$i]=$(dmidecode -H ${slotArr[4,$i]} |grep Type |awk '{print $2}' |cut -c2-)
+	done
+	
+
+	for ((i=1;i<=$maxSlots;i++)) do 
+		dmsg inform "slotArr 0, $i = ${slotArr[0,$i]}   4, $i = ${slotArr[4,$i]}   2, $i = ${slotArr[2,$i]}"
+	done
+
+# 		slotArr arraingment		slotArr[dataRow,slotNumber]
+# 	----------------------------------------------------------------------------------
+#      SLOT>>	1			2			3			4			5			6
+# 		0	WidthCap	WidthCap	WidthCap	WidthCap	WidthCap	WidthCap
+# 		1	InUse		InUse		InUse		InUse		InUse		InUse
+# 		2	MaxSlotWdth	MaxSlotWdth	MaxSlotWdth	MaxSlotWdth	MaxSlotWdth	MaxSlotWdth
+# 		3	BusAddr		BusAddr		BusAddr		BusAddr		BusAddr		BusAddr
+# 		4	DMI_Handle	DMI_Handle	DMI_Handle	DMI_Handle	DMI_Handle	DMI_Handle
+# 	----------------------------------------------------------------------------------
+
+	dmsg inform critWarn "MAKE sure that in case that +1 by hex address is an actual device, \n
+	check that parent bus does not have slot capabilities \n
+	moreover, check if slot in theory can have more than 4x or 8x by its length"
+
 	for slotBus in $slotBuses; do
 		let slotNum=$slotNum+1
 		if [[ "$slotBus" = "ff" ]]; then 
@@ -444,8 +574,10 @@ showPciSlots() {
 						"--bp-buses=$bpBuses"
 						"--info-mode"
 						"--target-bus=$slotBus"
+						"--slot-width-max=${slotArr[0,$slotNum]}"
+						"--slot-width-cap=${slotArr[2,$slotNum]}"
 					)
-					drawPciSlot $slotNum $pciInfoDevCapWidth $(lspci -s $slotBus:)
+					drawPciSlot $slotNum ${slotArr[0,$slotNum]} $(lspci -s $slotBus:)
 				}
 			fi
 		fi
@@ -646,9 +778,76 @@ publicVarAssign() {
 			critical) critWarn "$errMsg" ;;
 			warn) warn "$errMsg" ;;
 			silent) ;;
-			*) exitFail "  publicVarAssign exception, varSeverity not in range: $varSeverity" $PROC
+			*) except "${FUNCNAME[0]}" "varSeverity not in range: $varSeverity"
 		esac
 	}
+}
+
+checkDefinedVal() {
+	local funcName varVal
+	dmsg inform "DEBUG> checkDefinedVal> args: $*"
+	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
+	funcName="$1" ;shift
+	varName="$1" ;shift
+	varVal="$1" ;shift
+	dmsg inform "DEBUG> checkDefinedVal> funcName=$funcName varName=$varName varVal=$varVal"
+	if [[ -z "$varVal" ]]; then
+		except "${FUNCNAME[0]}" "in $funcName: varVal for $varName is undefined!"
+	fi
+}
+
+checkDefined() {
+	local funcName varName
+	dmsg inform "DEBUG> checkDefined> args: $*"
+	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
+	funcName="$1" ;shift
+	varName="$1" ;shift
+	checkOverload "${FUNCNAME[0]}" "$*" --arg-min=1
+	dmsg inform "DEBUG> checkDefined> funcName=$funcName varName=$varName"
+	if [[ -z "${!varName}" ]]; then
+		except "${FUNCNAME[0]}" "$varName is undefined!"
+	fi
+}
+
+except() {
+	local funcName exceptDescr
+	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
+	funcName=$1 ;shift
+	exceptDescr="$*"
+	exitFail "$(caller): $funcName exception, $exceptDescr"
+}
+
+removeArg() {
+	local targArg
+	privateVarAssign "removeArg" "targArg" "$1"; shift
+	echo -n "$*" | sed 's/'" $targArg"'//g'
+}
+
+checkOverload() {
+	local callerFunc funcArgs argsNoFlags optFlag compKey
+	callerFunc=$1 ;shift
+	funcArgs="$*"
+
+	[[ -z "$callerFunc" ]] && except "${FUNCNAME[0]}" "callerFunc is undefined!"
+	[[ -z "$funcArgs" ]] && except "${FUNCNAME[0]}" "funcArgs for callerFunc:$callerFunc are undefined!"
+
+	for ARG in "$@"; do
+		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
+		VALUE=$(echo $ARG |cut -f2 -d=)
+		if [[ ! -z $(echo -n $KEY |grep -w "arg-max\|arg-min\|arg-exact") ]]; then 
+			compKey=$KEY
+			[[ ! -z "${VALUE}" ]] && let compValue=${VALUE} || except "checkOverload exception, VALUE undefined for key: $KEY!"
+		else 
+			[[ -z "$argsNoFlags" ]] && argsNoFlags=("$ARG") || argsNoFlags+=("$ARG")	
+		fi
+	done
+
+	case "$compKey" in
+		arg-max) if [[ ! ${#argsNoFlags[@]} -le $compValue ]]; then except "$callerFunc" "overloaded with parameters, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
+		arg-min) if [[ ! ${#argsNoFlags[@]} -ge $compValue ]]; then except "$callerFunc" "insufficent parameters, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
+		arg-exact) if [[ ! ${#argsNoFlags[@]} -eq $compValue ]]; then except "$callerFunc" "incorrect parameter count, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
+		*) except "${FUNCNAME[0]}" "compKey received unexpected key: $compKey"
+	esac
 }
 
 speedWidthComp() {
@@ -681,7 +880,7 @@ speedWidthComp() {
 	}
 }
 
-testLinks() {
+function testLinks () {
 	local netTarg linkReq uutModel netId retryCount linkAcqRes
 	privateVarAssign "testLinks" "netTarg" "$1"
 	privateVarAssign "testLinks" "linkReq" "$2"
@@ -702,10 +901,12 @@ testLinks() {
 					test "$netId" = "0" && linkReq="no"
 					linkAcqRes=$(rdifctl dev 0 get_port_link $netId |grep UP)
 				;;
+				PE310G4BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE210G2BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
+				acNano) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				*) exitFail "testLinks exception, Unknown uutModel: $uutModel"
 			esac
 			dmsg inform $linkAcqRes
@@ -714,13 +915,30 @@ testLinks() {
 		fi
 	done
 	
-	test -z "$linkAcqRes" && {
-		test "$linkReq" = "yes" && echo -e -n "\e[0;31mFAIL\e[m" || echo -e -n "\e[0;32mOK\e[m"
-	} || {
-		test "$netId" = "0" && echo -e -n "\e[0;32m-\e[m" || {
-			test "$linkReq" = "no" && echo -e -n "\e[0;31mFAIL\e[m" || echo -e -n "\e[0;32mOK\e[m"
-		}
-	}
+	if [[ -z "$linkAcqRes" ]]; then
+		if [[ "$linkReq" = "yes" ]]; then
+			echo -e -n "\e[0;31mFAIL\e[m"
+			return 1
+		else
+			echo -e -n "\e[0;32mOK\e[m"
+			return 0
+		fi
+	else
+		if [[ "$netId" = "0" ]]; then
+			if [[ "$netId" = "0" ]]; then
+				echo -e -n "\e[0;32m-\e[m" 
+				return 0
+			fi
+		else
+			if [[ "$linkReq" = "no" ]]; then
+				echo -e -n "\e[0;31mFAIL\e[m" 
+				return 1
+			else
+				echo -e -n "\e[0;32mOK\e[m"
+				return 0
+			fi
+		fi
+	fi
 }
 
 getEthRates() {
@@ -744,6 +962,7 @@ getEthRates() {
 					test "$netId" = "0" && speedReq="Fail"
 					linkAcqRes="Speed: $(rdifctl dev 0 get_port_speed $netId)Mb/s"
 				;;
+				PE310G4BPI9) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE210G2BPI9) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
@@ -757,15 +976,20 @@ getEthRates() {
 		fi
 	done
 	
-	test ! -z "$linkAcqRes" && {
-		test -z "$(echo $linkAcqRes |sed 's/[^0-9]*//g' |grep -x $speedReq)" && {
-			echo -e -n "\e[0;31m$(echo $linkAcqRes |cut -d: -f2-) (FAIL)\e[m" 
-		} || {
-			test "$speedReq" = "Fail" && echo -e -n "\e[0;32m-\e[m" || echo -e -n "\e[0;32m$(echo $linkAcqRes |cut -d: -f2-)\e[m"
-		}
-	} || {
+
+	if [[ ! -z "$linkAcqRes" ]]; then
+		if [[ -z "$(echo $linkAcqRes |sed 's/[^0-9]*//g' |grep -x $speedReq)" ]]; then
+			if [[ "$speedReq" = "Fail" ]]; then
+				echo -e -n "\e[0;32m-\e[m" 
+			else
+				echo -e -n "\e[0;31m$(echo $linkAcqRes |cut -d: -f2-) (FAIL)\e[m" 
+			fi
+		else
+			echo -e -n "\e[0;32m$(echo $linkAcqRes |cut -d: -f2-)\e[m"
+		fi
+	else
 		echo -e -n "\e[0;31mNO DATA\e[m" 
-	}
+	fi
 }
 
 getEthSelftest() {
@@ -781,8 +1005,8 @@ getEthSelftest() {
 	}
 }
 
-allNetAct() {
-	local nets act actDesc net
+function allNetAct () {
+	local nets act actDesc net status
 	privateVarAssign "allNetAct" "nets" "$1"
 	shift
 	privateVarAssign "allNetAct" "actDesc" "$1"
@@ -791,7 +1015,15 @@ allNetAct() {
 	shift
 	privateVarAssign "allNetAct" "actArgs" "$@"
 	#echo "DEBUG: nets:"$nets"  actDesc:"$actDesc"   act:"$act"   actArgs:"$actArgs
-	echo -e -n "\t$actDesc: \n\t\t"; for net in $nets; do echo -e -n "$net:";$act "$net" $actArgs;echo -e -n "   "; done; echo -e -n "\n\n"
+	echo -e -n "\t$actDesc: \n\t\t"; 
+	for net in $nets; do 
+		echo -e -n "$net:"
+		$act "$net" $actArgs
+		let status+=$?
+		echo -e -n "   "
+	done
+	echo -e -n "\n\n"
+	return $status
 }
 
 net2bus() {
@@ -845,23 +1077,23 @@ clearPciVars() {
 }
 
 debugPciVars() {
-	 echo $pciInfoDevDesc
-	 echo $pciInfoDevSubs
-	 echo $pciInfoDevLnkCap
-	 echo $pciInfoDevLnkSta
-	 echo $pciInfoDevSpeed
-	 echo $pciInfoDevWidth
-	 echo $pciInfoDevCapSpeed
-	 echo $pciInfoDevCapWidth
-	 echo $pciInfoDevKernMod
-	 echo $pciInfoDevKernUse
-	 echo $pciInfoDevSubInfo
-	 echo $pciInfoDevSubdev
-	 echo $pciInfoDevSubord
+	 echo pciInfoDevDesc: $pciInfoDevDesc
+	 echo pciInfoDevSubs: $pciInfoDevSubs
+	 echo pciInfoDevLnkCap: $pciInfoDevLnkCap
+	 echo pciInfoDevLnkSta: $pciInfoDevLnkSta
+	 echo pciInfoDevSpeed: $pciInfoDevSpeed
+	 echo pciInfoDevWidth: $pciInfoDevWidth
+	 echo pciInfoDevCapSpeed: $pciInfoDevCapSpeed
+	 echo pciInfoDevCapWidth: $pciInfoDevCapWidth
+	 echo pciInfoDevKernMod: $pciInfoDevKernMod
+	 echo pciInfoDevKernUse: $pciInfoDevKernUse
+	 echo pciInfoDevSubInfo: $pciInfoDevSubInfo
+	 echo pciInfoDevSubdev: $pciInfoDevSubdev
+	 echo pciInfoDevSubord: $pciInfoDevSubord
 }
 
 gatherPciInfo() {
-	local pciInfoDev
+	local pciInfoDev nameLine
 	pciInfoDev="$1"
 	dmsg inform "pciInfoDev=$pciInfoDev"
 	test -z "$pciInfoDev" && exitFail "gatherPciInfo exception, pciInfoDev in undefined" $PROC
@@ -871,7 +1103,8 @@ gatherPciInfo() {
 		dmsg inform "pciInfoDev appended, : wasnt found"
 	fi
 	fullPciInfo="$(lspci -nnvvvks $pciInfoDev 2>&1)"
-	pciInfoDevDesc=$(lspci -nns $pciInfoDev |cut -d ':' -f3- |cut -d ' ' -f1-9)
+	let nameLine=$(echo "$fullPciInfo" |grep -B9999 -m1 $pciInfoDev |wc -l)
+	pciInfoDevDesc=$(echo "$fullPciInfo" |head -n$nameLine |tail -n1 |cut -d ':' -f3- |cut -d ' ' -f1-9)
 	pciInfoDevSubs=$(echo "$fullPciInfo" |grep Subsystem: |cut -d ':' -f2- | awk '$1=$1')
 	pciInfoDevLnkCap=$(echo "$fullPciInfo" |grep LnkCap: |cut -d ',' -f2-3 | awk '$1=$1')
 	pciInfoDevLnkStaFull=$(echo "$fullPciInfo" |grep LnkSta:)
@@ -882,6 +1115,7 @@ gatherPciInfo() {
 	pciInfoDevCapWidth=$(echo $pciInfoDevLnkCap |cut -d ',' -f2 |awk '{print $2}' |cut -c2-)
 	pciInfoDevKernMod=$(echo "$fullPciInfo" |grep modules: |cut -d ':' -f2- | awk '$1=$1')
 	pciInfoDevKernUse=$(echo "$fullPciInfo" |grep use: |cut -d ':' -f2- | awk '$1=$1')
+	pciInfoDevPhysSlot=$(echo "$fullPciInfo" |grep "Physical Slot:" |cut -d ':' -f2- |rev |cut -d- -f1 |rev | awk '$1=$1')
 	test -z "$(echo "$fullPciInfo" |grep Bus:)" || {
 		pciInfoDevSubdev=$(echo "$fullPciInfo" |grep Bus: |cut -d ',' -f2 |cut -d '=' -f2 | awk '$1=$1')
 		pciInfoDevSubord=$(echo "$fullPciInfo" |grep Bus: |cut -d ',' -f3 |cut -d '=' -f2 | awk '$1=$1')
@@ -902,7 +1136,7 @@ listDevsPciLib() {
 	local spcBuses spcDevId spcDevQtyReq spcKernReq spcDevSpeed spcDevWidth spcOnDevBus
 	local plxKeyw plxVirtKeyw plxEmptyKeyw
 	local listPciArg argsTotal infoMode
-	local netRes
+	local netRes slotWidthCap slotWidthMax slotNumLocal
 	
 	argsTotal=$*
 	
@@ -970,6 +1204,9 @@ listDevsPciLib() {
 			plx-empty-keyw)			plxEmptyKeyw=${VALUE} ;;
 			
 			info-mode)				infoMode="true" ;;
+			slot-width-cap)			slotWidthCap=${VALUE} ;;
+			slot-width-max)			slotWidthMax=${VALUE} ;;
+			slot-number)			slotNumLocal=${VALUE} ;;
 
 			*) echo "listDevsPciLib exception, unknown arg: $listPciArg"; exit 1
 		esac
@@ -1069,6 +1306,8 @@ listDevsPciLib() {
 		fi
 	fi
 
+	dmsg inform critWarn "check if next hex addr by bus existing and pciInfoDevPhysSlot corresponds to the slotNumLocal"
+
 	test ! -z "$plxBuses" && {
 		for bus in $plxBuses ; do
 			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
@@ -1105,14 +1344,18 @@ listDevsPciLib() {
 	
 	
 	dmsg inform "plxOnDevBus=$plxOnDevBus"
-	test -z "$plxOnDevBus" && {
+	if [[ -z "$plxOnDevBus" ]]; then
 		dmsg inform "plxOnDevBus is empty\ndbg3: >$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq$plxKern$plxDevId<"
-		test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq$plxKern$plxDevId" || critWarn "  PLX bus empty! PCI info on PLX failed!"
-	} || {
+		if [ -z "$plxDevSubQtyReq" -a -z "$plxDevQtyReq" -a -z "$plxDevEmptyQtyReq" -a -z "$plxKernReq" -a -z "$plxDevId" ]; then
+			dmsg inform "plxOnDevBus empty"
+		else
+			critWarn "  PLX bus empty! PCI info on PLX failed!"
+		fi
+	else
 		dmsg inform "plxOnDevBus is not empty\nPLX is not empty! there is: >$plxOnDevBus<"
 		if [[ -z $infoMode ]]; then
 			test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on PLX!"
-			test -z "$plxKern" && exitFail "listDevsPciLib exception, plxKern undefined!"
+			test -z "$plxKernReq" && exitFail "listDevsPciLib exception, plxKern undefined!"
 			test -z "$plxDevQtyReq" && exitFail "listDevsPciLib exception, plxDevQtyReq undefined, but devices found" || {
 				test -z "$plxDevSpeed" && exitFail "listDevsPciLib exception, plxDevSpeed undefined!"
 				test -z "$plxDevWidth" && exitFail "listDevsPciLib exception, plxDevWidth undefined!"
@@ -1180,27 +1423,27 @@ listDevsPciLib() {
 				fi
 			fi
 			if [[ -z $infoMode ]]; then
-				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse|grep $plxKern)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse|grep $plxKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
 			else
 				test -z "$pciInfoDevKernUse" && echo " Kern: not loaded" || echo " Kern: $pciInfoDevKernUse"
 			fi
 		done
 		if [[ -z $infoMode ]]; then
+			printf '\033[1A'
 			echo -e "\t -------------------------"
 			echo -e "\n\n\tPLX Device count" 
 			testArrQty "  Physical" "$plxDevArr" "$plxDevQtyReq" "No PLX physical devices found on UUT" "warn"
 			testArrQty "  Virtual" "$plxDevSubArr" "$plxDevSubQtyReq" "No PLX virtual devices found on UUT" "warn"
 			testArrQty "  Virtual (empty)" "$plxDevEmptyArr" "$plxDevEmptyQtyReq" "No PLX virtual devices (empty) found on UUT" "warn"
-			echo -e "\n"
 		fi
-	}
+	fi
 	
 	dmsg inform "accOnDevBus=$accOnDevBus"
-	test -z "$accOnDevBus" && { 
-		test -z "$accKern$accDevQtyReq$accDevSpeed$accDevWidth" || critWarn "  ACC bus empty! PCI info on ACC failed!"
-	} || {
+	if [[ -z "$accOnDevBus" ]]; then
+		test -z "$accKernReq$accDevQtyReq$accDevSpeed$accDevWidth" || critWarn "  ACC bus empty! PCI info on ACC failed!"
+	else
 		if [[ -z $infoMode ]]; then
-			test -z "$accKern" && exitFail "listDevsPciLib exception, accKern undefined!"
+			test -z "$accKernReq" && exitFail "listDevsPciLib exception, accKernReq undefined!"
 			test -z "$accDevQtyReq" && exitFail "listDevsPciLib exception, accDevQtyReq undefined, but devices found" || {
 				test -z "$accDevSpeed" && exitFail "listDevsPciLib exception, accDevSpeed undefined!"
 				test -z "$accDevWidth" && exitFail "listDevsPciLib exception, accDevWidth undefined!"
@@ -1225,23 +1468,23 @@ listDevsPciLib() {
 				echo -e -n "\t  $pciInfoDevLnkSta"
 			fi
 			if [[ -z $infoMode ]]; then
-				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $accKern)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $accKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
 			else
 				test -z "$pciInfoDevKernUse" && echo " Kern: not loaded" || echo " Kern: $pciInfoDevKernUse"
 			fi
 		done
 		if [[ -z $infoMode ]]; then
+			printf '\033[1A'
 			echo -e "\t -------------------------"
 			echo -e "\n\n\tACC Device count" 
 			testArrQty "  ACC Devices" "$accDevArr" "$accDevQty" "No ACC devices found on UUT" "warn"
-			echo -e "\n"
 		fi
-	}
+	fi
 	
 	dmsg inform "ethOnDevBus=$ethOnDevBus"
-	test -z "$ethOnDevBus" && {
+	if [[ -z "$ethOnDevBus" ]]; then
 		test -z "$ethDevQtyReq$ethVirtDevQtyReq$ethKernReq$ethDevId" || critWarn "  ETH bus empty! PCI info on ETH failed!"
-	} || {
+	else
 		if [[ -z $infoMode ]]; then
 			test -z "$ethDevQtyReq$ethVirtDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on ETH!"
 			test -z "$ethKernReq" && exitFail "listDevsPciLib exception, ethKernReq undefined!"
@@ -1263,6 +1506,7 @@ listDevsPciLib() {
 		for ethBus in $ethOnDevBus ; do
 			gatherPciInfo $ethBus
 			dmsg inform "Processing ethBus=$ethBus"
+			dmsg debugPciVars
 			if [ ! -z "$(echo "$fullPciInfo" |grep 'Capabilities' |grep -w 'Power Management')" ]; then
 				#echo "DEBUG: $ethBus is physical device"
 				ethDevArr="$ethBus $ethDevArr"
@@ -1296,16 +1540,16 @@ listDevsPciLib() {
 			#echo -e "\t--------------"
 		done
 		if [[ -z $infoMode ]]; then
+			printf '\033[1A'
 			echo -e "\t -------------------------"
 			echo -e "\n\n\tETH Device count" 
 			testArrQty "  Physical" "$ethDevArr" "$ethDevQtyReq" "No ETH physical devices found on UUT" "warn"
 			testArrQty "  Virtual" "$ethVirtDevArr" "$ethVirtDevQtyReq" "No ETH virtual devices found on UUT" "warn"
-			echo -e "\n"
 		fi
-	}
+	fi
 	
 	dmsg inform "bpOnDevBus=$bpOnDevBus"
-	test ! -z "$bpOnDevBus" && {
+	if [[ ! -z "$bpOnDevBus" ]]; then
 		if [[ -z $infoMode ]]; then
 			test -z "$bpDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on BP!"
 			test -z "$bpKernReq" && exitFail "listDevsPciLib exception, bpKernReq undefined!"
@@ -1338,19 +1582,19 @@ listDevsPciLib() {
 			fi			
 		done
 		if [[ -z $infoMode ]]; then
+			printf '\033[1A'
 			echo -e "\t -------------------------"
 			echo -e "\n\n\tBP Device count" 
 			testArrQty "  BP Devices" "$bpDevArr" "$bpDevQtyReq" "No BP devices found on UUT" "warn"
-			echo -e "\n"
 		fi
-	} || {
+	else
 		test -z "$bpDevQtyReq$bpKernReq$bpDevSpeed$bpDevWidth$bpDevId" || critWarn "  BP bus empty! PCI info on BP failed!"
-	}
+	fi
 	
 	dmsg inform "spcOnDevBus=$spcOnDevBus"
-	test -z "$spcOnDevBus" && {
+	if [[ -z "$spcOnDevBus" ]]; then
 		test -z "$spcDevQtyReq$spcKernReq$spcDevSpeed$spcDevWidth$spcDevId" || critWarn "  SPC bus empty! PCI info on SPC failed!"
-	} || {
+	else
 		if [[ -z $infoMode ]]; then
 			test -z "$spcDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on SPC!"
 			#test -z "$spcKernReq" && exitFail "listDevsPciLib exception, spcKernReq undefined!"
@@ -1385,12 +1629,12 @@ listDevsPciLib() {
 			
 		done
 		if [[ -z $infoMode ]]; then
+			printf '\033[1A'
 			echo -e "\t -------------------------"
 			echo -e "\n\n\tSPC Device count" 
 			testArrQty "  SPC Devices" "$spcDevArr" "$spcDevQtyReq" "No SPC devices found on UUT" "warn"
-			echo -e "\n"
 		fi
-	}
+	fi
 }
 
 qtyComp() {
@@ -1595,6 +1839,68 @@ qatTest() {
 		#echo "DEBUG stats=$stats"
 		test -z "echo $stats |grep 0" && exitFail "QAT test failed!"
 		exit $?
+}
+
+setMgntIp() {
+	local ipReq cmdRes ethName actIp regEx
+	echo -e "\n Setting management IP.."
+
+	acquireVal "Management IP" ipReq ipReq
+	regEx='^(0*(1?[0-9]{1,2}|2([0-4][0-9]|5[0-5]))\.){3}'; regEx+='0*(1?[0-9]{1,2}|2([‌​0-4][0-9]|5[0-5]))$'
+	if [[ "$ipReq" =~ $regEx ]]; then
+		echo "  IP Validated"
+	else
+		except "${FUNCNAME[0]}" "IP is not valid! Please check: $ipReq"
+	fi
+	echo "  Gathering ETH name"
+	ethName=$(ifconfig -a |head -1 |awk '{print $1}'|tr --delete :)
+	echo "  Stopping network manager service"
+	cmdRes=$(systemctl stop NetworkManager.service 2>&1)
+	echo "  Setting ethernet interface: $ethName"
+	cmdRes=$(ifconfig $ethName $ipReq 2>&1)
+	actIp=$(ifconfig $ethName |grep inet |head -n1 |awk '{print $2}')
+	echo "  IP set to: $actIp"
+
+	echo -e " Done.\n"
+}
+
+pingTest() {
+	local actIp ethName regEx srvIp
+	echo -e "\n Ping test.."
+	
+	echo "  Gathering ETH name"
+	ethName=$(ifconfig -a |head -1 |awk '{print $1}'|tr --delete :)
+	echo "  Gathering IP"
+	actIp=$(ifconfig $ethName |grep inet |head -n1 |awk '{print $2}')
+	echo "  IP: $actIp"
+	regEx='^(0*(1?[0-9]{1,2}|2([0-4][0-9]|5[0-5]))\.){3}'; regEx+='0*(1?[0-9]{1,2}|2([‌​0-4][0-9]|5[0-5]))$'
+	if [[ "$actIp" =~ $regEx ]]; then
+		echo "  IP Validated"
+	else
+		warn "  IP setup required!"
+		setMgntIp
+		echo "  Gathering IP"
+		actIp=$(ifconfig $ethName |grep inet |head -n1 |awk '{print $2}')
+		if [[ "$actIp" =~ $regEx ]]; then
+			echo "  IP: $actIp"
+		else
+			except "${FUNCNAME[0]}" "IP is not valid! Please check: $ipReq"
+		fi
+	fi
+	srvIp="172.30.0.4"
+	echo "  Server IP: $srvIp"
+	for ((b=1;b<=10;b++)); do 
+		echo -n "  Sending ping to $srvIp - "
+		pingRes=$(echo -n $(ping -c 1 $srvIp 2>&1 ; echo exitCode=$?) |awk -F= '{print $NF}')
+		if [[ "$pingRes" = "0" ]]; then 
+			echo -e "\e[0;32mok\e[m"
+		else 
+			echo -e "\e[0;31mfailed\e[m"
+			sleep 1 
+		fi
+	done
+
+	echo -e " Done.\n"
 }
 
 echoIfExists() {
