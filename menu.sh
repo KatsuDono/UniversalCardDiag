@@ -20,6 +20,7 @@ parseArgs() {
 	done
 }
 
+
 main() {
 	title="Tool selector menu"
 	btitle="  arturd@silicom.co.il"	
@@ -49,10 +50,12 @@ main() {
 		"sfpD2-1" 	"| PE310G4BPI71-LR"
 		"sfpD3" 	"| PE310G2BPI71-SR"
 		"sfpD4" 	"| PE310G4DBIR"
-		"sfpD5" 	"| PE325G2I71-XR-CX"
-		"sfpD5-1" 	"| PE325G2I71-XR-SP"
-		"sfpD6" 	"| PE31625G4I71L-XR-CX"
-		"sfpD7" 	"| M4E310G4I71-XR-CP2"
+		"sfpD5" 	"| PE310G4BPI9-SR"
+		"sfpD5-1" 	"| PE310G4BPI9-LR"
+		"sfpD6" 	"| PE325G2I71-XR-CX"
+		"sfpD6-1" 	"| PE325G2I71-XR-SP"
+		"sfpD7" 	"| PE31625G4I71L-XR-CX"
+		"sfpD8" 	"| M4E310G4I71-XR-CP2"
 		"delim" 	"==========================="
 		"delim" 	"|  RJ45 CARDS"
 		"rjD1" 		"| PE310G4BPI40-T"
@@ -68,6 +71,8 @@ main() {
 
 	testFileExist "${MC_SCRIPT_PATH}/acc_diag_lib.sh"
 	testFileExist "${MC_SCRIPT_PATH}/sfpLinkTest.sh"
+	# getTracking
+	# createLog
 	test -z "$menuChoice" && whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" 29 45 20 ${cardArgs[@]} 3>&2 2>&1 1>&3) || whptRes=$menuChoice
 	case "$whptRes" in
 		acc) 		${MC_SCRIPT_PATH}/acc_diag_lib.sh;;
@@ -88,10 +93,12 @@ main() {
 		sfpD2-1) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI71-LR" $@;;
 		sfpD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G2BPI71-SR" $@;;
 		sfpD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4DBIR" $@;;
-		sfpD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-CX" $@;;
-		sfpD5-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-SP" $@;;
-		sfpD6) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE31625G4I71L-XR-CX" $@;;
-		sfpD7) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
+		sfpD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn=" PE310G4BPI9-SR" $@;;
+		sfpD5-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn=" PE310G4BPI9-LR" $@;;
+		sfpD6) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-CX" $@;;
+		sfpD6-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-SP" $@;;
+		sfpD7) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE31625G4I71L-XR-CX" $@;;
+		sfpD8) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
 		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@;;
 		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@;;
 		showSlots) 	showPciSlots;;
@@ -111,6 +118,7 @@ main() {
 		Exit) exit;;
 		*) exitFail echo "Unknown menu entry: $whptRes"
 	esac
+	# uploadLog
 	unset debugMode
 }
 
