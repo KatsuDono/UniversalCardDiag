@@ -893,7 +893,7 @@ function testLinks () {
 			test $r -gt 0 && sleep $globLnkUpDel
 			case "$uutModel" in
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				PE310G2BPI71-SR) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
+				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
 				PE310G4DBIR) 
@@ -954,7 +954,7 @@ getEthRates() {
 			test $r -gt 0 && sleep 1
 			case "$uutModel" in
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
-				PE310G2BPI71-SR) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4DBIR) 

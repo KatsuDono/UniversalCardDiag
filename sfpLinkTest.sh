@@ -233,7 +233,7 @@ startupInit() {
 		echo "  Searching $baseModel init sequence.."
 		case "$baseModel" in
 			PE310G4BPI71) bpi71SrInit;;
-			PE310G2BPI71-SR) bpi71SrInit;;
+			PE310G2BPI71) bpi71SrInit;;
 			PE310G4BPI40) pe310g4bpi40Init;;
 			PE310G4I40) pe310g4bpi40Init;;
 			PE310G4DBIR) g4dbirInit;;
@@ -248,7 +248,7 @@ startupInit() {
 	echo -e "  Initializing master"
 		case "$mastBaseModel" in
 			PE310G4BPI71) bpi71SrInit;;
-			PE310G2BPI71-SR) bpi71SrInit;;
+			PE310G2BPI71) bpi71SrInit;;
 			PE310G4BPI40) pe310g4bpi40Init;;
 			PE310G4I40) pe310g4bpi40Init;;
 			PE310G4DBIR) g4dbirInit;;
@@ -280,8 +280,12 @@ checkRequiredFiles() {
 				"/root/PE310G4BPI71/txgen2.sh"	
 			)				
 		;;
-		PE310G2BPI71-SR) 
+		PE310G2BPI71) 
 			echo "  File list: PE310G2BPI71-SR"
+			declare -a filesArr=(
+				${filesArr[@]}				
+				"/root/PE310G2BPI71/txgen2.sh"	
+			)	
 		;;
 		PE310G4BPI40) 
 			echo "  File list: PE310G4BPI40"
@@ -557,7 +561,7 @@ setupLinks() {
 		test ! -z "$(echo -n "$mastNets" |grep "$allNets")" && baseModelLocal="$mastBaseModel" || baseModelLocal="$baseModel"
 		case "$baseModelLocal" in
 			PE310G4BPI71) linkSetup=$(link_setup $allNets);;
-			PE310G2BPI71-SR) linkSetup=$(link_setup $allNets);;
+			PE310G2BPI71) linkSetup=$(link_setup $allNets);;
 			PE310G4BPI40) linkSetup=$(link_setup $allNets);;
 			PE310G4I40) linkSetup=$(link_setup $allNets);;
 			PE310G4DBIR) linkSetup="$(/root/PE310G4DBIR/iplinkup.sh $uutSlotNum)";;
@@ -920,8 +924,7 @@ defineRequirments() {
 
 		test ! -z $(echo -n $uutPn |grep "PE310G2BPI71-SR") && { 
 			ethKern="i40e"
-			let uutDevQty=2
-			let uutNetQty=2
+			let physEthDevQty=2
 			let bpDevQty=1
 			verDumpOffset="0x817"
 			let verDumpLen=5
@@ -933,9 +936,31 @@ defineRequirments() {
 			let tnDumpLen=13
 			tdDumpOffset="0x872"
 			let tdDumpLen=6
-			baseModel="PE310G2BPI71-SR"
-			pciDevId="1572"
+			baseModel="PE310G2BPI71"
+			syncPn="PE310G2BPI71-SR"
+			physEthDevId="15A4"
 			bpCtlMode="bpctl"
+			fwSyncPn="PE310G2BPi71.SR"
+			baseModelPath="/root/PE310G2BPI71"
+			
+			let physEthDevSpeed=8
+			let physEthDevWidth=8
+			
+			assignBuses eth bp
+			pciArgs=(
+				"--target-bus=$uutBus"
+				"--eth-buses=$ethBuses"
+				"--eth-dev-id=$physEthDevId"
+				"--eth-kernel=$ethKern"
+				"--eth-dev-qty=$physEthDevQty"
+				"--eth-dev-speed=$physEthDevSpeed"
+				"--eth-dev-width=$physEthDevWidth"
+				"--bp-buses=$bpBuses"
+				"--bp-kernel=$ethKern"
+				"--bp-dev-qty=$bpDevQty"
+				"--bp-dev-speed=$physEthDevSpeed"
+				"--bp-dev-width=$physEthDevWidth"
+			)
 		}
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4DBIR") && {
@@ -1311,6 +1336,7 @@ defineRequirments() {
 
 	case "$baseModel" in
 		PE310G4BPI71) mastSfpSrDefine;;
+		PE310G2BPI71) mastSfpSrDefine;;
 		PE310G2BPI71-SR) mastSfpSrDefine;;
 		PE310G4BPI40) mastRjDefine;;
 		PE310G4I40) mastRjDefine;;
@@ -1383,7 +1409,7 @@ switchBP() {
 	if [[ ! -z "$(echo -n $mastBpBuses |grep $bpBus)" ]]; then baseModelLocal="$mastBaseModel"; else baseModelLocal="$baseModel"; fi
 	case "$baseModelLocal" in
 		PE310G4BPI71) bpCtlCmd="bpctl_util";;
-		PE310G2BPI71-SR) bpCtlCmd="bpctl_util";;
+		PE310G2BPI71) bpCtlCmd="bpctl_util";;
 		PE310G4BPI40) bpCtlCmd="bpctl_util";;
 		PE310G4DBIR) bpCtlCmd="bprdctl_util";;
 		PE310G4BPI9) bpCtlCmd="bpctl_util";;
@@ -1535,7 +1561,7 @@ netInfoDump() {
 			dumpRegsPE310GxBPI71 
 			printRegsPE310GxBPI71
 		;;
-		PE310G2BPI71-SR) 
+		PE310G2BPI71) 
 			dumpRegsPE310GxBPI71 
 			printRegsPE310GxBPI71
 		;;
@@ -1639,7 +1665,7 @@ setDRate() {
 
 	case "$targModel" in
 		PE310G4BPI71) 		warn "setDRate, not implemented for $targModel";;
-		PE310G2BPI71-SR) 	warn "setDRate, not implemented for $targModel";;
+		PE310G2BPI71) 		warn "setDRate, not implemented for $targModel";;
 		PE310G4BPI40) 		drateRes=$(ethtool -s $targNet speed $targRate duplex full autoneg off);;
 		PE310G4I40) 		drateRes=$(ethtool -s $targNet speed $targRate duplex full autoneg off);;
 		PE310G4DBIR) 		warn "setDRate, not implemented for $targModel";;
@@ -1765,7 +1791,7 @@ trafficTests() {
 			sleep $globLnkUpDel
 			trafficTest "$uutSlotNum" 100000 "$baseModel"
 		;;
-		PE310G2BPI71-SR) inform "Traffic tests are not defined for $baseModel";;
+		PE310G2BPI71) inform "Traffic tests are not defined for $baseModel";;
 		PE310G4BPI40) 
 			allBPBusMode "$mastBpBuses" "inline"
 			allBPBusMode "$bpBuses" "inline"
@@ -1844,6 +1870,7 @@ assignBuses() {
 				case "$baseModel" in
 					PE310G4BPI40) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 					PE310G4BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
+					PE310G2BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 					PE310G2BPI71-SR) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 					PE310G4DBIR) publicVarAssign critical bpBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 					PE310G4BPI9) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
