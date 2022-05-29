@@ -87,7 +87,7 @@ critWarn() {	#nnl = no new line
 	test -z "$2" && echo -e "\e[0;47;31m$1\e[m" || {
 		test "$2"="nnl" && echo -e -n "\e[0;47;31m$1\e[m" || echo -e "\e[0;47;31m$1\e[m"
 	}
-	beepSpk crit
+	test -z "$(echo "$*" |grep "\-\-sil")" && beepSpk crit
 }
 
 warn() {	#nnl = no new line  #sil = silent mode
@@ -105,8 +105,8 @@ inform() {	#nnl = no new line  #sil = silent mode
 	do
 		key=$(echo $arg|cut -c3-)
 		case "$key" in
-			sil) silEn=1; msgNoKeys="$(echo "$msgNoKeys"| sed s/"--sil"//)";;
-			nnl) nnlEn=1; msgNoKeys="$(echo "$msgNoKeys"| sed s/"--nnl"//)";;
+			sil) silEn=1; msgNoKeys="$(echo "$msgNoKeys"| sed s/"--sil "//)";;
+			nnl) nnlEn=1; msgNoKeys="$(echo "$msgNoKeys"| sed s/"--nnl "//)";;
 		esac
 	done
 
@@ -497,13 +497,16 @@ drawPciSlot() {
 
 showPciSlots() {
 	local slotBuses slotNum slotBusRoot bpBusesTotal 
-	local pciBridges pciBr slotBrPhysNum pciBrInfo rootBus slotArr dmiSlotInfo
+	local pciBridges pciBr slotBrPhysNum pciBrInfo rootBus slotArr dmiSlotInfo minimalMode
+
+	if [[ "$1" = "--minimalMode" ]]; then minimalMode=1; else unset minimalMode; fi
+
 	echoSection "PCI Slots"
 	slotBuses=$(dmidecode -t slot |grep Bus |cut -d: -f3)
 	let slotNum=0
 	let maxSlots=$(dmidecode -t slot |grep Handle |wc -l)
 	declare -A slotArr
-	assignBusesInfo spc eth plx acc bp
+	assignBusesInfo spc eth plx acc bp 2>&1 > /dev/null	
 	bpBusesTotal=$bpBuses
 	if [[ ! -z "$bprdBuses" ]]; then
 		test -z "$bpBusesTotal" && bpBusesTotal=$bprdBuses || bpBusesTotal="$bpBuses $bprdBuses"
@@ -559,24 +562,26 @@ showPciSlots() {
 			#slotBusRoot=$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
 			#test -z "$slotBusRoot" && drawPciSlot $slotNum "-- Empty --" || {
 			if [[ -z "$falseDetect" ]]; then
-				drawPciSlot $slotNum "-- Empty (dmi failure) --"
+				drawPciSlot $slotNum "-- Empty (dmi failure slotBus:$slotBus) --"
 			else
 				test -z "$slotBus" && drawPciSlot $slotNum "-- Empty --" || {
 					gatherPciInfo $slotBus
 					dmsg debugPciVars
-					declare -a pciArgs=(
-						"--plx-keyw=Physical Slot:"
-						"--plx-virt-keyw=ABWMgmt+"
-						"--spc-buses=$spcBuses"
-						"--eth-buses=$ethBuses"
-						"--plx-buses=$plxBuses"
-						"--acc-buses=$accBuses"
-						"--bp-buses=$bpBuses"
-						"--info-mode"
-						"--target-bus=$slotBus"
-						"--slot-width-max=${slotArr[0,$slotNum]}"
-						"--slot-width-cap=${slotArr[2,$slotNum]}"
-					)
+					if [[ -z "$minimalMode" ]]; then
+						declare -a pciArgs=(
+							"--plx-keyw=Physical Slot:"
+							"--plx-virt-keyw=ABWMgmt+"
+							"--spc-buses=$spcBuses"
+							"--eth-buses=$ethBuses"
+							"--plx-buses=$plxBuses"
+							"--acc-buses=$accBuses"
+							"--bp-buses=$bpBuses"
+							"--info-mode"
+							"--target-bus=$slotBus"
+							"--slot-width-max=${slotArr[0,$slotNum]}"
+							"--slot-width-cap=${slotArr[2,$slotNum]}"
+						)
+					fi
 					drawPciSlot $slotNum ${slotArr[0,$slotNum]} $(lspci -s $slotBus:)
 				}
 			fi
@@ -586,10 +591,11 @@ showPciSlots() {
 }
 
 function selectSlot () {
-	local slotBuses slotBus busesOnSlots devsOnSlots populatedSlots slotSelRes totalDevList populatedBuses selDesc activeSlots
+	local slotBuses slotBus busesOnSlots devsOnSlots populatedSlots slotSelRes totalDevList populatedBuses selDesc activeSlots busMode
 	
 	privateVarAssign "selectSlot" "selDesc" "$1"
-	echo -e "$selDesc"
+	busMode=$2
+	if [[ -z "$busMode" ]]; then echo -e "$selDesc";fi
 
 	slotBuses=$(dmidecode -t slot |grep Bus |cut -d: -f3)
 	let slotNum=1
@@ -611,9 +617,61 @@ function selectSlot () {
 			fi
 		done
 		slotSelRes=$(select_opt "${totalDevList[@]}")
-		return ${activeSlots[$slotSelRes]}
+		if [[ "$busMode" = "bus" ]]; then
+			echo -n "${populatedBuses[$slotSelRes]}" |cut -d: -f1
+		else
+			return ${activeSlots[$slotSelRes]}
+		fi
 	else
 		warn "selectSlot exception, no populated slots detected!"
+	fi
+}
+
+function selectSerial () {
+	local selDesc serialDevs slotSelRes
+	
+	privateVarAssign "${FUNCNAME[0]}" "selDesc" "$1"
+	echo -e "$selDesc"
+
+	serialDevs+=( $(ls /dev |grep ttyUSB) )
+	
+	if [[ ! -z "${serialDevs[@]}" ]]; then
+		slotSelRes=$(select_opt "${serialDevs[@]}")
+		return $slotSelRes
+	else
+		except "${FUNCNAME[0]}" "no serial devs found!"
+	fi
+}
+
+function ibsSelectMgntMasterPort () {
+	local masterBus devsOnMastBus ethBuses ethBus netSelect ethListOnMaster mastNets ethOnDev
+	echo "  Select RJ45 MASTER card"
+	masterBus="$(selectSlot "nop" "bus")"
+	ethBuses=$(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-)
+	devsOnMastBus=$(ls -l /sys/bus/pci/devices/ |grep :$masterBus: |awk -F/ '{print $NF}')
+
+	for dev in $devsOnMastBus
+	do
+		for ethBus in $ethBuses
+		do
+			ethOnDev=$(echo $dev |cut -d: -f2- |grep -w $ethBus)
+			if [[ ! -z "$ethOnDev" ]]; then 
+				mastNets+=( $(grep PCI_SLOT_NAME /sys/class/net/*/device/uevent |grep $ethOnDev |cut -d/ -f5) )
+				if [[ -z "$ethListOnMaster" ]]; then 
+					ethListOnMaster="$ethOnDev"
+				else
+					ethListOnMaster+=" $ethOnDev"
+				fi
+			fi
+		done
+	done
+
+	if [[ ! -z "${mastNets[@]}" ]]; then
+		echo "  Select RJ45 port on MASTER card"
+		netSelect=$(select_opt "${mastNets[@]}")
+		return $(echo -n ${mastNets[$netSelect]} |cut -c4-)
+	else
+		except "${FUNCNAME[0]}" "unable to retrieve eth name!"
 	fi
 }
 
@@ -783,7 +841,7 @@ publicVarAssign() {
 	}
 }
 
-checkDefinedVal() {
+function checkDefinedVal () {
 	local funcName varVal
 	dmsg inform "DEBUG> checkDefinedVal> args: $*"
 	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
@@ -793,6 +851,8 @@ checkDefinedVal() {
 	dmsg inform "DEBUG> checkDefinedVal> funcName=$funcName varName=$varName varVal=$varVal"
 	if [[ -z "$varVal" ]]; then
 		except "${FUNCNAME[0]}" "in $funcName: varVal for $varName is undefined!"
+	else
+		return 0
 	fi
 }
 
@@ -881,7 +941,7 @@ speedWidthComp() {
 }
 
 function testLinks () {
-	local netTarg linkReq uutModel netId retryCount linkAcqRes
+	local netTarg linkReq uutModel netId retryCount linkAcqRes cmdRes
 	privateVarAssign "testLinks" "netTarg" "$1"
 	privateVarAssign "testLinks" "linkReq" "$2"
 	privateVarAssign "testLinks" "uutModel" "$3"
@@ -889,24 +949,44 @@ function testLinks () {
 
 	for ((r=0;r<=$retryCount;r++)); do 
 		dmsg inform "try:$r"
-		if [ -z "$linkAcqRes" -a "$linkReq" = "yes" ]; then
-			test $r -gt 0 && sleep $globLnkUpDel
+		if [ ! "$linkReq" = "$linkAcqRes" ]; then
+			if [ $r -gt 0 ]; then 
+				inform --sil --nnl "."
+				sleep $globLnkUpDel
+			fi
 			case "$uutModel" in
-				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
+				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4DBIR) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
-					test "$netId" = "0" && linkReq="no"
-					linkAcqRes=$(rdifctl dev 0 get_port_link $netId |grep UP)
+					if [ "$netId" = "0" ]; then 
+						linkReq="no"
+						linkAcqRes="no"
+					else
+						linkAcqRes=$(rdifctl dev 0 get_port_link $netId |grep UP)
+						if [[ ! -z "$(echo $linkAcqRes |grep UP)" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
+					fi
 				;;
-				PE310G4BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				PE210G2BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
-				acNano) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |grep yes);;
+				PE310G4BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE210G2BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				acNano) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				IBSGP-T-MC-AM) 
+					cmdRes="$(sendIBS $uutSerDev get_link $netTarg |grep -w 'link' |cut -d: -f2- |cut -d. -f1 |awk '{print $2}')"
+					if [[ "$cmdRes" = "up" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
+				;;
+				IBS10GP) 
+					cmdRes="$(sendIBS $uutSerDev get_link $netTarg |grep -w 'link' |cut -d: -f2- |cut -d. -f1 |awk '{print $2}')"
+					if [[ "$cmdRes" = "up" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
+				;;
+				IBSGP-T) 
+					cmdRes="$(sendIBS $uutSerDev get_link $netTarg |grep -w 'link' |cut -d: -f2- |cut -d. -f1 |awk '{print $2}')"
+					if [[ "$cmdRes" = "up" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
+				;;
 				*) exitFail "testLinks exception, Unknown uutModel: $uutModel"
 			esac
 			dmsg inform $linkAcqRes
@@ -914,9 +994,12 @@ function testLinks () {
 			dmsg inform "skipped because not empty"
 		fi
 	done
-	
-	if [[ -z "$linkAcqRes" ]]; then
-		if [[ "$linkReq" = "yes" ]]; then
+	if [[ ! -z "$linkAcqRes" ]]; then
+		if [[ "$netId" = "0" ]]; then
+			echo -e -n "\e[0;32m-\e[m" 
+			return 0
+		fi
+		if [[ ! "$linkAcqRes" = "$linkReq" ]]; then
 			echo -e -n "\e[0;31mFAIL\e[m"
 			return 1
 		else
@@ -924,19 +1007,12 @@ function testLinks () {
 			return 0
 		fi
 	else
-		if [[ "$netId" = "0" ]]; then
-			if [[ "$netId" = "0" ]]; then
-				echo -e -n "\e[0;32m-\e[m" 
-				return 0
-			fi
+		if [[ "$linkReq" = "yes" ]]; then
+			echo -e -n "\e[0;31mFAIL\e[m" 
+			return 1
 		else
-			if [[ "$linkReq" = "no" ]]; then
-				echo -e -n "\e[0;31mFAIL\e[m" 
-				return 1
-			else
-				echo -e -n "\e[0;32mOK\e[m"
-				return 0
-			fi
+			echo -e -n "\e[0;32mOK\e[m"
+			return 0
 		fi
 	fi
 }
@@ -946,7 +1022,11 @@ getEthRates() {
 	privateVarAssign "getEthRates" "netTarg" "$1"
 	privateVarAssign "getEthRates" "speedReq" "$2"
 	privateVarAssign "getEthRates" "uutModel" "$3"
-	test ! -z "$4" && privateVarAssign "getEthRates" "retryCount" "$4" || privateVarAssign "getEthRates" "retryCount" "$globRtAcqRetr"
+	if [[ ! -z "$4" ]]; then 
+		privateVarAssign "getEthRates" "retryCount" "$4" 
+	else
+		privateVarAssign "getEthRates" "retryCount" "$globRtAcqRetr"
+	fi
 	
 	for ((r=0;r<=$retryCount;r++)); do 
 		dmsg inform "try:$r"
@@ -967,7 +1047,7 @@ getEthRates() {
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
-				*) exitFail "getEthRates exception, Unknown uutModel: $uutModel"
+				*) except "${FUNCNAME[0]}" "unknown uutModel: $uutModel"
 			esac
 			dmsg inform $linkAcqRes
 		else
@@ -1140,7 +1220,7 @@ listDevsPciLib() {
 	
 	argsTotal=$*
 	
-	test -z "$argsTotal" && exitFail "listDevsPciLib exception, args undefined"
+	test -z "$argsTotal" && except "${FUNCNAME[0]}" "argsTotal undefined"
 	
 	for listPciArg in "$@"
 	do
@@ -1313,6 +1393,7 @@ listDevsPciLib() {
 			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || plxOnDevBus=$(echo $plxOnDevBus $bus)
 		done
+		dmsg inform "\t${FUNCNAME[0]}> plxOnDevBus=$plxOnDevBus"
 	}
 	test ! -z "$accBuses" && {
 		for bus in $accBuses ; do
@@ -1321,12 +1402,14 @@ listDevsPciLib() {
 
 			test -z "$exist" || accOnDevBus=$(echo $accOnDevBus $bus)
 		done
+		dmsg inform "\t${FUNCNAME[0]}> accOnDevBus=$accOnDevBus"
 	}
 	test ! -z "$spcBuses" && {
 		for bus in $spcBuses ; do
 			exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || spcOnDevBus=$(echo $spcOnDevBus $bus)
 		done
+		dmsg inform "\t${FUNCNAME[0]}> spcOnDevBus=$spcOnDevBus"
 	}
 	test ! -z "$ethBuses" && {
 		for bus in $ethBuses ; do
@@ -1334,14 +1417,18 @@ listDevsPciLib() {
 			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || ethOnDevBus=$(echo $ethOnDevBus $bus)
 		done
+		dmsg inform "\t${FUNCNAME[0]}> ethOnDevBus=$ethOnDevBus"
 	}
 	test ! -z "$bpBuses" && {
 		for bus in $bpBuses ; do
 			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || bpOnDevBus=$(echo $bpOnDevBus $bus)
 		done
+		dmsg inform "\t${FUNCNAME[0]}> bpOnDevBus=$bpOnDevBus"
 	}
 	
+	dmsg inform "\t ${FUNCNAME[0]} WAITING FOR INPUT1"
+	dmsg read foo
 	
 	dmsg inform "plxOnDevBus=$plxOnDevBus"
 	if [[ -z "$plxOnDevBus" ]]; then
@@ -1355,19 +1442,26 @@ listDevsPciLib() {
 		dmsg inform "plxOnDevBus is not empty\nPLX is not empty! there is: >$plxOnDevBus<"
 		if [[ -z $infoMode ]]; then
 			test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on PLX!"
-			test -z "$plxKernReq" && exitFail "listDevsPciLib exception, plxKern undefined!"
-			test -z "$plxDevQtyReq" && exitFail "listDevsPciLib exception, plxDevQtyReq undefined, but devices found" || {
-				test -z "$plxDevSpeed" && exitFail "listDevsPciLib exception, plxDevSpeed undefined!"
-				test -z "$plxDevWidth" && exitFail "listDevsPciLib exception, plxDevWidth undefined!"
-			}
-			test ! -z "$plxDevSubQtyReq" && {
-				test -z "$plxDevSubSpeed" && exitFail "listDevsPciLib exception, plxDevSubSpeed undefined!"
-				test -z "$plxDevSubWidth" && exitFail "listDevsPciLib exception, plxDevSubWidth undefined!"
-			}
-			test ! -z "$plxDevEmptyQtyReq" && {
-				test -z "$plxDevEmptySpeed" && exitFail "listDevsPciLib exception, plxDevEmptySpeed undefined!"
-				test -z "$plxDevEmptyWidth" && exitFail "listDevsPciLib exception, plxDevEmptyWidth undefined!"
-			}
+			checkDefinedVal "${FUNCNAME[0]}" "plxKernReq" "$plxKernReq"
+			if [[ -z "$plxDevQtyReq" ]]; then 
+				except "${FUNCNAME[0]}" "plxDevQtyReq undefined, but devices found"
+			else
+				checkDefinedVal "${FUNCNAME[0]}" "plxDevSpeed" "$plxDevSpeed"
+				checkDefinedVal "${FUNCNAME[0]}" "plxDevWidth" "$plxDevWidth"
+			fi
+
+			if [[ -z "$plxDevSubQtyReq" ]]; then 
+				except "${FUNCNAME[0]}" "plxDevSubQtyReq undefined, but devices found"
+			else
+				checkDefinedVal "${FUNCNAME[0]}" "plxDevSubSpeed" "$plxDevSubSpeed"
+				checkDefinedVal "${FUNCNAME[0]}" "plxDevSubWidth" "$plxDevSubWidth"
+			fi
+			if [[ -z "$plxDevEmptyQtyReq" ]]; then 
+				except "${FUNCNAME[0]}" "plxDevEmptyQtyReq undefined, but devices found"
+			else
+				checkDefinedVal "${FUNCNAME[0]}" "plxDevEmptySpeed" "$plxDevEmptySpeed"
+				checkDefinedVal "${FUNCNAME[0]}" "plxDevEmptyWidth" "$plxDevEmptyWidth"
+			fi
 		fi
 		plxDevArr=""
 		plxDevSubArr=""
@@ -1382,7 +1476,7 @@ listDevsPciLib() {
 			gatherPciInfo $plxBus
 			dmsg inform "Processing plxBus=$plxBus"
 			# dmsg debugPciVars
-			test -z "$plxKeyw" && exitFail "listDevsPciLib exception, plxKeyw undefined!"
+			checkDefinedVal "${FUNCNAME[0]}" "plxKeyw" "$plxKeyw"
 			dmsg inform " keyw:$plxKeyw fullPciInfo: $(echo "$fullPciInfo" |grep -w "$plxKeyw")"
 			#warn "full PCI: $fullPciInfo"
 			if [ ! -z "$(echo "$fullPciInfo" |grep -w "$plxKeyw")" ]; then
@@ -1390,22 +1484,22 @@ listDevsPciLib() {
 				plxDevArr="$plxBus $plxDevArr"
 				dmsg inform "Added plxBus=$plxBus to plxDevArr=$plxDevArr"
 				if [[ -z $infoMode ]]; then
-					echo -e "\t "'|'" $plxBus: PLX Physical Device: $pciInfoDevDesc"
+					echo -e "\t "'|'" $plxBus:$cy PLX Physical Device$ec: $pciInfoDevDesc"
 					echo -e -n "\t "'|'" $(speedWidthComp $plxDevSpeed $pciInfoDevSpeed $plxDevWidth $pciInfoDevWidth)"
 				else
-					echo -e "$plxBus: PLX Phys: $pciInfoDevDesc"
+					echo -e "$plxBus:$cy PLX Phys$ec: $pciInfoDevDesc"
 					echo -e -n "\t  $pciInfoDevLnkSta"
 				fi
 			else
-				test -z "$plxVirtKeyw" && exitFail "listDevsPciLib exception, plxVirtKeyw undefined!"
+				checkDefinedVal "${FUNCNAME[0]}" "plxVirtKeyw" "$plxVirtKeyw"
 				if [ ! -z "$(echo "$fullPciInfo" |grep -w "$plxVirtKeyw")" ]; then
 					plxDevSubArr="$plxBus $plxDevSubArr"
 					dmsg inform "Added plxBus=$plxBus to plxDevSubArr=$plxDevSubArr"
 					if [[ -z $infoMode ]]; then
-						echo -e "\t "'|'" $plxBus: PLX Virtual Device: $pciInfoDevDesc"
+						echo -e "\t "'|'" $plxBus:$cy PLX Virtual Device$ec: $pciInfoDevDesc"
 						echo -e -n "\t "'|'" $(speedWidthComp $plxDevSubSpeed $pciInfoDevSpeed $plxDevSubWidth $pciInfoDevWidth)"
 					else
-						echo -e "$plxBus: PLX Virt: $pciInfoDevDesc"
+						echo -e "$plxBus:$cy PLX Virt$ec: $pciInfoDevDesc"
 						echo -e -n "\t  $pciInfoDevLnkSta"
 					fi
 					dmsg inform ">> $plxBus have subordinate"
@@ -1413,10 +1507,10 @@ listDevsPciLib() {
 					plxDevEmptyArr="$plxBus $plxDevEmptyArr"
 					dmsg inform "Added plxBus=$plxBus to plxDevEmptyArr=$plxDevEmptyArr"
 					if [[ -z $infoMode ]]; then
-						echo -e "\t "'|'" $plxBus: PLX Virtual Device \e[0;33m(empty)\e[m: $pciInfoDevDesc"
+						echo -e "\t "'|'" $plxBus:$cy PLX Virtual Device $ec\e[0;33m(empty)\e[m: $pciInfoDevDesc"
 						echo -e -n "\t "'|'" $(speedWidthComp $plxDevEmptySpeed $pciInfoDevSpeed $plxDevEmptyWidth $pciInfoDevWidth)"
 					else
-						echo -e "$plxBus: PLX Virt Empty: $pciInfoDevDesc"
+						echo -e "$plxBus:$cy PLX Virt Empty$ec: $pciInfoDevDesc"
 						echo -e -n "\t  $pciInfoDevLnkSta"
 					fi
 					dmsg inform ">> $plxBus is empty"
@@ -1461,10 +1555,10 @@ listDevsPciLib() {
 			accDevArr="$accBus $accDevArr"
 			dmsg inform "Added accBus=$accBus to accDevArr=$accDevArr"
 			if [[ -z $infoMode ]]; then
-				echo -e "\t "'|'" $accBus: ACC Device: $pciInfoDevDesc"
+				echo -e "\t "'|'" $accBus:$pr ACC Device$ec: $pciInfoDevDesc"
 				echo -e -n "\t "'|'" $(speedWidthComp $accDevSpeed $pciInfoDevSpeed $accDevWidth $pciInfoDevWidth)"
 			else
-				echo -e "$accBus: ACC: $pciInfoDevDesc"
+				echo -e "$accBus:$pr ACC$ec: $pciInfoDevDesc"
 				echo -e -n "\t  $pciInfoDevLnkSta"
 			fi
 			if [[ -z $infoMode ]]; then
@@ -1512,23 +1606,23 @@ listDevsPciLib() {
 				ethDevArr="$ethBus $ethDevArr"
 				dmsg inform "Added ethBus=$ethBus to ethDevArr=$ethDevArr"
 				if [[ -z $infoMode ]]; then
-					echo -e "\t "'|'" $ethBus: ETH Physical Device: $pciInfoDevDesc"
+					echo -e "\t "'|'" $ethBus:$gr ETH Physical Device$ec: $pciInfoDevDesc"
 					echo -e -n "\t "'|'" $(speedWidthComp $ethDevSpeed $pciInfoDevSpeed $ethDevWidth $pciInfoDevWidth)"
 				else
 					netRes=$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $ethBus|awk -F/ '{print $NF}')
-					echo -e "$ethBus: ETH Phys (\e[0;33m$netRes\e[m): $pciInfoDevDesc"
+					echo -e "$ethBus:$gr ETH Phys$ec (\e[0;33m$netRes\e[m): $pciInfoDevDesc"
 					echo -e -n "\t  $pciInfoDevLnkSta"
 				fi
 			else
 				ethVirtDevArr="$ethBus $ethVirtDevArr"
 				dmsg inform "Added ethBus=$ethBus to ethVirtDevArr=$ethVirtDevArr"
 				if [[ -z $infoMode ]]; then
-					echo -e "\t "'|'" $ethBus: ETH Virtual Device: $pciInfoDevDesc"
+					echo -e "\t "'|'" $ethBus:$gr ETH Virtual Device$ec: $pciInfoDevDesc"
 					echo -e -n "\t "'|'" $(speedWidthComp $ethVirtDevSpeed $pciInfoDevSpeed $ethVirtDevWidth $pciInfoDevWidth)"
 					#echo "DEBUG: $ethBus have subordinate"
 				else
 					netRes=$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $ethBus|awk -F/ '{print $NF}')
-					echo -e "$ethBus: ETH Virt (\e[0;33m$netRes\e[m): $pciInfoDevDesc"
+					echo -e "$ethBus:$gr ETH Virt$ec (\e[0;33m$netRes\e[m): $pciInfoDevDesc"
 					echo -e -n "\t  $pciInfoDevLnkSta"
 				fi
 			fi
@@ -1569,10 +1663,10 @@ listDevsPciLib() {
 			bpDevArr="$bpBus $bpDevArr"
 			dmsg inform "Added bpBus=$bpBus to bpDevArr=$bpDevArr"
 			if [[ -z $infoMode ]]; then
-				echo -e "\t "'|'" $bpBus: BP Device: $pciInfoDevDesc"
+				echo -e "\t "'|'" $bpBus: $blw BP Device$ec: $pciInfoDevDesc"
 				echo -e -n "\t "'|'" $(speedWidthComp $bpDevSpeed $pciInfoDevSpeed $bpDevWidth $pciInfoDevWidth)"
 			else
-				echo -e "$bpBus: BP Dev: $pciInfoDevDesc"
+				echo -e "$bpBus: $blw BP Dev$ec: $pciInfoDevDesc"
 				echo -e -n "\t  $pciInfoDevLnkSta"
 			fi
 			if [[ -z $infoMode ]]; then
@@ -1614,10 +1708,10 @@ listDevsPciLib() {
 			spcDevArr="$spcBus $spcDevArr"
 			dmsg inform "Added spcBus=$spcBus to spcDevArr=$spcDevArr"
 			if [[ -z $infoMode ]]; then
-				echo -e "\t "'|'" $spcBus: SPC Device: $pciInfoDevDesc"
+				echo -e "\t "'|'" $spcBus:$yl SPC Device$ec: $pciInfoDevDesc"
 				echo -e -n "\t "'|'" $(speedWidthComp $spcDevSpeed $pciInfoDevSpeed $spcDevWidth $pciInfoDevWidth)\n\t "'|------'"\n"
 			else
-				echo -e "$spcBus: SPC Dev: $pciInfoDevDesc"
+				echo -e "$spcBus:$yl SPC Dev$ec: $pciInfoDevDesc"
 				echo -e -n "\t  $pciInfoDevLnkSta"			
 			fi
 			if [[ -z $infoMode ]]; then
@@ -1633,6 +1727,24 @@ listDevsPciLib() {
 			echo -e "\t -------------------------"
 			echo -e "\n\n\tSPC Device count" 
 			testArrQty "  SPC Devices" "$spcDevArr" "$spcDevQtyReq" "No SPC devices found on UUT" "warn"
+		fi
+	fi
+}
+
+checkIfContains() {
+	local reqVal actVal compDesc reqValWithDelimeter
+	compDesc=$1
+	reqValWithDelimeter=$2
+	reqVal="$(echo "$reqValWithDelimeter" |cut -c3-)"
+	actVal=$3
+
+	
+	if [[ ! -z "$reqVal" ]]; then
+		echo -e -n "\t$compDesc: "
+		if [[ ! -z "$(echo "$actVal" |grep -m 1 "$reqVal")" ]]; then 
+			echo -e "$reqVal \e[0;32mOK\e[m"
+		else 
+			echo -e "\e[0;31mFAIL\e[m ('$reqVal' wasnt found"'!'")"
 		fi
 	fi
 }
@@ -1901,6 +2013,232 @@ pingTest() {
 	done
 
 	echo -e " Done.\n"
+}
+
+function sendIBS () {
+	local ttyR cmdR
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	serState=$(getIBSSerialState $ttyR $uutBaudRate 5 2>&1)
+	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
+	
+	case "$serState" in
+		null)	except "${FUNCNAME[0]}" "null state received! (state: $serState)" ;;
+		shell) 	
+			cmdRes=$(sendRootIBS $ttyR exit)
+			loginIBS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "${FUNCNAME[0]}" "Unable to log in!"
+			fi	
+		;;
+		gui) 
+			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+		;;
+		login)
+			loginIBS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "${FUNCNAME[0]}" "Unable to log in!"
+			fi
+		;;
+		password) 
+			cmdRes=$(sendIBS $ttyR nop)
+			sleep 3
+			loginIBS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "${FUNCNAME[0]}" "Unable to log in!"
+			fi
+		;;
+		*) except "${FUNCNAME[0]}" "unexpected case state received! (state: $serState)"
+	esac
+}
+
+function sendRootIBS () {
+	local ttyR cmdR serState
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	serState=$(getIBSSerialState $ttyR $uutBaudRate 5 2>&1)
+	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
+	
+	case "$serState" in
+		null)	except "${FUNCNAME[0]}" "null state received! (state: $serState)" ;;
+		shell) 		
+			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+		;;
+		gui) 
+			cmdRes=$(sendIBS $ttyR exit)
+			loginIBS $ttyR $uutBaudRate 5 $uutRootUser $uutRootPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "${FUNCNAME[0]}" "Unable to log in!"
+			fi
+		;;
+		login)
+			loginIBS $ttyR $uutBaudRate 5 $uutRootUser $uutRootPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "${FUNCNAME[0]}" "Unable to log in!"
+			fi
+		;;
+		password) 
+			cmdRes=$(sendIBS $ttyR nop)
+			sleep 3
+			loginIBS $ttyR $uutBaudRate 5 $uutRootUser $uutRootPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "${FUNCNAME[0]}" "Unable to log in!"
+			fi
+		;;
+		*) except "${FUNCNAME[0]}" "unexpected case state received! (state: $serState)"
+	esac
+}
+
+function loginIBS () {
+	local ttyN baud timeout cmd
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "login" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "pass" "$1"
+
+	which expect > /dev/null || except "${FUNCNAME[0]}" "expect not found by which!"
+	which tio > /dev/null || except "${FUNCNAME[0]}" "tio not found by which!"
+
+	expect -c "
+	set timeout $timeout
+	log_user 1
+	exp_internal 0
+	spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+	send \r
+	expect {
+	Connected { send \r }
+	timeout { send_user \"\nTimeout1\n\"; exit 1 }
+	eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	expect {
+	*login:* { send \"$login\r\" }
+	*:~#* { send \"$login\r\" }
+	timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	*Password:* { send \"$pass\r\" }
+	*:~#* { send \"$pass\r\" }
+	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	*\$* { send \x14q\r }
+	*#* { send \x14q\r }
+	timeout { send_user \"\nTimeout4\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	Disconnected { send_user Done\n }
+	timeout { send_user \"\nTimeout5\n\"; exit 1 }
+	eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	" 
+	return $?
+}
+
+function sendSerialCmd () {
+	local ttyN baud timeout cmd
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmd" "$*"
+
+	which expect > /dev/null || except "${FUNCNAME[0]}" "expect not found by which!"
+	which tio > /dev/null || except "${FUNCNAME[0]}" "tio not found by which!"
+
+	expect -c "
+	set timeout $timeout
+	log_user 1
+	exp_internal 0
+	spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+	send \r
+	expect {
+	Connected { send \r }
+	timeout { send_user \"\nTimeout1\n\"; exit 1 }
+	eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	expect {
+	*\$* { send \"$cmd\r\" }
+	*#* { send \"$cmd\r\" }
+	timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	*\$* { send \x14q\r }
+	*#* { send \x14q\r }
+	*login:* { send \x14q\r }
+	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	Disconnected { send_user Done\n }
+	timeout { send_user \"\nTimeout4\n\"; exit 1 }
+	eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	" 
+	return $?
+}
+
+function getIBSSerialState () {
+	local ttyN baud timeout cmd
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
+
+	which expect > /dev/null || except "${FUNCNAME[0]}" "expect not found by which!"
+	which tio > /dev/null || except "${FUNCNAME[0]}" "tio not found by which!"
+
+	serialCmdNlRes="$(
+		expect -c "
+		set timeout $timeout
+		log_user 1
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*#* { send_user \"State: shell\r\" }
+		*\$* { send_user \"State: gui\r\" }
+		*ogin:* { send_user \"State: login\r\" }
+		*word:* { send_user \"State: password\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		** { send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		" 2>&1
+	)"
+	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'State:' |awk -F 'State:' '{print $2}' |cut -d ' ' -f2)
+	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
+	echo -n "$serStateRes"
 }
 
 echoIfExists() {

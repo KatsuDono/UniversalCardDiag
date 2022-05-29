@@ -9,6 +9,8 @@ declareVars() {
 	declare -a mastPciArgs=("null" "null")
 	let exitExec=0
 	let debugBrackets=1
+	def2p="1 1 2 2"
+	def4p="1 1 2 2 3 3 4 4"
 }
 
 parseArgs() {
@@ -22,6 +24,7 @@ parseArgs() {
 			uut-pn) pnArg=${VALUE} ;;
 			uut-tn) tnArg=${VALUE} ;;
 			uut-rev) revArg=${VALUE} ;;
+			ibs-mode) ibsMode=1 ;;
 			ignore-dumps-fail) ignDumpFail=1;;
 			skip-init) skipInit=1;;
 			silent) silentMode=1 ;;
@@ -270,6 +273,7 @@ checkRequiredFiles() {
 	declare -a filesArr=(
 		"/root/PE310G4BPI71/library.sh"
 		"/root/multiCard/arturLib.sh"
+		"/root/multiCard/graphicsLib.sh"
 	)
 	
 	case "$baseModel" in
@@ -352,6 +356,27 @@ checkRequiredFiles() {
 			declare -a filesArr=(
 				${filesArr[@]}
 				"/root/M4E310G4I71"
+			)
+		;;
+		IBSGP-T-MC-AM) 
+			echo "  File list: IBSGP-T-MC-AM"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/multiCard/usb_cmd.sh"
+			)
+		;;
+		IBS10GP) 
+			echo "  File list: IBS10GP"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/multiCard/usb_cmd.sh"
+			)
+		;;
+		IBSGP-T) 
+			echo "  File list: IBSGP-T"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/multiCard/usb_cmd.sh"
 			)
 		;;
 		*) exitFail "checkRequiredFiles exception, unknown baseModel: $baseModel"
@@ -718,10 +743,11 @@ trafficTest() {
 defineRequirments() {
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn"
-	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE310G4DBIR\|PE310G4BPI9-LR\|PE310G4BPI9-SR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP") ]]; then
+	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE310G4DBIR\|PE310G4BPI9-LR\|PE310G4BPI9-SR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP\|IBSGP-T-MC-AM\|IBS10GP-LR-RW\|IBSGP-T") ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR") && {
+			uutPortMatch="$def4p"
 			ethKern="i40e"
 			let physEthDevQty=4
 			let bpDevQty=2
@@ -763,6 +789,7 @@ defineRequirments() {
 		} 
 
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-LR") && {
+			uutPortMatch="$def4p"
 			ethKern="i40e"
 			let physEthDevQty=4
 			let bpDevQty=2
@@ -923,6 +950,7 @@ defineRequirments() {
 		}
 
 		test ! -z $(echo -n $uutPn |grep "PE310G2BPI71-SR") && { 
+			uutPortMatch="$def2p"
 			ethKern="i40e"
 			let physEthDevQty=2
 			let bpDevQty=1
@@ -964,7 +992,7 @@ defineRequirments() {
 		}
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4DBIR") && {
-			
+			uutPortMatch="$def4p"
 			ethKern="fm10k"
 			ethVirtKern="fm10k"
 			let uutDevQty=5
@@ -1050,6 +1078,7 @@ defineRequirments() {
 		}			
 
 		test ! -z $(echo -n $uutPn |grep "PE210G2BPI9") && {
+			uutPortMatch="$def2p"
 			ethKern="ixgbe"
 			let physEthDevQty=2
 			let bpDevQty=1
@@ -1198,6 +1227,64 @@ defineRequirments() {
 			dmsg inform "DEBUG2: ${pciArgs[@]}"
 		}
 		
+		test ! -z $(echo -n $uutPn |grep "IBSGP-T-MC-AM") && {
+			uutPortMatch="1 1 2 2 3 3 4 4"
+			uutDRates=("100" "1000" "10000")
+			let physEthDevQty=4
+			let bpDevQty=1
+			baseModel="IBSGP-T-MC-AM"
+			uutBdsUser="badas"
+			uutBdsPass="4fdG912z"
+			uutRootUser="root"
+			uutRootPass="bRd59kP"
+			uutBaudRate=115200
+
+			ibsHwVerInfo='5.3.0.21 (PPC ver. 2.2)'
+			ibsFwVer="0.3.3.6"
+			ibsSwVer="1.4.1.14"
+			ibsUbootVer="1.3.0"
+			ibsKernVer="2.6.23-S-001"
+			ibsProdName="IBSGP-T-MC"
+			ibsBdsVer="3.51"
+			ibsRootfsNandSIze="0xdc0000"
+		}
+		
+		test ! -z $(echo -n $uutPn |grep "IBS10GP-LR-RW") && {
+			uutPortMatch="1 1 2 2 3 3 4 4"
+			uutDRates=("100" "1000" "10000")
+			let physEthDevQty=4
+			let bpDevQty=1
+			baseModel="IBS10GP"
+			uutBdsUser="badas"
+			uutBdsPass="3grab7bW"
+			uutRootUser="root"
+			uutRootPass="rG31tm8"
+			uutBaudRate=115200
+
+			ibsHwVerInfo='0.3.0.21 (PPC ver. 2.2)'
+			ibsFwVer="0.3.3.7"
+			ibsSwVer="1.4.2.74"
+			ibsUbootVer="1.3.0"
+			ibsKernVer="2.6.23-S-001"
+			# ibsProdName="IBSGP-T-MC"
+			# ibsBdsVer="3.51"
+			# ibsRootfsNandSIze="0xdc0000"
+		}
+
+		test ! -z $(echo -n $uutPn |grep "IBSGP-T" |grep -v "IBSGP-T-") && {
+			uutPortMatch="1 1 2 2 3 3 4 4"
+			uutDRates=("100" "1000" "10000")
+			let physEthDevQty=4
+			let bpDevQty=1
+			baseModel="IBSGP-T"
+			uutBdsUser="badas"
+			uutBdsPass="vPr8dFg1"
+			uutRootUser="root"
+			uutRootPass="Rk526xZ"
+			uutBaudRate=115200
+			untestedPn=1
+		}
+		
 		
 		echoIfExists "  Port count:" "$uutDevQty"
 		echoIfExists "  Net count:" "$uutNetQty"
@@ -1240,6 +1327,7 @@ defineRequirments() {
 	echo -e "  Defining requirements for the master"
 
 	mastSfpSrDefine(){
+		ibsRjRequired=1
 		let mastPciSpeedReq=8
 		let mastPciWidthReq=8
 		let mastDevQty=4
@@ -1346,6 +1434,9 @@ defineRequirments() {
 		PE325G2I71) mastSfpSrDefine;;
 		PE31625G4I71L) mastSfpSrDefine;;
 		M4E310G4I71) mastSfpSrDefine;;
+		IBSGP-T) mastRjDefine;;
+		IBSGP-T-MC-AM) mastRjDefine;;
+		IBS10GP) mastSfpSrDefine;;
 		*) exitFail "defineRequirments exception, unknown baseModel: $baseModel"
 	esac
 
@@ -1406,7 +1497,7 @@ switchBP() {
 	privateVarAssign "switchBP" "bpBus" "$1"
 	privateVarAssign "switchBP" "newState" "$2"
 	dmsg inform "switchBP, switching bpBus:$bpBus to state newState:$newState"
-	if [[ ! -z "$(echo -n $mastBpBuses |grep $bpBus)" ]]; then baseModelLocal="$mastBaseModel"; else baseModelLocal="$baseModel"; fi
+	if [[ ! -z "$(echo -n $mastBpBuses |grep -w $bpBus)" ]]; then baseModelLocal="$mastBaseModel"; else baseModelLocal="$baseModel"; fi
 	case "$baseModelLocal" in
 		PE310G4BPI71) bpCtlCmd="bpctl_util";;
 		PE310G2BPI71) bpCtlCmd="bpctl_util";;
@@ -1414,34 +1505,73 @@ switchBP() {
 		PE310G4DBIR) bpCtlCmd="bprdctl_util";;
 		PE310G4BPI9) bpCtlCmd="bpctl_util";;
 		PE210G2BPI9) bpCtlCmd="bpctl_util";;
-		*) exitFail "switchBP exception, unknown baseModel: $baseModelLocal"
+		IBSGP-T-MC-AM) bpCtlCmd="bssf";;
+		IBS10GP) bpCtlCmd="bssf";;
+		IBSGP-T) bpCtlCmd="bssf";;
+		*) except "${FUNCNAME[0]}" "in $funcName: baseModel: $baseModelLocal not expected!"
 	esac
-	test ! -z "$(echo $bpBuses$mastBpBuses |grep $bpBus)" && {
-		case "$newState" in
-			inline) {
-				bpctlRes=$($bpCtlCmd $bpBus set_bypass off)
-				dmsg inform "\t DEBUG: $bpctlRes"
-				test ! -z "$(echo $bpctlRes |grep successfully)" &&	{
-					echo -e -n "\t$bpBus: Set to inline mode"
-					sleep 0.1
-					bpctlRes=$($bpCtlCmd $bpBus get_bypass |cut -d ' ' -f6-)
-					test ! -z "$(echo "$bpctlRes" |grep 'non-Bypass')" && bpctlRes="\e[0;32minline\e[m" ||  bpctlRes="\e[0;31mbypass\e[m"
-					echo -e ", checking: $bpctlRes mode"
-				} || exitFail "\t$bpBus: failed to to set to inline mode!"
-			} ;;	
-			bp) {
-				bpctlRes=$($bpCtlCmd $bpBus set_bypass on)
-				test ! -z "$(echo $bpctlRes |grep successfully)" &&	{
-					echo -e -n "\t$bpBus: Set to bypass mode"
-					sleep 0.1
-					bpctlRes=$($bpCtlCmd $bpBus get_bypass |cut -d ' ' -f6-)
-					test ! -z "$(echo "$bpctlRes" |grep 'non-Bypass')" && bpctlRes="\e[0;31minline\e[m" ||  bpctlRes="\e[0;32mbypass\e[m"
-					echo -e ", checking: $bpctlRes mode"
-				} || exitFail "\t$bpBus: failed to set to bypass mode!"
-			} ;;	
-			*) exitFail "switchBP exception, unknown state: $newState"
-		esac	
-	} || exitFail "switchBP exception, bpBus is not in uutBpBuses or mastBpBuses"
+		if [ ! -z "$(echo $bpBuses$mastBpBuses |grep $bpBus)" -o ! -z "$ibsMode" ]; then
+			case "$newState" in
+				inline) {
+					if [[ "$bpCtlCmd" = "bssf" ]]; then
+						bpctlRes=$(sendIBS $uutSerDev $bpCtlCmd set_normal)
+						if [[ ! -z "$(echo $bpctlRes |grep -w PASS)" ]]; then
+							echo -e -n "\t$bpBus: Set to inline mode"
+							sleep 0.1
+							bpctlRes=$(sendIBS $uutSerDev $bpCtlCmd get_state |grep Passive |cut -d. -f1 |awk '{print $3}')
+							if [[ ! -z "$(echo "$bpctlRes" |grep 'inline')" ]]; then 
+								bpctlRes="\e[0;32minline\e[m" 
+							else
+								bpctlRes="\e[0;31mbypass\e[m"
+							fi
+							echo -e ", checking: $bpctlRes mode"
+						else
+							exitFail "\t$bpBus: failed to to set to inline mode!"
+						fi
+					else
+						bpctlRes=$($bpCtlCmd $bpBus set_bypass off)
+						dmsg inform "\t DEBUG: $bpctlRes"
+						test ! -z "$(echo $bpctlRes |grep successfully)" &&	{
+							echo -e -n "\t$bpBus: Set to inline mode"
+							sleep 0.1
+							bpctlRes=$($bpCtlCmd $bpBus get_bypass |cut -d ' ' -f6-)
+							test ! -z "$(echo "$bpctlRes" |grep 'non-Bypass')" && bpctlRes="\e[0;32minline\e[m" ||  bpctlRes="\e[0;31mbypass\e[m"
+							echo -e ", checking: $bpctlRes mode"
+						} || exitFail "\t$bpBus: failed to to set to inline mode!"
+					fi
+				} ;;	
+				bp) {
+					if [[ "$bpCtlCmd" = "bssf" ]]; then
+						bpctlRes=$(sendIBS $uutSerDev $bpCtlCmd set_bypass)
+						if [[ ! -z "$(echo $bpctlRes |grep -w PASS)" ]]; then
+							echo -e -n "\t$bpBus: Set to bypass mode"
+							sleep 0.1
+							bpctlRes=$(sendIBS $uutSerDev $bpCtlCmd get_state |grep Passive |cut -d. -f1 |awk '{print $3}')
+							if [[ ! -z "$(echo "$bpctlRes" |grep 'bypass')" ]]; then 
+								bpctlRes="\e[0;32mbypass\e[m" 
+							else
+								bpctlRes="\e[0;31minline\e[m"
+							fi
+							echo -e ", checking: $bpctlRes mode"
+						else
+							exitFail "\t$bpBus: failed to to set to inline mode!"
+						fi
+					else
+						bpctlRes=$($bpCtlCmd $bpBus set_bypass on)
+						test ! -z "$(echo $bpctlRes |grep successfully)" &&	{
+							echo -e -n "\t$bpBus: Set to bypass mode"
+							sleep 0.1
+							bpctlRes=$($bpCtlCmd $bpBus get_bypass |cut -d ' ' -f6-)
+							test ! -z "$(echo "$bpctlRes" |grep 'non-Bypass')" && bpctlRes="\e[0;31minline\e[m" ||  bpctlRes="\e[0;32mbypass\e[m"
+							echo -e ", checking: $bpctlRes mode"
+						} || exitFail "\t$bpBus: failed to set to bypass mode!"
+					fi
+				} ;;	
+				*) exitFail "switchBP exception, unknown state: $newState"
+			esac	
+		else
+			exitFail "switchBP exception, bpBus is not in uutBpBuses or mastBpBuses"
+		fi
 }
 
 allNetTests() {
@@ -1450,8 +1580,13 @@ allNetTests() {
 	privateVarAssign "allNetTests" "netsDesc" "$2"
 	privateVarAssign "allNetTests" "bpState" "$3"
 	privateVarAssign "allNetTests" "uutModel" "$4"
-	allNetAct "$nets" "Check links are UP on $netsDesc ($bpState)" "testLinks" "yes" "$uutModel"
-	allNetAct "$nets" "Check Data rates on $netsDesc" "getEthRates" "10000" "$uutModel"
+	
+	if [[ -z "$ibsMode" ]]; then 
+		allNetAct "$nets" "Check links are UP on $netsDesc ($bpState)" "testLinks" "yes" "$uutModel"
+		allNetAct "$nets" "Check Data rates on $netsDesc" "getEthRates" "10000" "$uutModel"
+	else
+		allNetAct "$nets" "Check links are UP on $netsDesc ($bpState)" "testLinks" "yes" "$uutModel" 3	
+	fi
 	#allNetAct "$nets" "Check Selftest on $netsDesc" "getEthSelftest" --noargs
 }
 
@@ -1470,7 +1605,6 @@ netInfoDump() {
 	
 	privateVarAssign "netInfoDump" "net" "$1"
 	privateVarAssign "netInfoDump" "netDesc" "$2"
-
 
 	if [[ ! -z "$(echo -n $mastNets |grep $net)" ]]; then
 		privateVarAssign "netInfoDump" "baseModelLocal" "$mastBaseModel"
@@ -1537,9 +1671,11 @@ netInfoDump() {
 	printRegsPE210G2BPI9() {
 		echo -e  "\t$netDesc dumps on $net"
 		test ! -z "$(echo "$pnDumpRes" 2>&1 |xxd |grep 'ffff ffff')" && critWarn "\t $netDesc     PN: EMPTY" || {
-			echo -e -n "\t $netDesc     PN: $pnDumpRes  $(test "$pnDumpRes" = "$uutPn" && echo -e -n "\e[0;32mOK\e[m" || echo -e -n "\e[0;31mFAIL\e[m" && echo -e -n "\e[0;31mFAIL\e[m" || echo -e -n "\e[0;32mOK\e[m")\n"
+			echo -e -n "\t $netDesc     PN: $pnDumpRes  $(test -z "$(echo $pnDumpRes |grep $baseModelLocal)" && echo -e -n "\e[0;31mFAIL\e[m" || echo -e -n "\e[0;32mOK\e[m")\n"
 		}
-		test -z "$(echo $pnRevDumpRes 2>&1 |xxd |grep 'ffff ffff')" && echo -e -n "\t $netDesc    Rev: $pnRevDumpRes   $([ $(expr "x$pnRevDumpRes" : "x[0-9]*$") -gt 0 ] && echo -e -n "\e[0;32mOK\e[m" || echo -e -n "\e[0;31mFAIL\e[m")\n" || critWarn "\t $netDesc    Rev: EMPTY"
+		test -z "$(echo $pnRevDumpRes 2>&1 |xxd |grep 'ffff ffff')" && {
+			echo -e -n "\t $netDesc    Rev: $pnRevDumpRes   $([ $(expr "x$pnRevDumpRes" : "x[0-9]*$") -gt 0 ] && echo -e -n "\e[0;32mOK\e[m" || echo -e -n "\e[0;31mFAIL\e[m")\n" 
+		} || critWarn "\t $netDesc    Rev: EMPTY"
 		test -z "$(echo $tnDumpRes 2>&1 |xxd |grep 'ffff ffff')" && echo -e -n "\t $netDesc     TN: $tnDumpRes   $([ $(expr "x$tnDumpResCut" : "x[0-9]*$") -gt 0 ] && echo -e -n "\e[0;32mOK\e[m" || echo -e -n "\e[0;31mFAIL\e[m")\n" || critWarn "\t $netDesc     TN: EMPTY"
 		echo -e -n "\n"
 	}
@@ -1691,7 +1827,7 @@ setCardDRate() {
 	shift
 	privateVarAssign "setCardDRate" "targNets" "$*"
 
-	allNetAct "$targNets" "Set data rate to $targRate on $targRole" "setDRate" "$targRole" "$baseModel" "$targRate"
+	allNetAct "$targNets" "Set data rate to $targRate on $targRole" "setDRate" "$targRole" "$targModel" "$targRate"
 }
 
 resetCardDrate() {
@@ -1835,6 +1971,120 @@ trafficTests() {
 	esac
 }
 
+ibsBpTests() {
+	if [[ -z "$uutPortMatch" ]]; then
+		warn "Scheme of UUT connection to server is unknown!"
+		warn "Reffer to the ATP!"
+	else
+		connWarnMsg $uutPortMatch
+	fi
+
+	if [[ -z "$ibsRjRequired" ]]; then
+		allNetAct "$mastNets" "Reseting data rates on MASTER (cap at 1G)" "resetCardDrate" "speed 100 speed 1000"
+	fi
+
+	switchBP "SEG1" "inline"
+	echo -e -n "\tSetting bypas mode INLINE: "; sendIBS $uutSerDev "set_bypass_mode inline" 2>&1 > /dev/null; if [ $? -eq 0 ]; then echo -e "\e[0;32mOK\e[m"; else echo -e "\e[0;31mFAILED\e[m"; fi
+	echo -e -n "\tSetting HB OFF: "; sendIBS $uutSerDev "set_hb_act_mode off" 2>&1 > /dev/null; if [ $? -eq 0 ]; then echo -e "\e[0;32mOK\e[m"; else echo -e "\e[0;31mFAILED\e[m"; fi	
+	allBPBusMode "$mastBpBuses" "inline"
+	sleep $globLnkUpDel
+	allNetTests "$uutNets" "UUT" "UUT:IL MAST:IL" "$baseModel"
+	allNetTests "$mastNets" "MASTER" "UUT:IL MAST:IL" "$mastBaseModel"
+	
+	echo -e -n "\tSetting bypas mode BYPASS: "; sendIBS $uutSerDev "set_bypass_mode bypass" 2>&1 > /dev/null; if [ $? -eq 0 ]; then echo -e "\e[0;32mOK\e[m"; else echo -e "\e[0;31mFAILED\e[m"; fi
+	switchBP "SEG1" "bp"
+	# sleep $globLnkUpDel
+	allNetAct "$(echo $uutNets |cut -dM -f1)" "Check NET links are DOWN on UUT (UUT:BP MAST:IL)" "testLinks" "no" "$baseModel" 3
+	allNetAct "$(echo $uutNets |cut -d1 -f2- |cut -d ' ' -f2-)" "Check MON links are UP on UUT (UUT:BP MAST:IL)" "testLinks" "yes" "$baseModel" 3
+	allNetTests "$mastNets" "MASTER" "UUT:BP MAST:IL" "$mastBaseModel"
+	
+	switchBP "SEG1" "inline"
+	echo -e -n "\tSetting bypas mode INLINE: "; sendIBS $uutSerDev "set_bypass_mode inline" 2>&1 > /dev/null; if [ $? -eq 0 ]; then echo -e "\e[0;32mOK\e[m"; else echo -e "\e[0;31mFAILED\e[m"; fi
+	allBPBusMode "$mastBpBuses" "bp"			
+	sleep $globLnkUpDel
+	allNetTests "$uutNets" "UUT" "UUT:IL MAST:BP" "$baseModel"
+	allNetAct "$mastNets" "Check links are DOWN on MASTER (UUT:IL MAST:BP)" "testLinks" "no" "$mastBaseModel"
+
+	echo -e -n "\tSetting bypas mode BYPASS: "; sendIBS $uutSerDev "set_bypass_mode bypass" 2>&1 > /dev/null; if [ $? -eq 0 ]; then echo -e "\e[0;32mOK\e[m"; else echo -e "\e[0;31mFAILED\e[m"; fi
+	switchBP "SEG1" "bp"
+	sleep $globLnkUpDel
+	allNetAct "$mastNets" "Check links are DOWN on MASTER (UUT:BP MAST:BP)" "testLinks" "no" "$mastBaseModel"
+	allNetAct "$(echo $uutNets |cut -dM -f1)" "Check NET links are DOWN on UUT (UUT:BP MAST:IL)" "testLinks" "no" "$baseModel" 3
+	allNetAct "$(echo $uutNets |cut -d1 -f2- |cut -d ' ' -f2-)" "Check MON links are UP on UUT (UUT:BP MAST:IL)" "testLinks" "yes" "$baseModel" 3
+	
+	switchBP "SEG1" "inline"
+	echo -e -n "\tSetting bypas mode INLINE: "; sendIBS $uutSerDev "set_bypass_mode inline" 2>&1 > /dev/null; if [ $? -eq 0 ]; then echo -e "\e[0;32mOK\e[m"; else echo -e "\e[0;31mFAILED\e[m"; fi
+	allBPBusMode "$mastBpBuses" "inline"
+}
+
+checkIbsMgntRate() {
+	local cmdRes speedReq spdAcqRes linkAcqRes
+	privateVarAssign "${FUNCNAME[0]}" "speedReq" "$1"
+	cmdRes="$(sendRootIBS $uutSerDev ethtool eth0)"
+	linkAcqRes=$(echo "$cmdRes" |grep 'Link detected:' |cut -d: -f2 |cut -d ' ' -f2 |cut -c1-3)
+	spdAcqRes=$(echo "$cmdRes" |grep 'Speed: ')
+	echo -n -e "\tChecking IBS MGNT speed: "
+	if [[ "$linkAcqRes" = "yes" ]]; then
+		if [[ -z "$(echo "$spdAcqRes" |sed 's/[^0-9]*//g' |grep -x $speedReq)" ]]; then
+			echo -e "\e[0;31m$(echo -n "$spdAcqRes" | sed 's/[^0-9]//g')Mb/s (FAIL)\e[m" 
+		else
+			echo -e "\e[0;32m$(echo -n "$spdAcqRes" | sed 's/[^0-9]//g')Mb/s\e[m"
+		fi
+	else
+		echo -e "\e[0;31mFAILED! NO LINK DETECTED!\e[m" 
+	fi
+}
+
+ibsMgntTest() {
+	local masterNetsLocal mastBaseModelLocal linkSetup
+	if [[ ! -z "$ibsRjRequired" ]]; then
+		ibsSelectMgntMasterPort
+		masterNetsLocal="eth$?"
+		mastBaseModelLocal="PE310G4BPI40"
+		linkSetup=$(link_setup "$masterNetsLocal")
+		if [[ ! -z "$(echo $linkSetup |grep "Failed")" ]]; then
+			echo -e "\e[0;31m   RJ45 MASTER $masterNetsLocal link setup failed!\e[m" 
+		else
+			echo -e "\e[0;32m   RJ45 MASTER $masterNetsLocal link setup passed.\e[m"
+		fi
+	else
+		masterNetsLocal=$mastNets
+		mastBaseModelLocal="$mastBaseModel"
+		connWarnMsgMgnt
+	fi
+
+
+	allNetAct "$masterNetsLocal" "Reseting data rates on MASTER (cap at 1G)" "resetCardDrate" "speed 100 speed 1000"
+
+	setCardDRate "MASTER" "$mastBaseModelLocal" 100 $(echo $masterNetsLocal |cut -d ' ' -f1)
+	sleep $globLnkUpDel
+	checkCardDRate "MASTER" "$mastBaseModelLocal" 100 $(echo $masterNetsLocal |cut -d ' ' -f1)
+	allNetAct "$(echo $masterNetsLocal |cut -d ' ' -f1)" "Check first link is UP on MASTER" "testLinks" "yes" "$mastBaseModelLocal"
+	checkIbsMgntRate 100
+
+	setCardDRate "MASTER" "$mastBaseModelLocal" 1000 $(echo $masterNetsLocal |cut -d ' ' -f1)
+	sleep $globLnkUpDel
+	checkCardDRate "MASTER" "$mastBaseModelLocal" 1000 $(echo $masterNetsLocal |cut -d ' ' -f1)
+	allNetAct "$(echo $masterNetsLocal |cut -d ' ' -f1)" "Check first link is UP on MASTER" "testLinks" "yes" "$mastBaseModelLocal"
+	checkIbsMgntRate 1000
+}
+
+ibsInfoCheck() {
+	local verInfoRes prodInfoRes rootfsInfoRes
+	verInfoRes="$(sendIBS $uutSerDev get_ver)"
+	prodInfoRes="$(sendIBS $uutSerDev get_prd_name)"
+	rootfsInfoRes="$(sendIBS $uutSerDev verb get_nand_rootfs_size)"
+
+	checkIfContains "Checking BDS version" "--$ibsBdsVer" "$(echo "$verInfoRes" |grep -m 1 "$ibsBdsVer")"
+	checkIfContains "Checking HW version" "--$ibsHwVerInfo" "$(echo "$verInfoRes" |grep -m 1 "$ibsHwVerInfo")"
+	checkIfContains "Checking FW version" "--$ibsFwVer" "$(echo "$verInfoRes" |grep -m 1 "$ibsFwVer")"
+	checkIfContains "Checking SWD version" "--$ibsSwVer" "$(echo "$verInfoRes" |grep -m 1 "$ibsSwVer")"
+	checkIfContains "Checking U-Boot version" "--$ibsUbootVer" "$(echo "$verInfoRes" |grep -m 1 "$ibsUbootVer")"
+	checkIfContains "Checking Kernel version" "--$ibsRootfsNandSIze" "$(echo "$rootfsInfoRes" |grep -m 1 "$ibsRootfsNandSIze")"
+	checkIfContains "Checking Prod name" "--$ibsProdName" "$(echo "$prodInfoRes" |grep -m 1 "$ibsProdName")"
+	checkIfContains "Checking rootfs NAND size" "--$ibsKernVer" "$(echo "$verInfoRes" |grep -m 1 "$ibsKernVer")"
+}
+
 checkIfFailed() {
 	local curStep severity errMsg
 	
@@ -1867,16 +2117,20 @@ assignBuses() {
 			plx) publicVarAssign critical plxBuses $(grep '0604' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
 			acc) publicVarAssign critical accBuses $(grep '0b40' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
 			bp) 
-				case "$baseModel" in
-					PE310G4BPI40) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
-					PE310G4BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
-					PE310G2BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
-					PE310G2BPI71-SR) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
-					PE310G4DBIR) publicVarAssign critical bpBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
-					PE310G4BPI9) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
-					PE210G2BPI9) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
-					*) exitFail "assignBuses exception, unknown baseModel: $baseModel"
-				esac 
+				if [[ -z "$ibsMode" ]]; then
+					case "$baseModel" in
+						PE310G4BPI40) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
+						PE310G4BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
+						PE310G2BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
+						PE310G2BPI71-SR) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
+						PE310G4DBIR) publicVarAssign critical bpBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
+						PE310G4BPI9) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
+						PE210G2BPI9) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
+						*) exitFail "assignBuses exception, unknown baseModel: $baseModel"
+					esac 
+				else
+					inform "  BP Bus assignation skipped for UUT"
+				fi
 			;;
 			*) exitFail "assignBuses exception, unknown bus type: $ARG"
 		esac
@@ -1885,78 +2139,130 @@ assignBuses() {
 
 mainTest() {
 	local pciTest dumpTest bpTest drateTest trfTest
-	echo -e "\n  Select tests:"
-	options=("Full test" "PCI test" "Dump test" "BP Switch test" "Data rate test" "Traffic test")
-	case `select_opt "${options[@]}"` in
-		0) 
-			pciTest=1
-			dumpTest=1
-			bpTest=1
-			drateTest=1
-			trfTest=1
-		;;
-		1) pciTest=1;;
-		2) dumpTest=1;;
-		3) bpTest=1;;
-		4) drateTest=1;;
-		5) trfTest=1;;
-		*) exitFail "mainTest exception, unknown option";;
-	esac
+	
+	if [[ ! -z "$untestedPn" ]]; then untestedPnWarn; fi
+	
+	if [[ ! -z "$ibsMode" ]]; then
+		echo -e "\n  Select tests:"
+		options=("Full test" "Info test" "BP test" "Management rate test")
+		case `select_opt "${options[@]}"` in
+			0) 
+				ibsInfoTest=1
+				bpTest=1
+				drateTest=1
+			;;
+			1) ibsInfoTest=1;;
+			2) bpTest=1;;
+			3) drateTest=1;;
+			*) exitFail "mainTest exception, unknown option";;
+		esac
 
-	dmsg inform "pciTest=$pciTest dumpTest=$dumpTest bpTest=$bpTest drateTest=$drateTest trfTest=$trfTest"
+		if [ ! -z "$ibsInfoTest" ]; then
+			echoSection "IBS Info test"
+				ibsInfoCheck |& tee /tmp/statusChk.log
+			checkIfFailed "IBS Info test failed!" warn
+		else
+			inform "\tIBS Info test"
+		fi
 
-	if [[ ! -z "$pciTest" ]]; then
-		echoSection "PCI Info & Dev Qty"
+		if [ ! -z "$bpTest" ]; then
+			echoSection "IBS BP test"
+				ibsBpTests |& tee /tmp/statusChk.log
+			checkIfFailed "IBS BP test failed!" exit
+		else
+			inform "\tIBS BP test"
+		fi
 
-			inform "\tUUT bus:"
-			# dmsg inform "\tmainTest DEBUG: pciArgs: \n${pciArgs[@]}"
-			listDevsPciLib "${pciArgs[@]}" |& tee /tmp/statusChk.log
-			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+		if [ ! -z "$drateTest" ]; then
+			echoSection "IBS Management rate test"
+				ibsMgntTest |& tee /tmp/statusChk.log
+			checkIfFailed "IBS Management rate test failed!" exit
+		else
+			inform "\tIBS Management rate test"
+		fi
+	else
+		echo -e "\n  Select tests:"
+		options=("Full test" "PCI test" "Dump test" "BP Switch test" "Data rate test" "Traffic test")
+		case `select_opt "${options[@]}"` in
+			0) 
+				pciTest=1
+				dumpTest=1
+				bpTest=1
+				drateTest=1
+				trfTest=1
+			;;
+			1) pciTest=1;;
+			2) dumpTest=1;;
+			3) bpTest=1;;
+			4) drateTest=1;;
+			5) trfTest=1;;
+			*) exitFail "mainTest exception, unknown option";;
+		esac
+
+		dmsg inform "pciTest=$pciTest dumpTest=$dumpTest bpTest=$bpTest drateTest=$drateTest trfTest=$trfTest"
+
+		if [ ! -z "$pciTest" ]; then
+			echoSection "PCI Info & Dev Qty"
+
+				inform "\tUUT bus:"
+				# dmsg inform "\tmainTest DEBUG: pciArgs: \n${pciArgs[@]}"
+				listDevsPciLib "${pciArgs[@]}" |& tee /tmp/statusChk.log
+				# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+				
+				inform "\tTraffic gen bus:"
+				dmsg inform "\tmainTest DEBUG: mastPciArgs: \n${mastPciArgs[@]}"
+				listDevsPciLib "${mastPciArgs[@]}" |& tee -a /tmp/statusChk.log
+				# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 			
-			inform "\tTraffic gen bus:"
-			dmsg inform "\tmainTest DEBUG: mastPciArgs: \n${mastPciArgs[@]}"
-			listDevsPciLib "${mastPciArgs[@]}" |& tee -a /tmp/statusChk.log
+			checkIfFailed "PCI Info & Dev Qty failed!" exit
+		else
+			inform "\tPCI test skipped"
+		fi
+			
+		if [ ! -z "$dumpTest" ]; then
+			echoSection "Info Dumps"
+				netInfoDump $(echo -n $mastNets|awk '{print $1}') "MASTER" |& tee /tmp/statusChk.log
+				netInfoDump $(echo -n $uutNets|awk '{print $1}') "UUT" |& tee -a /tmp/statusChk.log
+			test -z "$ignDumpFail" && checkIfFailed "Info Dumps failed!" crit || checkIfFailed "Info Dumps failed!" warn
 			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-		
-		checkIfFailed "PCI Info & Dev Qty failed!" exit
-	else
-		inform "\tPCI test skipped"
-	fi
-		
-	if [[ ! -z "$dumpTest" ]]; then
-		echoSection "Info Dumps"
-			netInfoDump $(echo -n $mastNets|awk '{print $1}') "MASTER" |& tee /tmp/statusChk.log
-			netInfoDump $(echo -n $uutNets|awk '{print $1}') "UUT" |& tee -a /tmp/statusChk.log
-		test -z "$ignDumpFail" && checkIfFailed "Info Dumps failed!" crit || checkIfFailed "Info Dumps failed!" warn
-		# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-	else
-		inform "\tDump test skipped"
-	fi
+		else
+			inform "\tDump test skipped"
+		fi
 
-	if [[ ! -z "$bpTest" ]]; then
-		echoSection "BP Switch tests"
-			bpSwitchTests |& tee /tmp/statusChk.log
-			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-		checkIfFailed "BP Switch tests failed!" exit
-	else
-		inform "\tBP Switch test skipped"
-	fi
+		if [[ ! -z "$bpTest$drateTest$trfTest" ]]; then
+			if [[ -z "$uutPortMatch" ]]; then
+				warn "Scheme of UUT connection to server is unknown!"
+				warn "Reffer to the ATP!"
+			else
+				connWarnMsg $uutPortMatch
+			fi
+		fi
 
-	if [[ ! -z "$drateTest" ]]; then
-		echoSection "Data rate tests"
-			dataRateTest
-		checkIfFailed "Data rate tests failed!" exit
-	else
-		inform "\tData rate test skipped"
-	fi
+		if [[ ! -z "$bpTest" ]]; then
+			echoSection "BP Switch tests"
+				bpSwitchTests |& tee /tmp/statusChk.log
+				# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+			checkIfFailed "BP Switch tests failed!" exit
+		else
+			inform "\tBP Switch test skipped"
+		fi
 
-	if [[ ! -z "$trfTest" ]]; then
-		echoSection "Traffic tests"
-			trafficTests |& tee /tmp/statusChk.log
-			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-		checkIfFailed "Traffic tests failed!" exit
-	else
-		inform "\tTraffic test skipped"
+		if [[ ! -z "$drateTest" ]]; then
+			echoSection "Data rate tests"
+				dataRateTest
+			checkIfFailed "Data rate tests failed!" exit
+		else
+			inform "\tData rate test skipped"
+		fi
+
+		if [[ ! -z "$trfTest" ]]; then
+			echoSection "Traffic tests"
+				trafficTests |& tee /tmp/statusChk.log
+				# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
+			checkIfFailed "Traffic tests failed!" exit
+		else
+			inform "\tTraffic test skipped"
+		fi
 	fi
 }
 
@@ -1966,11 +2272,19 @@ assignNets() {
 
 initialSetup(){
 	
-	if [[ -z "$uutSlotArg" ]]; then 
-		selectSlot "  Select UUT:"
-		uutSlotNum=$?
-		dmsg inform "uutSlotNum=$uutSlotNum"
-	else acquireVal "UUT slot" uutSlotArg uutSlotNum; fi
+	if [[ -z "$ibsMode" ]]; then
+		if [[ -z "$uutSlotArg" ]]; then 
+			selectSlot "  Select UUT:"
+			uutSlotNum=$?
+			dmsg inform "uutSlotNum=$uutSlotNum"
+		else acquireVal "UUT slot" uutSlotArg uutSlotNum; fi
+	else
+		inform "  IBS Mode active, skipping slot selection for UUT"
+		skipInit=1
+		selectSerial "  Select UUT serial device"
+		uutSerDev=ttyUSB$?
+		testFileExist "/dev/$uutSerDev"
+	fi
 
 	if [[ -z "$masterSlotArg" ]]; then 
 		selectSlot "\n  Select MASTER:"
@@ -1982,17 +2296,23 @@ initialSetup(){
 
 	acquireVal "Part Number" pnArg uutPn
 	
-	publicVarAssign warn uutBus $(dmidecode -t slot |grep "Bus Address:" |cut -d: -f3 |head -n $uutSlotNum |tail -n 1)
+	
+	if [[ -z "$ibsMode" ]]; then publicVarAssign warn uutBus $(dmidecode -t slot |grep "Bus Address:" |cut -d: -f3 |head -n $uutSlotNum |tail -n 1); fi
 	publicVarAssign warn mastBus $(dmidecode -t slot |grep "Bus Address:" |cut -d: -f3 |head -n $mastSlotNum |tail -n 1)
-	publicVarAssign fatal uutSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$uutBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
+	if [[ -z "$ibsMode" ]]; then publicVarAssign fatal uutSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$uutBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}'); fi
 	publicVarAssign fatal mastSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$mastBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
-	publicVarAssign fatal devsOnUutSlotBus $(ls -l /sys/bus/pci/devices/ |grep $uutSlotBus |awk -F/ '{print $NF}')
+	if [[ -z "$ibsMode" ]]; then publicVarAssign fatal devsOnUutSlotBus $(ls -l /sys/bus/pci/devices/ |grep $uutSlotBus |awk -F/ '{print $NF}'); fi
 	publicVarAssign fatal devsOnMastSlotBus $(ls -l /sys/bus/pci/devices/ |grep $mastSlotBus |awk -F/ '{print $NF}')
 
 
 	publicVarAssign warn mastNets $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep 0000:$mastBus |awk -F/ '{print $NF}')
-	assignNets
-	test "$uutBus" = "ff" && exitFail "Card not detected, uutBus=ff"
+	
+	if [[ -z "$ibsMode" ]]; then 
+		assignNets
+		test "$uutBus" = "ff" && exitFail "Card not detected, uutBus=ff"
+	else
+		publicVarAssign fatal uutNets "NET0 NET1 MON0 MON1"
+	fi
 	dmsg inform " assigning master eth buses on bus: $mastBus"
 	publicVarAssign warn mastEthBuses $(filterDevsOnBus $mastSlotBus $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-))
 	
@@ -2006,7 +2326,7 @@ initialSetup(){
 }
 
 main() {	
-	setupLinks "$uutNets"
+	if [[ -z "$ibsMode" ]]; then setupLinks "$uutNets"; else inform "  Link setup skipped, IBS mode"; fi
 	setupLinks "$mastNets"
 	
 	test ! -z "$(echo -n $uutBus$mastBus|grep ff)" && {
@@ -2022,11 +2342,12 @@ echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
 	trap "exit 1" 10
 	PROC="$$"
 	declareVars
-	source /root/multiCard/arturLib.sh
-	test "$?" = "0" || {
-		echo -e "\t\e[0;31mLIBRARY NOT LOADED! UNABLE TO PROCEED\n\e[m"
+	source /root/multiCard/arturLib.sh; let status+=$?
+	source /root/multiCard/graphicsLib.sh; let status+=$?
+	if [[ ! "$status" = "0" ]]; then 
+		echo -e "\t\e[0;31mLIBRARIES ARE NOT LOADED! UNABLE TO PROCEED\n\e[m"
 		exit 1
-	}
+	fi
 	echoHeader "$toolName" "$ver"
 	echoSection "Startup.."
 	parseArgs "$@"

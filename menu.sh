@@ -28,6 +28,7 @@ main() {
 		"delim" 	"==========================="
 		"delim" 	"|  TOOLS"
 		"showSlots" "| Show PCI Slots"
+		"showSlM"	"| Show PCI Slots (minimal)"
 		"delim" 	"==========================="
 		"delim" 	"|  ACCELERATION CARDS"
 		#"acc" 		" Acceleration Tool"
@@ -61,10 +62,15 @@ main() {
 		"rjD1" 		"| PE310G4BPI40-T"
 		"rjD2" 		"| PE310G4I40-T"
 		"delim" 	"==========================="
-		"delim" 	"|  Etc.."
-		"transRep" 	"| PE310G4BPI71-SR (transceiver check"
-		"transRep1" "| PE310G4BPI71-SR (transceiver clone)"
+		"delim" 	"|  IBS"
+		"ibsD1" 	"| IBSGP-T"
+		"ibsD2" 	"| IBSGP-T-MC-AM"
+		"ibsD3" 	"| IBS10GP-LR-RW"
 		"delim" 	"==========================="
+		# "delim" 	"|  Etc.."
+		# "transRep" 	"| PE310G4BPI71-SR (transceiver check"
+		# "transRep1" "| PE310G4BPI71-SR (transceiver clone)"
+		# "delim" 	"==========================="
 		"Exit" 		"| Exit"
 		"delim" 	"==========================="
 	)
@@ -101,7 +107,12 @@ main() {
 		sfpD8) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
 		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@;;
 		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@;;
+		ibsD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T" --ibs-mode $@;;
+		ibsD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T-MC-AM" --ibs-mode $@;;
+		ibsD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-LR-RW" --ibs-mode $@;;
+
 		showSlots) 	showPciSlots;;
+		showSlM) 	showPciSlots --minimalMode;;
 		transRep)	
 			testFileExist "/root/PE310G4BPI71"
 			cd /root/PE310G4BPI71
@@ -130,6 +141,7 @@ export MC_SCRIPT_PATH=/root/multiCard
 if [[ -e "$libPath" ]]; then 
 	echo -e "  \e[0;32mLib found.\e[m"
 	source $libPath
+	source /root/multiCard/graphicsLib.sh
 	parseArgs "$@"
 	main "$@"
 else
