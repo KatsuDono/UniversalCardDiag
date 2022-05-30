@@ -63,9 +63,11 @@ main() {
 		"rjD2" 		"| PE310G4I40-T"
 		"delim" 	"==========================="
 		"delim" 	"|  IBS"
-		"ibsD1" 	"| IBSGP-T"
-		"ibsD2" 	"| IBSGP-T-MC-AM"
-		"ibsD3" 	"| IBS10GP-LR-RW"
+		"ibsD1" 	"| IBSGP-T* (universal)"
+		"ibsD2" 	"| IBSGP-T"
+		"ibsD3" 	"| IBSGP-T-MC-AM"
+		"ibsD4" 	"| IBS10GP-* (universal)"
+		"ibsD5" 	"| IBS10GP-LR-RW"
 		"delim" 	"==========================="
 		# "delim" 	"|  Etc.."
 		# "transRep" 	"| PE310G4BPI71-SR (transceiver check"
@@ -107,9 +109,11 @@ main() {
 		sfpD8) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
 		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@;;
 		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@;;
-		ibsD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T" --ibs-mode $@;;
-		ibsD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T-MC-AM" --ibs-mode $@;;
-		ibsD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-LR-RW" --ibs-mode $@;;
+		ibsD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T*" --ibs-mode $@;;
+		ibsD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T" --ibs-mode $@;;
+		ibsD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T-MC-AM" --ibs-mode $@;;
+		ibsD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-*" --ibs-mode $@;;
+		ibsD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-LR-RW" --ibs-mode $@;;
 
 		showSlots) 	showPciSlots;;
 		showSlM) 	showPciSlots --minimalMode;;

@@ -463,7 +463,8 @@ assignBusesInfo() {
 }
 
 drawPciSlot() {		
-	local addEl excessSymb cutText color slotWidthInfo pciInfoRes curLine curLineCut
+	local addEl addElDash addElSpace excessSymb cutText color slotWidthInfo pciInfoRes curLine curLineCut widthLocal cutAddExp addElDashSp
+	if [[ ! -z "$globDrawWidthAdj" ]]; then let widthLocal=$globDrawWidthAdj; else let widthLocal=0; fi
 	slotNum=$1
 	shift
 	test ! -z "$(echo $* |grep '\-\- Empty ')" || {
@@ -471,28 +472,33 @@ drawPciSlot() {
 		shift
 		slotWidthInfo="  Width Cap: $widthInfo"
 	}
-	cutText=$(echo $* |cut -c1-56)
-	let excessSymb=56-${#cutText}
-	for ((e=0;e<=excessSymb;e++)); do addEl="$addEl "; done
+	let cutAdd=56+$widthLocal
+	cutText=$(echo $* |cut -c1-$cutAdd)
+	let excessSymb=$widthLocal+56-${#cutText}
+	for ((e=0;e<=$excessSymb;e++)); do addEl="$addEl "; done
+	for ((e=0;e<$widthLocal;e++)); do addElDash="$addElDash-"; done
+	for ((e=0;e<$widthLocal;e++)); do addElDashSp="$addElDashSp "; done
+	for ((e=0;e<$widthLocal;e++)); do addElSpace="$addElSpace "; done
 	test ! -z "$(echo $cutText |grep '\-\- Empty ')" && color='\e[0;31m' || color='\e[0;32m'
 	#test "$cutText" = "-- Empty --" && color='\e[0;31m' || color='\e[0;32m'
 
-	echo -e "\n\t-------------------------------------------------------------------------"
-	echo -e "\t░ Slot: $slotNum  ░  $color$cutText$addEl\e[m ░$slotWidthInfo"
+	echo -e "\n\t-------------------------------------------------------------------------$addElDash"
+	echo -e "\t░ Slot: $slotNum  ░  $color$cutText$addEl\e[m ░  $slotWidthInfo"
 	test -z "$pciArgs" || {
-		echo -e "\t░      - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -      ░"
+		echo -e "\t░      - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -    $addElDashSp ░"
 		pciInfoRes="$(listDevsPciLib "${pciArgs[@]}")"
 		unset pciArgs
 		echo "${pciInfoRes[@]}" | while read curLine ; do	
 			addEl=""
-			curLineCut=$(echo $curLine |cut -c1-68)
-			let excessSymb=68-${#curLineCut}
-			for ((e=0;e<=excessSymb;e++)); do addEl="$addEl "; done
+			let cutAddExp=$cutAdd+12+11
+			curLineCut=$(echo $curLine |cut -c1-$cutAddExp)
+			let excessSymb=$widthLocal+11+68-${#curLineCut}
+			for ((e=0;e<=$excessSymb;e++)); do addEl="$addEl "; done
 			echo -e "\t░ $curLineCut$addEl ░"
 		done
 
 	}
-	echo -e -n "\t-------------------------------------------------------------------------"
+	echo -e -n "\t-------------------------------------------------------------------------$addElDash"
 }
 
 showPciSlots() {

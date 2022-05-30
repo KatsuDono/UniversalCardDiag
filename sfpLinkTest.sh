@@ -743,7 +743,7 @@ trafficTest() {
 defineRequirments() {
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn"
-	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE310G4DBIR\|PE310G4BPI9-LR\|PE310G4BPI9-SR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP\|IBSGP-T-MC-AM\|IBS10GP-LR-RW\|IBSGP-T") ]]; then
+	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE310G4DBIR\|PE310G4BPI9-LR\|PE310G4BPI9-SR\|PE210G2BPI9\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP\|IBSGP-T-MC-AM\|IBS10GP-LR-RW\|IBSGP-T\|IBS10GP-*\|IBSGP-T*") ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR") && {
@@ -1271,16 +1271,22 @@ defineRequirments() {
 			# ibsRootfsNandSIze="0xdc0000"
 		}
 
-		test ! -z $(echo -n $uutPn |grep "IBSGP-T" |grep -v "IBSGP-T-") && {
+		test ! -z $(echo -n $uutPn |grep "IBS10GP-*") && {
+			uutPortMatch="1 1 2 2 3 3 4 4"
+			uutDRates=("100" "1000" "10000")
+			let physEthDevQty=4
+			let bpDevQty=1
+			baseModel="IBS10GP"
+			uutBaudRate=115200
+			untestedPn=1
+		}
+
+		test ! -z $(echo -n $uutPn |grep "IBSGP-T*") && {
 			uutPortMatch="1 1 2 2 3 3 4 4"
 			uutDRates=("100" "1000" "10000")
 			let physEthDevQty=4
 			let bpDevQty=1
 			baseModel="IBSGP-T"
-			uutBdsUser="badas"
-			uutBdsPass="vPr8dFg1"
-			uutRootUser="root"
-			uutRootPass="Rk526xZ"
 			uutBaudRate=115200
 			untestedPn=1
 		}
@@ -2143,6 +2149,11 @@ mainTest() {
 	if [[ ! -z "$untestedPn" ]]; then untestedPnWarn; fi
 	
 	if [[ ! -z "$ibsMode" ]]; then
+		acquireVal "BadasName" uutBdsUser uutBdsUser
+		acquireVal "BadasPassword" uutBdsPass uutBdsPass
+		acquireVal "RootName" uutRootUser uutRootUser
+		acquireVal "RootPassword" uutRootPass uutRootPass
+
 		echo -e "\n  Select tests:"
 		options=("Full test" "Info test" "BP test" "Management rate test")
 		case `select_opt "${options[@]}"` in
