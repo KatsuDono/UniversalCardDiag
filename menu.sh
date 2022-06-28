@@ -47,6 +47,7 @@ main() {
 		"sfpD1-1" 	"| PE210G2BPI9-SRSD-BC8"
 		"sfpD1-2" 	"| PE210G2BPI9-SR-SD"
 		"sfpD1-3" 	"| PE210G2BPI9-SRD-SD"
+		"sfpD9" 	"| PE210G2SPI9A-XR"
 		"sfpD2" 	"| PE310G4BPI71-SR"
 		"sfpD2-1" 	"| PE310G4BPI71-LR"
 		"sfpD3" 	"| PE310G2BPI71-SR"
@@ -57,10 +58,13 @@ main() {
 		"sfpD6-1" 	"| PE325G2I71-XR-SP"
 		"sfpD7" 	"| PE31625G4I71L-XR-CX"
 		"sfpD8" 	"| M4E310G4I71-XR-CP2"
+		"sfpD10" 	"| PE340G2DBIR-QS41"
+		"sfpD11" 	"| PE3100G2DBIR"
 		"delim" 	"==========================="
 		"delim" 	"|  RJ45 CARDS"
-		"rjD1" 		"| PE310G4BPI40-T"
-		"rjD2" 		"| PE310G4I40-T"
+		"rjD1" 		"| PE210G2BPI40-T* (universal)"
+		"rjD2" 		"| PE310G4BPI40-T"
+		"rjD3" 		"| PE310G4I40-T"
 		"delim" 	"==========================="
 		"delim" 	"|  IBS"
 		"ibsD1" 	"| IBSGP-T* (universal)"
@@ -97,18 +101,22 @@ main() {
 		sfpD1-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SRSD-BC8" $@;;
 		sfpD1-2)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SR-SD" $@;;
 		sfpD1-3)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SRD-SD" $@;;
+		sfpD9)		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2SPI9A-XR" $@;;
 		sfpD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI71-SR" $@;;
 		sfpD2-1) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI71-LR" $@;;
 		sfpD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G2BPI71-SR" $@;;
 		sfpD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4DBIR" $@;;
-		sfpD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn=" PE310G4BPI9-SR" $@;;
-		sfpD5-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn=" PE310G4BPI9-LR" $@;;
+		sfpD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI9-SR" $@;;
+		sfpD5-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI9-LR" $@;;
 		sfpD6) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-CX" $@;;
 		sfpD6-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE325G2I71-XR-SP" $@;;
 		sfpD7) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE31625G4I71L-XR-CX" $@;;
 		sfpD8) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@;;
-		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@;;
-		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@;;
+		sfpD10) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE340G2DBIR-QS41" $@;;
+		sfpD11) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE3100G2DBIR" $@;;
+		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI40-T" $@;;
+		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@;;
+		rjD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@;;
 		ibsD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T*" --ibs-mode $@;;
 		ibsD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T" --ibs-mode $@;;
 		ibsD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T-MC-AM" --ibs-mode $@;;

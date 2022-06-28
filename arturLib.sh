@@ -302,6 +302,17 @@ beepSpk() {
 	fi
 }
 
+beep() {
+	test -z "$1" && let beepCount=1 || let beepCount=$1
+	if [ "$silentMode" = "1" ]; then
+		ttyName=$(ls /dev/tty6* |uniq |tail -n 1)
+		for ((b=1;b<=$beepCount;b++)); do 
+			echo -ne "\a" > $ttyName
+			sleep 0.13
+		done
+	fi
+}
+
 execScript() {
 	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc retStatus
 	declare -a scriptExpect
@@ -947,12 +958,19 @@ speedWidthComp() {
 }
 
 function testLinks () {
-	local netTarg linkReq uutModel netId retryCount linkAcqRes cmdRes
-	privateVarAssign "testLinks" "netTarg" "$1"
-	privateVarAssign "testLinks" "linkReq" "$2"
-	privateVarAssign "testLinks" "uutModel" "$3"
-	test ! -z "$4" && privateVarAssign "testLinks" "retryCount" "$4" || privateVarAssign "testLinks" "retryCount" "$globLnkAcqRetr"
-
+	local netTarg linkReq uutModel netId retryCount linkAcqRes cmdRes devNumRDIF
+	privateVarAssign "${FUNCNAME[0]}" "netTarg" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "linkReq" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "uutModel" "$3"
+	case "$uutModel" in
+		PE340G2DBIR|PE3100G2DBIR)
+			privateVarAssign "${FUNCNAME[0]}" "devNumRDIF" "$4"
+			privateVarAssign "${FUNCNAME[0]}" "retryCount" "$globLnkAcqRetr"
+		;;
+		*) 
+			test ! -z "$4" && privateVarAssign "testLinks" "retryCount" "$4" || privateVarAssign "testLinks" "retryCount" "$globLnkAcqRetr"
+		;;
+	esac
 	for ((r=0;r<=$retryCount;r++)); do 
 		dmsg inform "try:$r"
 		if [ ! "$linkReq" = "$linkAcqRes" ]; then
@@ -963,6 +981,7 @@ function testLinks () {
 			case "$uutModel" in
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE210G2BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4DBIR) 
@@ -971,12 +990,17 @@ function testLinks () {
 						linkReq="no"
 						linkAcqRes="no"
 					else
-						linkAcqRes=$(rdifctl dev 0 get_port_link $netId |grep UP)
+						linkAcqRes=$(rdifctl dev $devNumRDIF get_port_link $netId |grep UP)
 						if [[ ! -z "$(echo $linkAcqRes |grep UP)" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
 					fi
 				;;
+				PE340G2DBIR|PE3100G2DBIR) 
+					linkAcqRes=$(rdifctl dev $devNumRDIF get_port_link $netTarg |grep UP)
+					if [[ ! -z "$(echo $linkAcqRes |grep UP)" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
+				;;
 				PE310G4BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE210G2BPI9) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE210G2SPI9A) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
@@ -1028,11 +1052,20 @@ getEthRates() {
 	privateVarAssign "getEthRates" "netTarg" "$1"
 	privateVarAssign "getEthRates" "speedReq" "$2"
 	privateVarAssign "getEthRates" "uutModel" "$3"
-	if [[ ! -z "$4" ]]; then 
-		privateVarAssign "getEthRates" "retryCount" "$4" 
-	else
-		privateVarAssign "getEthRates" "retryCount" "$globRtAcqRetr"
-	fi
+	case "$uutModel" in
+		PE340G2DBIR|PE3100G2DBIR)
+			privateVarAssign "${FUNCNAME[0]}" "devNumRDIF" "$4"
+			privateVarAssign "getEthRates" "retryCount" "$globRtAcqRetr"
+		;;
+		*) 
+			if [[ ! -z "$4" ]]; then 
+				privateVarAssign "getEthRates" "retryCount" "$4" 
+			else
+				privateVarAssign "getEthRates" "retryCount" "$globRtAcqRetr"
+			fi
+		;;
+	esac
+
 	
 	for ((r=0;r<=$retryCount;r++)); do 
 		dmsg inform "try:$r"
@@ -1041,6 +1074,7 @@ getEthRates() {
 			case "$uutModel" in
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE210G2BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4DBIR) 
@@ -1048,8 +1082,15 @@ getEthRates() {
 					test "$netId" = "0" && speedReq="Fail"
 					linkAcqRes="Speed: $(rdifctl dev 0 get_port_speed $netId)Mb/s"
 				;;
+				PE340G2DBIR) 
+					linkAcqRes="Speed: $(rdifctl dev $devNumRDIF get_port_speed $netTarg)Mb/s"
+				;;
+				PE3100G2DBIR) 
+					linkAcqRes="Speed: $(rdifctl dev $devNumRDIF get_port_speed $netTarg)Mb/s"
+				;;
 				PE310G4BPI9) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE210G2BPI9) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE210G2SPI9A) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
@@ -1092,24 +1133,41 @@ getEthSelftest() {
 }
 
 function allNetAct () {
-	local nets act actDesc net status
-	privateVarAssign "allNetAct" "nets" "$1"
+	local nets act actDesc net status counter
+	privateVarAssign "${FUNCNAME[0]}" "nets" "$1"
 	shift
-	privateVarAssign "allNetAct" "actDesc" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "actDesc" "$1"
 	shift
-	privateVarAssign "allNetAct" "act" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "act" "$1"
 	shift
-	privateVarAssign "allNetAct" "actArgs" "$@"
-	#echo "DEBUG: nets:"$nets"  actDesc:"$actDesc"   act:"$act"   actArgs:"$actArgs
-	echo -e -n "\t$actDesc: \n\t\t"; 
-	for net in $nets; do 
-		echo -e -n "$net:"
-		$act "$net" $actArgs
-		let status+=$?
-		echo -e -n "   "
-	done
-	echo -e -n "\n\n"
-	return $status
+	privateVarAssign "${FUNCNAME[0]}" "actArgs" "$@"
+	dmsg inform "DEBUG: nets:"$nets"  actDesc:"$actDesc"   act:"$act"   actArgs:"$actArgs
+	case "$uutModel" in
+		PE340G2DBIR|PE3100G2DBIR)
+			echo -e -n "\t$actDesc: \n\t\t"; 
+			let counter=1
+			for net in $nets; do 
+				echo -e -n "$net:"
+				$act "$counter" $actArgs
+				dmsg inform "DEBUG: net:"$net"  act:"$act"  counter:"$counter"  actArgs:"$actArgs
+				let status+=$?
+				echo -e -n "   "
+			done
+			echo -e -n "\n\n"
+			return $status
+		;;
+		*) 
+			echo -e -n "\t$actDesc: \n\t\t"; 
+			for net in $nets; do 
+				echo -e -n "$net:"
+				$act "$net" $actArgs
+				let status+=$?
+				echo -e -n "   "
+			done
+			echo -e -n "\n\n"
+			return $status
+		;;
+	esac
 }
 
 net2bus() {
@@ -1651,11 +1709,11 @@ listDevsPciLib() {
 	dmsg inform "bpOnDevBus=$bpOnDevBus"
 	if [[ ! -z "$bpOnDevBus" ]]; then
 		if [[ -z $infoMode ]]; then
-			test -z "$bpDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on BP!"
-			test -z "$bpKernReq" && exitFail "listDevsPciLib exception, bpKernReq undefined!"
-			test -z "$bpDevQtyReq" && exitFail "listDevsPciLib exception, bpDevQtyReq undefined, but devices found" || {
-				test -z "$bpDevSpeed" && exitFail "listDevsPciLib exception, bpDevSpeed undefined!"
-				test -z "$bpDevWidth" && exitFail "listDevsPciLib exception, bpDevWidth undefined!"
+			test -z "$bpDevQtyReq" && except "${FUNCNAME[0]}" "no quantities are defined on BP!"
+			test -z "$bpKernReq" && except "${FUNCNAME[0]}" "bpKernReq undefined!"
+			test -z "$bpDevQtyReq" && except "${FUNCNAME[0]}" "bpDevQtyReq undefined, but devices found" || {
+				test -z "$bpDevSpeed" && except "${FUNCNAME[0]}" "bpDevSpeed undefined!"
+				test -z "$bpDevWidth" && except "${FUNCNAME[0]}" "bpDevWidth undefined!"
 			}
 		fi
 		bpDevArr=""  
@@ -1789,6 +1847,16 @@ testArrQty() {
 			exitFail "\tQty check failed! $errDesc!" $PROC
 		fi
 	fi
+}
+
+removePciDev() {
+	local pciAddrs
+	privateVarAssign "${FUNCNAME[0]}" "pciAddrs" "$*"
+	for pciDev in $pciAddrs
+	do
+		warn "  Removing $pciDev"
+		echo 1 > /sys/bus/pci/devices/0000:$pciDev/remove
+	done
 }
 
 qatConfig() {
