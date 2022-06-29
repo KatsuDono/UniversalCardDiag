@@ -9,7 +9,7 @@ defineColors() {
 	bl='\e[0;34m'
 	pr='\e[0;35m'
 	cy='\e[0;36m'
-    blw='\e[0;47;35m'
+    blw='\e[0;44;37m'
 	ec='\e[m'
 }
 

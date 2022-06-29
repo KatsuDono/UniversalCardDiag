@@ -475,7 +475,7 @@ assignBusesInfo() {
 
 drawPciSlot() {		
 	local addEl addElDash addElSpace excessSymb cutText color slotWidthInfo pciInfoRes curLine curLineCut widthLocal cutAddExp addElDashSp
-	if [[ ! -z "$globDrawWidthAdj" ]]; then let widthLocal=$globDrawWidthAdj; else let widthLocal=0; fi
+	if [[ ! -z "$globDrawWidthAdj" ]]; then let widthLocal=$globDrawWidthAdj; else let widthLocal=15; fi
 	slotNum=$1
 	shift
 	test ! -z "$(echo $* |grep '\-\- Empty ')" || {
@@ -488,7 +488,7 @@ drawPciSlot() {
 	let excessSymb=$widthLocal+56-${#cutText}
 	for ((e=0;e<=$excessSymb;e++)); do addEl="$addEl "; done
 	for ((e=0;e<$widthLocal;e++)); do addElDash="$addElDash-"; done
-	for ((e=0;e<$widthLocal;e++)); do addElDashSp="$addElDashSp "; done
+	for ((e=-1;e<$widthLocal;e++)); do addElDashSp="$addElDashSp "; done
 	for ((e=0;e<$widthLocal;e++)); do addElSpace="$addElSpace "; done
 	test ! -z "$(echo $cutText |grep '\-\- Empty ')" && color='\e[0;31m' || color='\e[0;32m'
 	#test "$cutText" = "-- Empty --" && color='\e[0;31m' || color='\e[0;32m'
@@ -503,7 +503,8 @@ drawPciSlot() {
 			addEl=""
 			let cutAddExp=$cutAdd+12+11
 			curLineCut=$(echo $curLine |cut -c1-$cutAddExp)
-			let excessSymb=$widthLocal+11+68-${#curLineCut}
+			curLineCutCount=$(echo $curLine |cut -c1-$cutAddExp | sed 's/\x1b\[[0-9;]*m//g')
+			let excessSymb=$widthLocal+10+58-${#curLineCutCount}
 			for ((e=0;e<=$excessSymb;e++)); do addEl="$addEl "; done
 			echo -e "\t░ $curLineCut$addEl ░"
 		done
@@ -592,7 +593,7 @@ showPciSlots() {
 							"--eth-buses=$ethBuses"
 							"--plx-buses=$plxBuses"
 							"--acc-buses=$accBuses"
-							"--bp-buses=$bpBuses"
+							"--bp-buses=$bpBusesTotal"
 							"--info-mode"
 							"--target-bus=$slotBus"
 							"--slot-width-max=${slotArr[0,$slotNum]}"
@@ -1248,7 +1249,7 @@ gatherPciInfo() {
 	fi
 	fullPciInfo="$(lspci -nnvvvks $pciInfoDev 2>&1)"
 	let nameLine=$(echo "$fullPciInfo" |grep -B9999 -m1 $pciInfoDev |wc -l)
-	pciInfoDevDesc=$(echo "$fullPciInfo" |head -n$nameLine |tail -n1 |cut -d ':' -f3- |cut -d ' ' -f1-9)
+	pciInfoDevDesc=$(echo "$fullPciInfo" |head -n$nameLine |tail -n1 |cut -d ':' -f3- |cut -d ' ' -f1-15)
 	pciInfoDevSubs=$(echo "$fullPciInfo" |grep Subsystem: |cut -d ':' -f2- | awk '$1=$1')
 	pciInfoDevLnkCap=$(echo "$fullPciInfo" |grep LnkCap: |cut -d ',' -f2-3 | awk '$1=$1')
 	pciInfoDevLnkStaFull=$(echo "$fullPciInfo" |grep LnkSta:)
@@ -1727,10 +1728,10 @@ listDevsPciLib() {
 			bpDevArr="$bpBus $bpDevArr"
 			dmsg inform "Added bpBus=$bpBus to bpDevArr=$bpDevArr"
 			if [[ -z $infoMode ]]; then
-				echo -e "\t "'|'" $bpBus: $blw BP Device$ec: $pciInfoDevDesc"
+				echo -e "\t "'|'" $bpBus: $blw"'BP Device'"$ec: $pciInfoDevDesc"
 				echo -e -n "\t "'|'" $(speedWidthComp $bpDevSpeed $pciInfoDevSpeed $bpDevWidth $pciInfoDevWidth)"
 			else
-				echo -e "$bpBus: $blw BP Dev$ec: $pciInfoDevDesc"
+				echo -e "$bpBus: $blw\BP Dev$ec: $pciInfoDevDesc"
 				echo -e -n "\t  $pciInfoDevLnkSta"
 			fi
 			if [[ -z $infoMode ]]; then
@@ -1743,7 +1744,7 @@ listDevsPciLib() {
 			printf '\033[1A'
 			echo -e "\t -------------------------"
 			echo -e "\n\n\tBP Device count" 
-			testArrQty "  BP Devices" "$bpDevArr" "$bpDevQtyReq" "No BP devices found on UUT" "warn"
+			testArrQty " BP Devices" "$bpDevArr" "$bpDevQtyReq" "No BP devices found on UUT" "warn"
 		fi
 	else
 		test -z "$bpDevQtyReq$bpKernReq$bpDevSpeed$bpDevWidth$bpDevId" || critWarn "  BP bus empty! PCI info on BP failed!"
