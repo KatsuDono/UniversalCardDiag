@@ -982,6 +982,7 @@ function testLinks () {
 			case "$uutModel" in
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE340G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE210G2BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
@@ -1075,6 +1076,7 @@ getEthRates() {
 			case "$uutModel" in
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE340G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE210G2BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
@@ -1858,6 +1860,22 @@ removePciDev() {
 		warn "  Removing $pciDev"
 		echo 1 > /sys/bus/pci/devices/0000:$pciDev/remove
 	done
+}
+
+flashCard() {
+	local flashFile burnBus flashResCmd
+	privateVarAssign "${FUNCNAME[0]}" "burnBusHex" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "flashFile" "$2"
+	testFileExist "$flashFile"
+	echo "  Burning card on 0x$burnBusHex with $flashFile"
+	echo "   Please wait.."
+	flashResCmd="$(eeupdate64e /D $flashFile /DEV=0 /FUN=0 /BUS=0x$burnBusHex)"
+	if [[ ! -z "$(echo "$flashResCmd" |grep "updated successfully")" ]]; then
+		echo "   Burned successfully"
+	else
+		echo "$flashResCmd"
+		except "${FUNCNAME[0]}" "   Burn failed."
+	fi
 }
 
 qatConfig() {

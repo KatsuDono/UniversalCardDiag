@@ -26,13 +26,34 @@ parseArgs() {
 			uut-pn) pnArg=${VALUE} ;;
 			uut-tn) tnArg=${VALUE} ;;
 			uut-rev) revArg=${VALUE} ;;
-			ibs-mode) ibsMode=1 ;;
-			ignore-dumps-fail) ignDumpFail=1;;
-			slDupSkp) ignoreSlotDuplicate=1;;
-			skip-init) skipInit=1;;
-			silent) silentMode=1 ;;
-			debug) debugMode=1 ;;
-			no-dbg-brk) debugBrackets=0 ;;
+			ibs-mode) 
+				inform "Launch key: IBS mode"
+				ibsMode=1
+			;;
+			ignore-dumps-fail) 
+				inform "Launch key: Ignoring dump fail, setting as warn level"
+				ignDumpFail=1
+			;;
+			slDupSkp) 
+				inform "Launch key: Ignoring slot duplicate"
+				ignoreSlotDuplicate=1
+			;;
+			skip-init) 
+				inform "Launch key: Skipping init of the card"
+				skipInit=1
+			;;
+			silent) 
+				silentMode=1 
+				inform "Launch key: Silent mode, no beeps allowed"
+			;;
+			debug) 
+				debugMode=1 
+				inform "Launch key: Debug mode"
+			;;
+			no-dbg-brk) 
+				debugBrackets=0 
+				inform "Launch key: Debug mode arg: no debug brackets"
+			;;
 			help) showHelp ;;
 			*) echo "Unknown arg: $ARG"; showHelp
 		esac
@@ -552,6 +573,7 @@ startupInit() {
 		case "$baseModel" in
 			PE310G4BPI71) bpi71SrInit;;
 			PE310G2BPI71) bpi71SrInit;;
+			PE340G2BPI71) bpi71SrInit;;
 			PE310G4BPI40) pe310g4bpi40Init;;
 			PE210G2BPI40) pe310g4bpi40Init;;
 			PE310G4I40) pe310g4bpi40Init;;
@@ -570,6 +592,7 @@ startupInit() {
 		case "$mastBaseModel" in
 			PE310G4BPI71) bpi71SrInit;;
 			PE310G2BPI71) bpi71SrInit;;
+			PE340G2BPI71) bpi71SrInit;;
 			PE310G4BPI40) pe310g4bpi40Init;;
 			PE310G4I40) pe310g4bpi40Init;;
 			PE310G4DBIR) g4dbirInit;;
@@ -612,6 +635,14 @@ checkRequiredFiles() {
 				"/root/PE310G2BPI71/txgen2.sh"	
 			)	
 		;;
+		PE340G2BPI71) 
+			echo "  File list: $baseModel"
+			declare -a filesArr=(
+				${filesArr[@]}				
+				"/root/PE340G2BPI71"	
+			)	
+		;;
+		
 		PE210G2BPI40) 
 			echo "  File list: $baseModel"
 			declare -a filesArr=(
@@ -941,12 +972,13 @@ defineRequirments() {
 	local ethToRemove
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn"
-	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE210G2BPI40-T\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE310G4DBIR\|PE310G4BPI9-LR\|PE310G4BPI9-SR\|PE210G2BPI9\|PE210G2SPI9A-XR\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP\|PE340G2DBIR-QS41\|PE3100G2DBIR\|IBSGP-T-MC-AM\|IBS10GP-LR-RW\|IBSGP-T\|IBS10GP-*\|IBSGP-T*") ]]; then
+	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE210G2BPI40-T\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE340G2BPI71-QS43\|PE310G4DBIR\|PE310G4BPI9-LR\|PE310G4BPI9-SR\|PE210G2BPI9\|PE210G2SPI9A-XR\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP\|PE340G2DBIR-QS41\|PE3100G2DBIR\|IBSGP-T-MC-AM\|IBS10GP-LR-RW\|IBSGP-T\|IBS10GP-*\|IBSGP-T*") ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR") && {
 			uutPortMatch="$def4p"
 			ethKern="i40e"
+			ethMaxSpeed="10000"
 			let physEthDevQty=4
 			let bpDevQty=2
 			verDumpOffset="0x817"
@@ -989,6 +1021,7 @@ defineRequirments() {
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-LR") && {
 			uutPortMatch="$def4p"
 			ethKern="i40e"
+			ethMaxSpeed="10000"
 			let physEthDevQty=4
 			let bpDevQty=2
 			verDumpOffset="0x817"
@@ -1031,6 +1064,7 @@ defineRequirments() {
 		test ! -z $(echo -n $uutPn |grep "PE210G2BPI40-T") && {
 			uutPortMatch="$def2p"
 			ethKern="ixgbe"
+			ethMaxSpeed="10000"
 			let physEthDevQty=2
 			let bpDevQty=1
 			baseModel="PE210G2BPI40"
@@ -1068,6 +1102,7 @@ defineRequirments() {
 
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI40") && {
 			ethKern="ixgbe"
+			ethMaxSpeed="10000"
 			let physEthDevQty=4
 			let bpDevQty=2
 			baseModel="PE310G4BPI40"
@@ -1131,6 +1166,7 @@ defineRequirments() {
 
 		test ! -z $(echo -n $uutPn |grep "PE310G4I40") && {
 			ethKern="ixgbe"
+			ethMaxSpeed="10000"
 			let physEthDevQty=4
 			baseModel="PE310G4I40"
 			syncPn="PE310G4I40"
@@ -1188,6 +1224,7 @@ defineRequirments() {
 		test ! -z $(echo -n $uutPn |grep "PE310G2BPI71-SR") && { 
 			uutPortMatch="$def2p"
 			ethKern="i40e"
+			ethMaxSpeed="10000"
 			let physEthDevQty=2
 			let bpDevQty=1
 			verDumpOffset="0x817"
@@ -1226,11 +1263,55 @@ defineRequirments() {
 				"--bp-dev-width=$physEthDevWidth"
 			)
 		}
+
+		test ! -z $(echo -n $uutPn |grep "PE340G2BPI71-QS43") && { 
+			uutPortMatch="$def2p"
+			ethKern="i40e"
+			ethMaxSpeed="40000"
+			let physEthDevQty=2
+			let bpDevQty=1
+			verDumpOffset="0x817"
+			let verDumpLen=5
+			pnDumpOffset="0x850"
+			let pnDumpLen=28
+			pnRevDumpOffset="0x86C"
+			let pnRevDumpLen=4	
+			tnDumpOffset="0x880"
+			let tnDumpLen=13
+			tdDumpOffset="0x872"
+			let tdDumpLen=6
+			baseModel="PE340G2BPI71"
+			syncPn="PE340G2BPI71"
+			physEthDevId="15A4"
+			bpCtlMode="bpctl"
+			fwSyncPn="PE340G2BPI71.sr"
+			baseModelPath="/root/PE340G2BPI71"
+			
+			let physEthDevSpeed=8
+			let physEthDevWidth=8
+			
+			assignBuses eth bp
+			pciArgs=(
+				"--target-bus=$uutBus"
+				"--eth-buses=$ethBuses"
+				"--eth-dev-id=$physEthDevId"
+				"--eth-kernel=$ethKern"
+				"--eth-dev-qty=$physEthDevQty"
+				"--eth-dev-speed=$physEthDevSpeed"
+				"--eth-dev-width=$physEthDevWidth"
+				"--bp-buses=$bpBuses"
+				"--bp-kernel=$ethKern"
+				"--bp-dev-qty=$bpDevQty"
+				"--bp-dev-speed=$physEthDevSpeed"
+				"--bp-dev-width=$physEthDevWidth"
+			)
+		}
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4DBIR") && {
 			uutPortMatch="$def4p"
 			ethKern="fm10k"
 			ethVirtKern="fm10k"
+			ethMaxSpeed="10000"
 			let uutDevQty=5
 			let uutNetQty=5
 			let bpDevQty=2
@@ -1253,6 +1334,7 @@ defineRequirments() {
 
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI9-SR\|PE310G4BPI9-LR") && {
 			ethKern="ixgbe"
+			ethMaxSpeed="10000"
 			let physEthDevQty=4
 			let bpDevQty=2
 			baseModel="PE310G4BPI9"
@@ -1316,6 +1398,7 @@ defineRequirments() {
 		test ! -z $(echo -n $uutPn |grep "PE210G2BPI9") && {
 			uutPortMatch="$def2p"
 			ethKern="ixgbe"
+			ethMaxSpeed="10000"
 			let physEthDevQty=2
 			let bpDevQty=1
 			baseModel="PE210G2BPI9"
@@ -1357,10 +1440,10 @@ defineRequirments() {
 			dmsg inform "DEBUG2: ${pciArgs[@]}"
 		}
 		
-
 		test ! -z $(echo -n $uutPn |grep "PE210G2SPI9A-XR") && {
 			uutPortMatch="$def2p"
 			ethKern="ixgbe"
+			ethMaxSpeed="10000"
 			let physEthDevQty=2
 			baseModel="PE210G2SPI9A"
 			syncPn="PE210G2SPI9A"
@@ -1403,6 +1486,7 @@ defineRequirments() {
 
 		test ! -z $(echo -n $uutPn |grep "PE325G2I71") && {
 			ethKern="i40e"
+			ethMaxSpeed="10000"
 			let physEthDevQty=2
 			baseModel="PE325G2I71"
 			syncPn="PE325G2I71"
@@ -1439,6 +1523,7 @@ defineRequirments() {
 
 		test ! -z $(echo -n $uutPn |grep "PE31625G4I71L-XR-CX") && {
 			ethKern="i40e"
+			ethMaxSpeed="10000"
 			let physEthDevQty=4
 			verDumpOffset="0x817"
 			let verDumpLen=5
@@ -1474,6 +1559,7 @@ defineRequirments() {
 
 		test ! -z $(echo -n $uutPn |grep "M4E310G4I71-XR-CP") && {
 			ethKern="i40e"
+			ethMaxSpeed="10000"
 			let physEthDevQty=4
 			verDumpOffset="0x817"
 			let verDumpLen=5
@@ -1511,6 +1597,7 @@ defineRequirments() {
 			uutPortMatch="$def2p"
 			ethKern="fm10k"
 			ethVirtKern="fm10k"
+			ethMaxSpeed="40000"
 			let uutDevQty=2
 			let uutNetQty=2
 			let bpDevQty=1
@@ -1541,6 +1628,7 @@ defineRequirments() {
 			uutPortMatch="$def2p"
 			ethKern="fm10k"
 			ethVirtKern="fm10k"
+			ethMaxSpeed="100000"
 			let uutDevQty=2
 			let uutNetQty=2
 			let bpDevQty=1
@@ -1691,7 +1779,7 @@ defineRequirments() {
 		tdDumpOffset_mast="0x872"
 		let tdDumpLen_mast=6
 		
-		mastBaseModel="PE310G4BPI71"
+		if [ -z "$mastBaseModel" ]; then mastBaseModel="PE310G4BPI71"; fi
 		mastDevId=1572
 		mastKern="i40e"
 		
@@ -1775,6 +1863,11 @@ defineRequirments() {
 		PE310G4BPI71) mastSfpSrDefine;;
 		PE310G2BPI71) mastSfpSrDefine;;
 		PE310G2BPI71-SR) mastSfpSrDefine;;
+		PE340G2BPI71) 
+			inform "${FUNCNAME[0]}: mastBaseModel is cloned from baseModel of UUT" 
+			mastBaseModel=$baseModel
+			mastSfpSrDefine
+		;;
 		PE210G2BPI40) mastRjDefine;;
 		PE310G4BPI40) mastRjDefine;;
 		PE310G4I40) mastRjDefine;;
@@ -1874,6 +1967,7 @@ setupLinks() {
 		case "$baseModelLocal" in
 			PE310G4BPI71) linkSetup=$(link_setup $allNets);;
 			PE310G2BPI71) linkSetup=$(link_setup $allNets);;
+			PE340G2BPI71) linkSetup=$(link_setup $allNets);;
 			PE210G2BPI40) linkSetup=$(link_setup $allNets);;
 			PE310G4BPI40) linkSetup=$(link_setup $allNets);;
 			PE310G4I40) linkSetup=$(link_setup $allNets);;
@@ -1893,7 +1987,7 @@ setupLinks() {
 }
 
 trafficTest() {
-	local pcktCnt dropAllowed slotNum pn portQty sendDelay queryCnt orderFile execFile sourceDir rootDir buffSize 
+	local pcktCnt dropAllowed slotNum pn portQty sendDelay queryCnt orderFile execFile sourceDir rootDir buffSize sendMode taskCount srcPort trgPort
 	local uutModel
 	privateVarAssign "trafficTest" "slotNum" "$1"
 	shift
@@ -1918,6 +2012,61 @@ trafficTest() {
 			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
 		;;
 		PE310G2BPI71-SR) inform "Traffic test is not defined for $baseModel";;
+		PE340G2BPI71)
+			portQty=2
+			sendDelay=0x0
+			sendMode=0x3
+			taskCount=01
+			let srcPort=1
+			let trgPort=2
+			execFile="./anagenohuptask2.sh"  
+			sourceDir="$(pwd)"
+			rootDir="/root/PE340G2BPI71"
+			cd "$rootDir"
+			dmsg inform "pwd=$(pwd)"
+			allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel"
+			allNetAct "$mastNets" "Check links are UP on MASTER" "testLinks" "yes" "$mastBaseModel"
+			dmsg inform "$sendMode $taskCount $pcktCnt $sendDelay $portQty $mastSlotNum $slotNum"
+			echo -e "\tSending traffic (MASTER in IL, UUT in IL)..\n"
+			execScript "$execFile" "$sendMode $taskCount $pcktCnt $sendDelay $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+
+			allBPBusMode "$mastBpBuses" "bp"
+			sleep $globLnkUpDel
+			allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel"
+			allNetAct "$mastNets" "Check links are DOWN on MASTER" "testLinks" "no" "$mastBaseModel"
+			echo -e "\tSending traffic (MASTER in BP, UUT in IL)..\n"
+			sendMode=0x4
+			execFile="./anagenohuptask1.sh"
+			dmsg inform "$sendMode $taskCount $pcktCnt $sendDelay $srcPort $trgPort $slotNum"
+			execScript "$execFile" "$sendMode $taskCount $pcktCnt $sendDelay $srcPort $trgPort $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+
+
+			allBPBusMode "$bpBuses" "bp"
+			allBPBusMode "$mastBpBuses" "inline"
+			sleep $globLnkUpDel
+			allNetAct "$uutNets" "Check links are DOWN on UUT" "testLinks" "no" "$baseModel"
+			allNetAct "$mastNets" "Check links are UP on MASTER" "testLinks" "yes" "$mastBaseModel"
+			echo -e "\tSending traffic (MASTER in IL, UUT in BP)..\n"
+			dmsg inform "$sendMode $taskCount $pcktCnt $sendDelay $srcPort $trgPort $slotNum"
+			execScript "$execFile" "$sendMode $taskCount $pcktCnt $sendDelay $srcPort $trgPort $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+
+
+			allBPBusMode "$bpBuses" "inline"
+			allBPBusMode "$mastBpBuses" "inline"
+			sleep $globLnkUpDel
+			allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel"
+			allNetAct "$mastNets" "Check links are UP on MASTER" "testLinks" "yes" "$mastBaseModel"
+			dmsg inform "$sendMode $taskCount $pcktCnt $sendDelay $portQty $mastSlotNum $slotNum"
+			execFile="./anagenohuptask2.sh" 
+			sendMode=0x3
+			echo -e "\tSending traffic (MASTER in IL, UUT in IL)..\n"
+			execScript "$execFile" "$sendMode $taskCount $pcktCnt $sendDelay $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+
+		;;
 		PE210G2BPI40)
 			portQty=2
 			minSpeed=900
@@ -2305,6 +2454,7 @@ switchBP() {
 	case "$baseModelLocal" in
 		PE310G4BPI71) bpCtlCmd="bpctl_util";;
 		PE310G2BPI71) bpCtlCmd="bpctl_util";;
+		PE340G2BPI71) bpCtlCmd="bpctl_util";;
 		PE210G2BPI40) bpCtlCmd="bpctl_util";;
 		PE310G4BPI40) bpCtlCmd="bpctl_util";;
 		PE310G4DBIR) bpCtlCmd="bprdctl_util";;
@@ -2388,11 +2538,8 @@ allNetTests() {
 	privateVarAssign "allNetTests" "bpState" "$3"
 	privateVarAssign "allNetTests" "uutModel" "$4"
 	shift; shift; shift; shift;
-	case "$uutModel" in
-		PE340G2DBIR) maxRate="40000";;
-		PE3100G2DBIR) maxRate="100000";;
-		*) ;;
-	esac
+	privateVarAssign "allNetTests" "maxRate" "$ethMaxSpeed"
+
 	if [[ -z "$ibsMode" ]]; then 
 		allNetAct "$nets" "Check links are UP on $netsDesc ($bpState)" "testLinks" "yes" "$uutModel" "$@"
 		allNetAct "$nets" "Check Data rates on $netsDesc" "getEthRates" "$maxRate" "$uutModel" "$@"
@@ -2510,6 +2657,10 @@ netInfoDump() {
 			printRegsPE310GxBPI71
 		;;
 		PE310G2BPI71) 
+			dumpRegsPE310GxBPI71 
+			printRegsPE310GxBPI71
+		;;
+		PE340G2BPI71) 
 			dumpRegsPE310GxBPI71 
 			printRegsPE310GxBPI71
 		;;
@@ -2640,6 +2791,7 @@ setDRate() {
 	case "$targModel" in
 		PE310G4BPI71) 		warn "setDRate, not implemented for $targModel";;
 		PE310G2BPI71) 		warn "setDRate, not implemented for $targModel";;
+		PE340G2BPI71) 		warn "setDRate, not implemented for $targModel";;
 		PE210G2BPI40) 		drateRes=$(ethtool -s $targNet speed $targRate duplex full autoneg off);;
 		PE310G4BPI40) 		drateRes=$(ethtool -s $targNet speed $targRate duplex full autoneg off);;
 		PE310G4I40) 		drateRes=$(ethtool -s $targNet speed $targRate duplex full autoneg off);;
@@ -2762,6 +2914,14 @@ trafficTests() {
 			trafficTest "$uutSlotNum" 100000 "$baseModel"
 		;;
 		PE310G2BPI71) inform "Traffic tests are not defined for $baseModel";;
+		PE340G2BPI71) 
+			allBPBusMode "$mastBpBuses" "inline"
+			allBPBusMode "$bpBuses" "inline"
+			inform "\t  Sourcing $baseModel lib."
+			source /root/PE340G2BPI71/library.sh 2>&1 > /dev/null
+			sleep $globLnkUpDel
+			trafficTest "$uutSlotNum" 10000000 "$baseModel"
+		;;
 		PE210G2BPI40)  
 			allBPBusMode "$mastBpBuses" "inline"
 			allBPBusMode "$bpBuses" "inline"
@@ -2979,6 +3139,7 @@ assignBuses() {
 						PE310G4BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE310G2BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE310G2BPI71-SR) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
+						PE340G2BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE310G4DBIR) publicVarAssign critical bpBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 						PE340G2DBIR) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE3100G2DBIR) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
