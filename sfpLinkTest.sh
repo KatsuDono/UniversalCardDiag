@@ -2197,116 +2197,162 @@ trafficTest() {
 			allNetAct "$mastNets" "Check links are UP on MASTER" "testLinks" "yes" "$mastBaseModel" "$mastUIOdevNum"
 			dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
 			echo -e "\tSending traffic (MASTER in IL, UUT in IL)..\n"
-			execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $slotNum $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
-			test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+			execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $slotNum $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed" --nonVerb
+			test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 			
-			# echo -e "\tSetting UUT RRC to Disconnect Mode\n"
-			# 	rdfiConfCmd=$($rootDir/rdif_config2.sh 2 5 $mastSlotNum $slotNum)
+			echo -e "\tSetting UUT RRC to Disconnect Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config2.sh 2 5 $mastSlotNum $slotNum)
+				execFile="./txgen1.sh" 
+				echo -e "\t Check that MASTER is not in TAP or Bypass Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 
-			# 	execFile="./txgen1.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that UUT is not in TAP or Bypass Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen2-txrx.sh" 
+				echo -e "\t Check that MASTER is not in TAP or Monitor Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
 
-			# 	execFile="./txgen2-txrx.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that UUT is not in TAP or Monitor Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+			echo -e "\tSetting MASTER RRC to Disconnect Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config2.sh 5 2 $mastSlotNum $slotNum)
 
+				execFile="./txgen1.sh" 
+				echo -e "\tCheck that UUT is not in TAP or Bypass Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 
-			# echo -e "\tSetting MASTER RRC to Disconnect Mode\n"
-			# 	rdfiConfCmd=$($rootDir/rdif_config2.sh 5 2 $mastSlotNum $slotNum)
+				execFile="./txgen2-txrx.sh" 
+				echo -e "\tCheck that UUT is not in TAP or Monitor Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
 
-			# 	execFile="./txgen1.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that MASTER is not in TAP or Bypass Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+			echo -e "\tSetting UUT RRC to Monitor Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config2.sh 2 4 $mastSlotNum $slotNum)
 
-			# 	execFile="./txgen2-txrx.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that MASTER is not in TAP or Monitor Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
-
-
-			# echo -e "\tSetting UUT RRC to Monitor Mode\n"
-			# 	rdfiConfCmd=$($rootDir/rdif_config2.sh 2 4 $mastSlotNum $slotNum)
-
-			# 	execFile="./txgen1.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that UUT is not in TAP or Bypass Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen1.sh" 
+				echo -e "\tCheck that MASTER is not in TAP or Bypass Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 					
-			# 	execFile="./txgen2-txrx.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that MASTER has Half Duplex Link in a Monitor Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen2-txrx.sh" 
+				echo -e "\tCheck that MASTER has Half Duplex Link in a Monitor Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
 
+			echo -e "\tSetting MASTER RRC to Monitor Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config2.sh 4 2 $mastSlotNum $slotNum)
 
-			# echo -e "\tSetting MASTER RRC to Monitor Mode\n"
-			# 	rdfiConfCmd=$($rootDir/rdif_config2.sh 4 2 $mastSlotNum $slotNum)
-
-			# 	execFile="./txgen1.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that MASTER is not in TAP or Bypass Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen1.sh" 
+				echo -e "\tCheck that UUT is not in TAP or Bypass Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 					
-			# 	execFile="./txgen2-txrx.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that UUT has Half Duplex Link in a Monitor Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen2-rxtx.sh" 
+				echo -e "\tCheck that UUT has Half Duplex Link in a Monitor Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
 
+			echo -e "\tSetting UUT RRC to Bypass Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config2.sh 2 1 $mastSlotNum $slotNum)
 
-			# echo -e "\tSetting UUT RRC to Bypass Mode\n"
-			# 	rdfiConfCmd=$($rootDir/rdif_config2.sh 2 1 $mastSlotNum $slotNum)
-
-			# 	execFile="./txgen1.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck Data Link on MASTER\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen1.sh" 
+				echo -e "\tCheck Data Link on MASTER trough UUT bypass\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 					
-			# 	execFile="./txgen2-txrx.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that UUT is not in TAP or Monitor Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen2-txrx.sh" 
+				echo -e "\tCheck that MASTER is not in TAP or Monitor Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 
-			# 	dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tSending traffic (MASTER in IL, UUT in Virtual BP)..\n"
-			# 	execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $slotNum $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./pcitxgenohup1.sh" 
+				echo -e "\tSending traffic (MASTER in IL, UUT in Virtual BP)..\n"
+				dmsg inform "$execFile $pcktCnt $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+				execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
+
+			echo -e "\tSetting MASTER RRC to Bypass Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config2.sh 1 2 $mastSlotNum $slotNum)
+
+				execFile="./txgen1.sh" 
+				echo -e "\tCheck Data Link on UUT trough MASTER Bypass\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+					
+				execFile="./txgen2-txrx.sh" 
+				echo -e "\tCheck that UUT is not in TAP or Monitor Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+
+				execFile="./pcitxgenohup1.sh" 
+				echo -e "\tSending traffic (UUT in IL, MASTER in Virtual BP)..\n"
+				dmsg inform "$execFile $pcktCnt $sendDelay $buffSize $portQty $orderFile $slotNum"
+				execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
+
+			echo -e "\tSetting UUT RRC to TAP Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config2.sh 2 3 $mastSlotNum $slotNum)
+
+				execFile="./txgen1.sh" 
+				echo -e "\tCheck Data Link on MASTER trough UUT bypass\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+					
+				execFile="./txgen2-txrx.sh" 
+				echo -e "\tCheck that MASTER has Half Duplex Link in a TAP Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 			
+				execFile="./pcitxgenohup1.sh" 
+				echo -e "\tSending traffic (MASTER in IL, UUT in TAP Mode)..\n"
+				dmsg inform "$execFile $pcktCnt $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+				execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
 
-			# echo -e "\tSetting MASTER RRC to Bypass Mode\n"
-			# 	rdfiConfCmd=$($rootDir/rdif_config2.sh 2 1 $mastSlotNum $slotNum)
+			echo -e "\tSetting MASTER RRC to TAP Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config2.sh 3 2 $mastSlotNum $slotNum)
 
-			# 	execFile="./txgen1.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck Data Link on UUT\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen1.sh" 
+				echo -e "\tCheck Data Link on UUT trough MASTER bypass\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 					
-			# 	execFile="./txgen2-txrx.sh" 
-			# 	dmsg inform "100000 $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tCheck that MASTER is not in TAP or Monitor Mode\n"
-			# 	execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $slotNum $mastSlotNum" "nulll" "Traffic test FAILED" --exp-kw="Receiver Failed" --exp-kw="Txgen Test Failed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
-
-			# 	dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
-			# 	echo -e "\tSending traffic (UUT in IL, MASTER in Virtual BP)..\n"
-			# 	execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $slotNum $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
-			# 	test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+				execFile="./txgen2-rxtx.sh" 
+				echo -e "\tCheck that UUT has Half Duplex Link in a TAP Mode\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
 			
+				execFile="./pcitxgenohup1.sh" 
+				echo -e "\tSending traffic (UUT in IL, MASTER in TAP Mode)..\n"
+				dmsg inform "$execFile $pcktCnt $sendDelay $buffSize $portQty $orderFile $slotNum"
+				execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
 
-
+			echo -e "\tSetting UUT and MASTER to NIC Mode\n"
+			rdfiConfCmd=$($rootDir/rdif_config2.sh 2 2 $mastSlotNum $slotNum)
 			allBPBusMode "$mastBpBuses" "bp"
 			sleep $globLnkUpDel
 			allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel" "$uutUIOdevNum"

@@ -314,7 +314,7 @@ beep() {
 }
 
 execScript() {
-	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc retStatus
+	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc retStatus nonVerb
 	declare -a scriptExpect
 	declare -a scriptPrint
 	let retStatus=0
@@ -325,6 +325,7 @@ execScript() {
 		case "$KEY" in
 			exp-kw) scriptExpect+=("${VALUE}") ;;	
 			verb-kw) scriptPrint+=("${VALUE}") ;;
+			nonVerb) nonVerb=1 ;;
 		esac
 	done
 
@@ -348,7 +349,9 @@ execScript() {
 			}
 			let retStatus++
 		else
-			inform "\tTest: $expKw - YES"
+			if [[ -z "$nonVerb" ]]; then
+				inform "\tTest: $expKw - YES"
+			fi
 			test -z "$debugMode" || {
 				echo -e "\n\e[0;31m -- FULL TRACE START --\e[0;33m\n"
 				echo -e "$cmdRes"
