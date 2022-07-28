@@ -8,7 +8,7 @@ declareVars() {
 	declare -a pciArgs=("null" "null")
 	declare -a mastPciArgs=("null" "null")
 	let exitExec=0
-	let debugBrackets=1
+	let debugBrackets=0
 	def2p="1 1 2 2"
 	def4p="1 1 2 2 3 3 4 4"
 	uutUIOdevNum="null"
@@ -50,8 +50,8 @@ parseArgs() {
 				debugMode=1 
 				inform "Launch key: Debug mode"
 			;;
-			no-dbg-brk) 
-				debugBrackets=0 
+			dbg-brk) 
+				debugBrackets=1
 				inform "Launch key: Debug mode arg: no debug brackets"
 			;;
 			help) showHelp ;;
@@ -82,8 +82,8 @@ showHelp() {
 	echo -e "\tWarning beeps are turned off\n"	
 	echo -e " --debug"
 	echo -e "\tDebug mode"		
-	echo -e " --no-dbg-brk	"
-	echo -e "\tNo debug brackets"	
+	echo -e " --dbg-brk	"
+	echo -e "\tDebug brackets"	
 	warn "=================================\n"
 	exit
 }
@@ -101,7 +101,7 @@ preInitBpStartup() {
 	test -z "$(lsmod |grep slcmi_mod)" && slcm_start 2>&1 > /dev/null	
 	echo "  Loading BPCtl module"
 	test -z "$(lsmod |grep bpctl_mod)" && bpctl_start 2>&1 > /dev/null
-	echo "  Loadinlspcg BPRDCtl module"
+	echo "  Loading BPRDCtl module"
 	# testFileExist "/dev/bprdctl0" "true" "silent"
 	# test "$?" = "0" && {
 		test -z "$(lsmod |grep bprdctl_mod)" && bprdctl_start 2>&1 > /dev/null
@@ -133,13 +133,13 @@ g4dbirInit() {
 	echo "  Loading fm10k module"
 	test -z "$(lsmod |grep $ethKern)" && {
 		drvInstallRes="$(/root/PE310G4DBIR/iqvlinux.sh 2>&1)"
-		test -z "$(echo $drvInstallRes |grep Passed)" && exitFail "Unable to install Intel driver!"
+		test -z "$(echo $drvInstallRes |grep Passed)" && except "${FUNCNAME[0]}" "unable to install Intel driver!"
 	}
 	
 	echo "  Compiling and installing fm10k module"
 	if [[ ! -e "/root/PE310G4DBIR/fm10k-0.27.1.sl.3.12/src/fm10k.ko" ]]; then 
 		drvInstallRes="$(/root/PE310G4DBIR/setup_ethernet.sh /root/PE310G4DBIR/fm10k-0.27.1.sl.3.12.tar.gz)"
-		test -z "$(echo $drvInstallRes |grep 'Shell Script Complete Passed')" && exitFail "Unable to compile and install fm10k module!"
+		test -z "$(echo $drvInstallRes |grep 'Shell Script Complete Passed')" && except "${FUNCNAME[0]}" "unable to compile and install fm10k module!"
 	fi
 	
 	echo "  Remounting fm10k module"
@@ -151,29 +151,33 @@ g4dbirInit() {
 	echo "  Compiling and installing bypass control module"
 	test "$(which bprdctl_util)" = "/usr/bin/bprdctl_util" || {
 		drvInstallRes="$(/root/PE310G4DBIR/setup_bypass.sh /root/PE310G4DBIR/bprd_ctl-1.0.17.tar.gz)"
-		test -z "$(echo $drvInstallRes |grep 'Shell Script Complete Passed')" && exitFail "Unable to install bypass control module!"
+		test -z "$(echo $drvInstallRes |grep 'Shell Script Complete Passed')" && except "${FUNCNAME[0]}" "unable to install bypass control module!"
 	}
 	
 	echo "  Starting bypass control module"
 	test -z "$(lsmod |grep -w bprdctl_mod)" && {
-		test "$(bprdctl_start; echo -n $?)" = "0" || exitFail "Unable to start bypass control module!"
+		test "$(bprdctl_start; echo -n $?)" = "0" || except "${FUNCNAME[0]}" "unable to start bypass control module!"
 	}
 	
 	echo "  Reseting all BP switches to default configuration"
-	test -z "$(bprdctl_util all set_bp_manuf |grep fail)" || exitFail "Unable to reset BP switches to default configuration!"
+	test -z "$(bprdctl_util all set_bp_manuf |grep fail)" || except "${FUNCNAME[0]}" "unable to reset BP switches to default configuration!"
 	
 	echo "  Switching all BP switches to inline mode"
-	test -z "$(bprdctl_util all set_bypass off |grep fail)" || exitFail "Unable to switch BP switches to inline mode!"	
+	test -z "$(bprdctl_util all set_bypass off |grep fail)" || except "${FUNCNAME[0]}" "unable to switch BP switches to inline mode!"	
 		
 	echo "  Setting up redirector control"
 	test "$(which rdifctl)" = "/usr/bin/rdifctl" || {
 		drvInstallRes="$(/root/PE310G4DBIR/setup_director.sh /root/PE310G4DBIR/rdif-6.0.10.7.33.6.3.tar.gz)"
-		test -z "$(echo $drvInstallRes |grep 'Shell Script Complete Passed')" && exitFail "Unable to setup redirector control!"
+		test -z "$(echo $drvInstallRes |grep 'Shell Script Complete Passed')" && except "${FUNCNAME[0]}" "unable to setup redirector control!"
 	}
 	
 	echo "  Switching all BP switches to inline mode"
-	test -z "$(bprdctl_util all set_bypass off |grep fail)" || exitFail "Unable to switch BP switches to inline mode!"	
+	test -z "$(bprdctl_util all set_bypass off |grep fail)" || except "${FUNCNAME[0]}" "unable to switch BP switches to inline mode!"	
 	
+	echo "  Copying config files"
+	cp -f "/root/PE310G4DBIR/fm_platform_attributes.cfg.x1" "/etc/rdi/fm_platform_attributes.cfg"
+	if [ $? -gt 0 ]; then except "${FUNCNAME[0]}" "Config files couldnt be copied"; fi
+
 	echo "  Starting RDIF"
 	rdifStartRes="$(/root/PE310G4DBIR/rdif_bpstart.sh ./ $uutSlotNum)"
 	if [ -z "$(echo "$rdifStartRes" |grep -w "RDIFD Passed")" ]; then 
@@ -183,6 +187,28 @@ g4dbirInit() {
 		echo -e "\n\e[0;31m --- TRACE END ---\e[m\n"
 	fi
 	
+	echo "  Assigning RDIF dev IDs by UIO dev id"
+	if [ -z "$(echo "$rdifStartRes" |grep "Found netdev")" ]; then 
+		warn "  Unable to start RDIF"
+		echo -e "\n\e[0;31m -- TRACE START --\e[0;33m\n"
+		echo -e "$(echo "$rdifStartRes" |grep -A 99 -w "RDIF daemon version")"
+		echo -e "\n\e[0;31m --- TRACE END ---\e[m\n"
+	else
+		netdevsDecl="$(echo "$rdifStartRes" |grep "Found netdev")"
+		declare -a netdevsDeclArr
+		shopt -s lastpipe
+		echo "$netdevsDecl" | while IFS= read -r netdev ; do 
+			netDevEthName=$(echo $netdev |awk '{print $3}')
+			if [[ " ${mastNets[*]} " =~ " ${netDevEthName} " ]]; then
+				mastUIOdevNum=$(echo $netdev |cut -d/ -f3 |cut -c4)	
+			else
+				uutUIOdevNum=$(echo $netdev |cut -d/ -f3 |cut -c4)	
+			fi
+		done 
+		inform "  Master UIO device assigned: $mastUIOdevNum"
+		inform "  UUT UIO device assigned: $uutUIOdevNum"		
+	fi
+
 	echo "  Configuring RDIF"
 	rdifStartRes="$(/root/PE310G4DBIR/rdif_config1vf4_mod.sh 2 2 $uutSlotNum $uutSlotNum $uutSlotNum)"
 	test -z "$(echo "$rdifStartRes" |grep -w "Rdif Config Passed")" && {
@@ -236,7 +262,7 @@ g2dbirInit() {
 	echo "  Loading fm10k module"
 	test -z "$(lsmod |grep $ethKern)" && {
 		drvInstallRes="$(/root/PE340G2DBIR/iqvlinux.sh 2>&1)"
-		test -z "$(echo $drvInstallRes |grep Passed)" && exitFail "Unable to install Intel driver!"
+		test -z "$(echo $drvInstallRes |grep Passed)" && except "${FUNCNAME[0]}" "unable to install Intel driver!"
 	}
 	
 	
@@ -247,7 +273,7 @@ g2dbirInit() {
 	
 	echo "  Starting bypass control module"
 	test -z "$(lsmod |grep -w bprdctl_mod)" && {
-		test "$(bprdctl_start; echo -n $?)" = "0" || exitFail "Unable to start bypass control module!"
+		test "$(bprdctl_start; echo -n $?)" = "0" || except "${FUNCNAME[0]}" "unable to start bypass control module!"
 	}
 	
 	echo "  Assigning master BP buses"
@@ -255,10 +281,10 @@ g2dbirInit() {
 
 
 	echo "  Reseting all BP switches to default configuration"
-	test -z "$(bprdctl_util all set_bp_manuf |grep fail)" || exitFail "Unable to reset BP switches to default configuration!"
+	test -z "$(bprdctl_util all set_bp_manuf |grep fail)" || except "${FUNCNAME[0]}" "unable to reset BP switches to default configuration!"
 	
 	echo "  Switching all BP switches to inline mode"
-	test -z "$(bprdctl_util all set_bypass off |grep fail)" || exitFail "Unable to switch BP switches to inline mode!"	
+	test -z "$(bprdctl_util all set_bypass off |grep fail)" || except "${FUNCNAME[0]}" "unable to switch BP switches to inline mode!"	
 	
 	echo "  Copying config files"
 	cp -f "/root/PE340G2DBIR/fm_platform_attributes.cfg.x2" "/etc/rdi/fm_platform_attributes.cfg"
@@ -392,7 +418,7 @@ pe3100g2dbirInit() {
 	echo "  Loading fm10k module"
 	test -z "$(lsmod |grep $ethKern)" && {
 		drvInstallRes="$(/root/PE3100G2DBIR/iqvlinux.sh 2>&1)"
-		test -z "$(echo $drvInstallRes |grep Passed)" && exitFail "Unable to install Intel driver!"
+		test -z "$(echo $drvInstallRes |grep Passed)" && except "${FUNCNAME[0]}" "unable to install Intel driver!"
 	}
 	
 	
@@ -403,17 +429,17 @@ pe3100g2dbirInit() {
 	
 	echo "  Starting bypass control module"
 	test -z "$(lsmod |grep -w bprdctl_mod)" && {
-		test "$(bprdctl_start; echo -n $?)" = "0" || exitFail "Unable to start bypass control module!"
+		test "$(bprdctl_start; echo -n $?)" = "0" || except "${FUNCNAME[0]}" "unable to start bypass control module!"
 	}
 
 	echo "  Assigning master BP buses"
 	publicVarAssign warn mastBpBuses $(filterDevsOnBus $mastSlotBus $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1))
 
 	echo "  Reseting all BP switches to default configuration"
-	test -z "$(bprdctl_util all set_bp_manuf |grep fail)" || exitFail "Unable to reset BP switches to default configuration!"
+	test -z "$(bprdctl_util all set_bp_manuf |grep fail)" || except "${FUNCNAME[0]}" "unable to reset BP switches to default configuration!"
 	
 	echo "  Switching all BP switches to inline mode"
-	test -z "$(bprdctl_util all set_bypass off |grep fail)" || exitFail "Unable to switch BP switches to inline mode!"	
+	test -z "$(bprdctl_util all set_bypass off |grep fail)" || except "${FUNCNAME[0]}" "unable to switch BP switches to inline mode!"	
 	
 	echo "  Copying config files"
 	cp -f "/root/PE3100G2DBIR/fm_platform_attributes.cfg.x2" "/etc/rdi/fm_platform_attributes.cfg"
@@ -585,7 +611,7 @@ startupInit() {
 			PE325G2I71) pe325g2i71Init;;
 			PE31625G4I71L)	pe31625gi71lInit;;
 			M4E310G4I71)	m4E310g4i71Init;;
-			*) exitFail "startupInit exception, unknown baseModel: $baseModel"
+			*) except "${FUNCNAME[0]}" "unknown baseModel: $baseModel"
 		esac
 	}
 	echo -e "  Initializing master"
@@ -604,7 +630,7 @@ startupInit() {
 			PE325G2I71) pe325g2i71Init;;
 			PE31625G4I71L)	pe31625gi71lInit;;
 			M4E310G4I71)	m4E310g4i71Init;;
-			*) exitFail "startupInit exception, unknown mastBaseModel: $mastBaseModel"
+			*) except "${FUNCNAME[0]}" "unknown mastBaseModel: $mastBaseModel"
 		esac
 	echo "  Clearing temp log"; rm -f /tmp/statusChk.log 2>&1 > /dev/null
 	echo -e " Done.\n"
@@ -681,11 +707,11 @@ checkRequiredFiles() {
 				"/root/PE310G4DBIR/rdif-6.0.10.7.33.6.3.tar.gz"
 				"/root/PE310G4DBIR/iplinkup.sh"
 				"/root/PE310G4DBIR/rdif_config1vf4_mod.sh"
+				"/root/PE310G4DBIR/pcitxgenohup5-1_BPI-MOD.sh"
 				"/root/PE310G4DBIR/fm10k.ko"
-				"/root/PE340G2DBIR/fm_platform_attributes.cfg.x1"
-				"/root/PE340G2DBIR/fm_platform_attributes.cfg.x2"
+				"/root/PE310G4DBIR/fm_platform_attributes.cfg.x1"
+				"/root/PE310G4DBIR/fm_platform_attributes.cfg.x2"
 			)
-			critWarn "  has to be corrected by new way of using configs for DBIRs"
 		;;
 		PE340G2DBIR) 
 			echo "  File list: $baseModel"
@@ -769,7 +795,7 @@ checkRequiredFiles() {
 				"/root/multiCard/usb_cmd.sh"
 			)
 		;;
-		*) exitFail "checkRequiredFiles exception, unknown baseModel: $baseModel"
+		*) except "${FUNCNAME[0]}" "unknown baseModel: $baseModel"
 	esac
 
 	test ! -z "$(echo ${filesArr[@]})" && {
@@ -793,7 +819,7 @@ checkFwFile() {
 	testFileExist "$fwFilePath" "true"
 	test "$?" = "1" && {
 		echo -e "  \e[0;31mfail.\e[m"
-		exitFail "FW file not found!"
+		except "${FUNCNAME[0]}" "FW file not found!"
 	} || echo -e "  \e[0;32mok.\e[m"
 }
 
@@ -870,7 +896,7 @@ checkFWFiles() {
 				"/root/M4E310G4I71"
 			)
 		;;
-		*) exitFail "checkFWFiles exception, unknown baseModel: $baseModel"
+		*) except "${FUNCNAME[0]}" "unknown baseModel: $baseModel"
 	esac
 	
 	declare -a filesArr=(
@@ -930,31 +956,31 @@ patchFwFile() {
 
 		if (( "$fwCurSize" >= "$revEndAddr" )); then
 			echo -n "$rev" | dd bs=1 seek=$revOffset of="$patchedFwFile" conv=notrunc >/dev/null 2>&1
-			if [[ "$?" -eq "0" ]]; then echo "    Revision patched."; else exitFail "  Failed to patch revision"'!'; let status+=$?; fi
+			if [[ "$?" -eq "0" ]]; then echo "    Revision patched."; else except "${FUNCNAME[0]}" "failed to patch revision"'!'; let status+=$?; fi
 		else
-			exitFail "patchFwFile exception, revision length exceeds the FW size and cannot be patched onto it!"
+			except "${FUNCNAME[0]}" "revision length exceeds the FW size and cannot be patched onto it!"
 		fi
 		if (( "$fwCurSize" >= "$timeEndAddr" )); then
 			echo -n "$timePatch" | dd bs=1 seek=$timeOffset of="$patchedFwFile" conv=notrunc >/dev/null 2>&1
-			if [[ "$?" -eq "0" ]]; then echo "    Date patched."; else exitFail "  Failed to patch date"'!'; let status+=$?; fi
+			if [[ "$?" -eq "0" ]]; then echo "    Date patched."; else except "${FUNCNAME[0]}" "failed to patch date"'!'; let status+=$?; fi
 		else
-			exitFail "patchFwFile exception, date length exceeds the FW size and cannot be patched onto it!"
+			except "${FUNCNAME[0]}" "date length exceeds the FW size and cannot be patched onto it!"
 		fi
 		if (( "$fwCurSize" >= "$trackEndAddr" )); then
 			echo -n "$track" | dd bs=1 seek=$trackOffset of="$patchedFwFile" conv=notrunc >/dev/null 2>&1
-			if [[ "$?" -eq "0" ]]; then echo "    Tracking patched."; else exitFail "  Failed to patch tracking"'!'; let status+=$?; fi
+			if [[ "$?" -eq "0" ]]; then echo "    Tracking patched."; else except "${FUNCNAME[0]}" "failed to patch tracking"'!'; let status+=$?; fi
 		else
-			exitFail "patchFwFile exception, track length exceeds the FW size and cannot be patched onto it!"
+			except "${FUNCNAME[0]}" "track length exceeds the FW size and cannot be patched onto it!"
 		fi
 
 
 		if [[ "$status" -eq "0" ]]; then
 			echo -e "   Patching done!"
 		else
-			exitFail "\tFW Patching failed!"
+			except "${FUNCNAME[0]}" "FW Patching failed!"
 		fi
 	else
-		exitFail "patchFwFile exception, patchedFwFile is not found by path: $patchedFwFile"
+		except "${FUNCNAME[0]}" "patchedFwFile is not found by path: $patchedFwFile"
 	fi
 }
 
@@ -971,7 +997,7 @@ burnCardFw() {
 defineRequirments() {
 	local ethToRemove
 	echo -e "\n Defining requirements.."
-	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn"
+	test -z "$uutPn" && except "${FUNCNAME[0]}" "requirements cant be defined, empty uutPn"
 	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE210G2BPI40-T\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE340G2BPI71-QS43\|PE310G4DBIR\|PE310G4BPI9-LR\|PE310G4BPI9-SR\|PE210G2BPI9\|PE210G2SPI9A-XR\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP\|PE340G2DBIR-QS41\|PE3100G2DBIR\|IBSGP-T-MC-AM\|IBS10GP-LR-RW\|IBSGP-T\|IBS10GP-*\|IBSGP-T*") ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		
@@ -997,6 +1023,7 @@ defineRequirments() {
 			baseModelPath="/root/PE310G4BPI71"
 			physEthDevId="15A4"
 			bpCtlMode="bpctl"
+			slcmMode="slcm"
 			
 			let physEthDevSpeed=8
 			let physEthDevWidth=8
@@ -1040,6 +1067,7 @@ defineRequirments() {
 			baseModelPath="/root/PE310G4BPI71"
 			physEthDevId="15A4"
 			bpCtlMode="bpctl"
+			slcmMode="slcm"
 			
 			let physEthDevSpeed=8
 			let physEthDevWidth=8
@@ -1241,6 +1269,7 @@ defineRequirments() {
 			syncPn="PE310G2BPI71-SR"
 			physEthDevId="15A4"
 			bpCtlMode="bpctl"
+			slcmMode="slcm"
 			fwSyncPn="PE310G2BPi71.SR"
 			baseModelPath="/root/PE310G2BPI71"
 			
@@ -1284,6 +1313,7 @@ defineRequirments() {
 			syncPn="PE340G2BPI71"
 			physEthDevId="15A4"
 			bpCtlMode="bpctl"
+			slcmMode="slcmi"
 			fwSyncPn="PE340G2BPI71.sr"
 			baseModelPath="/root/PE340G2BPI71"
 			
@@ -1755,7 +1785,7 @@ defineRequirments() {
 		echoIfExists "  Virtual Ethernet device width:" "$virtEthDevWidth"
 		dmsg inform "DEBUG2: ${pciArgs[@]}"
 	else
-		exitFail "  PN: $uutPn cannot be processed, requirements not defined"
+		except "${FUNCNAME[0]}" "$uutPn cannot be processed, requirements not defined"
 	fi
 	
 	echo -e "  Defining requirements for the master"
@@ -1782,6 +1812,7 @@ defineRequirments() {
 		if [ -z "$mastBaseModel" ]; then mastBaseModel="PE310G4BPI71"; fi
 		mastDevId=1572
 		mastKern="i40e"
+		mastSlcmMode="slcm"
 		
 		mastPciArgs=("--target-bus=$mastBus"
 				"--eth-buses=$mastEthBuses"
@@ -1883,7 +1914,7 @@ defineRequirments() {
 		IBSGP-T) mastRjDefine;;
 		IBSGP-T-MC-AM) mastRjDefine;;
 		IBS10GP) mastSfpSrDefine;;
-		*) exitFail "defineRequirments exception, unknown baseModel: $baseModel"
+		*) except "${FUNCNAME[0]}" "unknown baseModel: $baseModel"
 	esac
 
 	if [ ! -z "$physEthDevQty" -a -z "$(echo $baseModel |grep DBIR)" ]; then
@@ -1988,7 +2019,7 @@ setupLinks() {
 
 trafficTest() {
 	local pcktCnt dropAllowed slotNum pn portQty sendDelay queryCnt orderFile execFile sourceDir rootDir buffSize sendMode taskCount srcPort trgPort
-	local uutModel
+	local uutModel pnLocal
 	privateVarAssign "trafficTest" "slotNum" "$1"
 	shift
 	privateVarAssign "trafficTest" "pcktCnt" "$1"
@@ -1996,8 +2027,20 @@ trafficTest() {
 	privateVarAssign "trafficTest" "pn" "$1"
 	
 	echo -e "\tTraffic tests (profile $pn): \n"
-	
+
 	case "$pn" in
+		PE3100G2DBIR)
+			inform "\tTraffic profile copied from PE340G2DBIR"
+			pnLocal="PE340G2DBIR"
+		;;
+		PE3100G2DBIR)
+			inform "\tTraffic profile copied from PE340G2DBIR"
+			pnLocal="PE340G2DBIR"
+		;;
+		*) pnLocal=$pn
+	esac
+	
+	case "$pnLocal" in
 		PE310G4BPI71) 
 			portQty=4
 			sendDelay=0x0
@@ -2011,7 +2054,20 @@ trafficTest() {
 			execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="TxRx Passed" --exp-kw="Txgen Test Passed"
 			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
 		;;
-		PE310G2BPI71-SR) inform "Traffic test is not defined for $baseModel";;
+		PE310G2BPI71) 
+			portQty=2
+			sendDelay=0x0
+			buffSize=4096
+			execFile="./txgen2.sh"  
+			sourceDir="$(pwd)"
+			rootDir="/root/PE310G2BPI71"
+			cd "$rootDir"
+			dmsg inform "pwd=$(pwd)"
+			dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
+			execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="TxRx Passed" --exp-kw="Txgen Test Passed"
+			test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+
+		;;
 		PE340G2BPI71)
 			portQty=2
 			sendDelay=0x0
@@ -2177,7 +2233,71 @@ trafficTest() {
 			test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
 		;;
 		PE310G4I40) exitFail "Traffic test is defined for PE310G4BPI40 instead";;
-		PE310G4DBIR) inform "Traffic test is not defined for $baseModel";;
+		PE310G4DBIR)
+			portQty=5
+			sendDelay=4000
+			buffSize=4096
+			execFile="./pcitxgenohup5-1_BPI-MOD.sh"  
+			rootDir="/root/PE310G4DBIR"
+			sourceDir="$(pwd)"
+			cd "$rootDir"
+			sourceDir="$(pwd)"
+			cd "$rootDir"
+			dmsg inform "pwd=$(pwd)"
+
+			uutModel=$baseModel
+			echo -e "\tSetting UUT to NIC Mode\n"
+			rdfiConfCmd=$($rootDir/rdif_config1vf4_mod.sh 2 2 $uutSlotNum $uutSlotNum $uutSlotNum)
+			sleep $globLnkUpDel
+			allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel" "$uutUIOdevNum"
+			allNetAct "$mastNets" "Check links are UP on MASTER" "testLinks" "yes" "$mastBaseModel"
+			dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
+			echo -e "\tSending traffic (MASTER in IL, UUT in IL)..\n"
+			execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $slotNum $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+			test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+
+			echo -e "\tSetting UUT RRC to Bypass Mode\n"
+				rdfiConfCmd=$($rootDir/rdif_config1vf4_mod.sh 1 1 $uutSlotNum $uutSlotNum $uutSlotNum)
+				portQty=4
+				orderFile="order"
+				echo -n "1 2 3 4" >$rootDir/$orderFile
+				execFile="./pcitxgenohup1.sh" 
+				echo -e "\tCheck traffic on MASTER trough UUT RRC Bypass\n"
+				dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+				execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed" --nonVerb
+				test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+			echo -e "\t---------------------------------------------------\n"
+
+
+
+			echo -e "\tSetting UUT to NIC Mode\n"
+			rdfiConfCmd=$($rootDir/rdif_config1vf4_mod.sh 2 2 $uutSlotNum $uutSlotNum $uutSlotNum)
+			allBPBusMode "$mastBpBuses" "bp"
+			sleep $globLnkUpDel
+			allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel" "$uutUIOdevNum"
+			allNetAct "$mastNets" "Check links are DOWN on MASTER" "testLinks" "no" "$mastBaseModel"
+			dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
+			echo -e "\tSending traffic (MASTER in PAS BP, UUT in IL)..\n"
+			portQty=5
+			echo -n "1 2 3 4 5" >$rootDir/$orderFile
+			execFile="./pcitxgenohup1vf4.sh" 
+			execScript "$execFile" "1000000 $sendDelay $buffSize $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed" --nonVerb
+			test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
+
+
+			allBPBusMode "$bpBuses" "bp"
+			allBPBusMode "$mastBpBuses" "inline"
+			sleep $globLnkUpDel
+			allNetAct "$uutNets" "Check links are DOWN on UUT" "testLinks" "no" "$baseModel" "$uutUIOdevNum"
+			allNetAct "$mastNets" "Check links are UP on MASTER" "testLinks" "yes" "$mastBaseModel"
+			echo -e "\tCheck traffic on MASTER trough UUT Passive Bypass\n"
+			portQty=4
+			echo -n "1 2 3 4" >$rootDir/$orderFile
+			execFile="./pcitxgenohup1.sh" 
+			dmsg inform "$execFile 100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum"
+			execScript "$execFile" "100000 $sendDelay $buffSize $portQty $orderFile $mastSlotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed" --nonVerb
+			test "$?" = "0" && echo -e "\t\t\e[0;32mPASSED\e[m\n" || echo -e "\t\t\e[0;31mFAILED\e[m\n"
+		;;
 		PE340G2DBIR)
 			portQty=2
 			sendDelay=0x0
@@ -2569,11 +2689,39 @@ switchBP() {
 							echo -e ", checking: $bpctlRes mode"
 						} || exitFail "\t$bpBus: failed to set to bypass mode!"
 					fi
+				} ;;
+				discOff) {
+					if [[ "$bpCtlCmd" = "bssf" ]]; then
+						except "${FUNCNAME[0]}" "unsupported mode: $newState for IBS"
+					else
+						bpctlRes=$($bpCtlCmd $bpBus set_disc off)
+						test ! -z "$(echo $bpctlRes |grep successfully)" &&	{
+							echo -e -n "\t$bpBus: Disable Disconnect"
+							sleep 0.1
+							bpctlRes=$($bpCtlCmd $bpBus get_disc)
+							test -z "$(echo "$bpctlRes" |grep 'in the non-Disconnect mode')" && bpctlRes="\e[0;31mDisconnect enabled\e[m" ||  bpctlRes="\e[0;32mDisconnect disabled\e[m"
+							echo -e ", checking: $bpctlRes mode"
+						} || exitFail "\t$bpBus: failed to set disable disconnect!"
+					fi
 				} ;;	
-				*) exitFail "switchBP exception, unknown state: $newState"
+				discOn) {
+					if [[ "$bpCtlCmd" = "bssf" ]]; then
+						except "${FUNCNAME[0]}" "unsupported mode: $newState for IBS"
+					else
+						bpctlRes=$($bpCtlCmd $bpBus set_disc on)
+						test ! -z "$(echo $bpctlRes |grep successfully)" &&	{
+							echo -e -n "\t$bpBus: Enable Disconnect"
+							sleep 0.1
+							bpctlRes=$($bpCtlCmd $bpBus get_disc)
+							test -z "$(echo "$bpctlRes" |grep 'in the Disconnect mode')" && bpctlRes="\e[0;31mDisconnect disabled\e[m" ||  bpctlRes="\e[0;32mDisconnect enabled\e[m"
+							echo -e ", checking: $bpctlRes mode"
+						} || exitFail "\t$bpBus: failed to set enable disconnect!"
+					fi
+				} ;;
+				*) except "${FUNCNAME[0]}" "unknown state: $newState"
 			esac	
 		else
-			exitFail "switchBP exception, bpBus is not in uutBpBuses or mastBpBuses"
+			except "${FUNCNAME[0]}" "bpBus is not in uutBpBuses or mastBpBuses"
 		fi
 }
 
@@ -2753,28 +2901,149 @@ netInfoDump() {
 			dumpRegsPE310GxBPI71 
 			printRegsPE310GxBPI71
 		;;
-		*) exitFail "Unknown baseModelLocal: $baseModelLocal"
+		*) except "${FUNCNAME[0]}" "Unknown baseModelLocal: $baseModelLocal"
 	esac
+}
+
+loadSlcmModule() {
+	local cmdRes
+	echo -e "\t Loading SLCM module"
+	echo -e "\t  Stopping slcmi_module"
+	cmdRes="$(slcmi_stop 2>&1 > /dev/null)"; dmsg inform "$cmdRes"
+	echo -e "\t  Stopping slcm_module"
+	cmdRes="$(slcm_stop 2>&1 > /dev/null)"; dmsg inform "$cmdRes"
+	if [ "$1" = "slcm" ]; then
+		echo -e "\t  Starting slcm_module"
+		cmdRes="$(slcm_start 2>&1 > /dev/null)"; dmsg inform "$cmdRes"
+		if [[ "$?" -eq 0 ]]; then 
+			echo -e "\t  slcm_module started"
+		else
+			except "${FUNCNAME[0]}" "unable to start slcm_module"
+		fi
+	else
+		echo -e "\t  Starting slcmi_module"
+		cmdRes="$(slcmi_start 2>&1 > /dev/null)"; dmsg inform "$cmdRes"
+		if [[ "$?" -eq 0 ]]; then 
+			echo -e "\t  slcmi_module started"
+		else
+			except "${FUNCNAME[0]}" "unable to start slcmi_module"
+		fi
+	fi
+	echo -e "\t Done."
+}
+
+transceiverCheck() {
+	local slcmModeLocal bus
+	if [[ -z "$(echo $* |grep slcm)" ]]; then warn "${FUNCNAME[0]}: skipped, slcmMode is not defined for $baseModel"
+	else
+		privateVarAssign "${FUNCNAME[0]}" "slcmModeLocal" "$1" ;shift
+		privateVarAssign "${FUNCNAME[0]}" "slcmBuses" "$*"
+		loadSlcmModule "$slcmModeLocal"
+		for bus in $slcmBuses; do
+			if [ "$slcmModeLocal" = "slcmi" ]; then
+				echo -e -n "\t Getting QSFP info on bus $bus\n\tTransceiver PN: "
+				transPn=$(slcmi_util $bus get_qsfp_info |grep PartNumber |cut -d ' ' -f2)
+				echo -e "$blw$transPn$ec"
+			else
+				echo -e -n "\t Getting SFP info on bus $bus\n\tTransceiver PN: "
+				transPn=$(slcm_util $bus get_sfp_info |grep "vendor PN:" |cut -d ' ' -f3)
+				echo -e "$blw$transPn$ec"
+			fi
+		done
+	fi
+}
+
+transDiag() {
+	local rdifCmdRes net nets KEY VALUE uioDev txOut rxIn chanCnt ch targModel
+	local sfpVcc sfpVen sfpVenPn sfpVenSn sfpInfoRes sfpDiagRes slcmCmd slcmCmdRes ethBuses ethBus
+	for ARG in "$@"; do
+		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
+		VALUE=$(echo $ARG |cut -f2 -d=)
+		case "$KEY" in
+			targModel)	privateVarAssign "${FUNCNAME[0]}" "targModel" "${VALUE}" ;;
+			nets)		privateVarAssign "${FUNCNAME[0]}" "nets" "${VALUE}" ;;
+			uioDev)		privateVarAssign "${FUNCNAME[0]}" "uioDev" "${VALUE}";;
+			ethBuses)	privateVarAssign "${FUNCNAME[0]}" "ethBuses" "${VALUE}";;
+			*) inform "${FUNCNAME[0]}: unknown arg: $KEY" ;;
+		esac
+	done
+
+	case "$targModel" in
+		PE310G4DBIR) rdifCmd="rdifctl dev $uioDev get_power port"; let chanCnt=0;;
+		PE340G2DBIR) rdifCmd="rdifctl dev $uioDev get_power port" ;;
+		PE3100G2DBIR) rdifCmd="rdifctl dev $uioDev get_power port" ;;
+		PE310G4BPI71) slcmCmd="slcm_util" ;;
+		PE310G2BPI71) slcmCmd="slcm_util" ;;
+		*) 
+			if [[ ! -z "$slcmMode" ]]; then
+				slcmCmd="slcm_util"
+			else
+				inform "${FUNCNAME[0]}: skipped, not defined for $targModel"
+			fi
+	esac
+
+	
+
+	if [[ ! -z "$rdifCmd" ]]; then
+		if [[ -z "$chanCnt" ]]; then let chanCnt=3; fi
+		if [[ -z "$nets" ]]; then 
+			inform "${FUNCNAME[0]}: exception, nets are undefined"
+		else
+			for net in $nets; do
+				rdifCmdRes=$($rdifCmd $net)
+				echo -e "\tNet $net"
+				for ((ch=0;ch<=$chanCnt;ch++)); do 
+					txOut=$(echo "$rdifCmdRes" |grep -A2 "channel $ch" |grep -m1 TX |cut -d= -f2- |cut -d ' ' -f1-2)
+					rxIn=$(echo "$rdifCmdRes" |grep -A2 "channel $ch" |grep -m1 RX |cut -d= -f2- |cut -d ' ' -f1-2)
+					echo -e "\t  Channel $curChan: TX=$yl$txOut$ec  RX=$yl$rxIn$ec"
+				done
+			done
+		fi
+
+	fi
+
+	if [[ ! -z "$slcmCmd" ]]; then
+		if [[ -z "$ethBuses" ]]; then 
+			inform "${FUNCNAME[0]}: exception, ethBuses are undefined"
+		else
+			for ethBus in $ethBuses; do
+				echo -e -n "\tBus $ethBus "
+				slcmCmdRes="$($slcmCmd $ethBus get_sfp_diag)"
+				txOut=$(echo "$slcmCmdRes" |grep -m1 TX |cut -d= -f2- |cut -d ' ' -f1-2)
+				rxIn=$(echo "$slcmCmdRes" |grep -m1 RX |cut -d= -f2- |cut -d ' ' -f1-2)
+				sfpVcc=$(echo "$slcmCmdRes" |grep -m1 Vcc |cut -d= -f2- |cut -d ' ' -f1-2)
+				
+				slcmCmdRes="$($slcmCmd $ethBus get_sfp_info)"
+				sfpVen=$(echo "$slcmCmdRes" |grep "vendor:" |cut -d ' ' -f2)
+				sfpVenPn=$(echo "$slcmCmdRes" |grep "vendor PN:" |cut -d ' ' -f3)
+				sfpVenSn=$(echo "$slcmCmdRes" |grep "vendor sn:" |cut -d ' ' -f3)
+
+				echo -e "$sfpVen $sfpVenPn (SN: $sfpVenSn) TX=$yl$txOut$ec  RX=$yl$rxIn$ec  Vcc=$sfpVcc"
+			done
+		fi
+	fi
 }
 
 bpSwitchTestsLoop() {
 	local specArg
 	dmsg inform "bpDevQty=$bpDevQty bpBuses=$bpBuses"
 	case "$baseModel" in
-		PE340G2DBIR) 
+		PE340G2DBIR|PE3100G2DBIR) 
 			specArgUUT="$uutUIOdevNum"
 			specArgMast="$mastUIOdevNum"
 			dmsg inform "specArgUUT=$specArgUUT  specArgMast=$specArgMast"
 		;;
-		PE3100G2DBIR) 
+		PE310G4DBIR)
 			specArgUUT="$uutUIOdevNum"
-			specArgMast="$mastUIOdevNum"
-			dmsg inform "specArgUUT=$specArgUUT  specArgMast=$specArgMast"
+			dmsg inform "specArgUUT=$specArgUUT"
 		;;
-		*) ;;
+		*) 
+			bpctl_util all set_bp_manuf 2>&1 >/dev/null
+			bprdctl_util all set_bp_manuf 2>&1 >/dev/null
+		;;
 	esac
 	test ! -z "$bpDevQty" && {
-		if [[ -z "$bpBuses" ]]; then exitFail "bpSwitchTestsLoop exception, bpBuses undefined!"; fi
+		if [[ -z "$bpBuses" ]]; then except "${FUNCNAME[0]}" "bpBuses undefined!"; fi
 		allBPBusMode "$bpBuses" "inline"
 		allBPBusMode "$mastBpBuses" "inline"
 		sleep $globLnkUpDel
@@ -2799,6 +3068,11 @@ bpSwitchTestsLoop() {
 		
 		allBPBusMode "$bpBuses" "inline"
 		allBPBusMode "$mastBpBuses" "inline"
+
+		allBPBusMode "$bpBuses" "discOn"
+		allNetAct "$uutNets" "Check links are DOWN on UUT (UUT:BP MAST:IL)" "testLinks" "no" "$baseModel" "$specArgUUT"
+		allBPBusMode "$bpBuses" "discOff"
+		allNetTests "$uutNets" "UUT" "UUT:IL MAST:IL" "$baseModel" "$specArgUUT"
 	} || {
 		allBPBusMode "$mastBpBuses" "inline"
 		sleep $globLnkUpDel
@@ -2850,7 +3124,7 @@ setDRate() {
 		PE325G2I71) 		warn "setDRate, not implemented for $targModel";;
 		PE31625G4I71L) 		warn "setDRate, not implemented for $targModel";;
 		M4E310G4I71) 		warn "setDRate, not implemented for $targModel";;
-		*) exitFail "setDRate exception, Unknown targModel: $targModel"
+		*) except "${FUNCNAME[0]}" "unknown targModel: $targModel"
 	esac
 
 	dmsg inform "drateRes=$drateRes"
@@ -2916,6 +3190,58 @@ dataRateTest() {
 	fi
 }
 
+bpModeTest() {
+	allBPBusMode "$bpBuses" "discOn"
+	allBPBusMode "$bpBuses" "discOff"
+}
+
+
+transTests() {
+	echo -e "\tChecking UUT transceiver status:"
+		case "$baseModel" in
+			PE310G4BPI71) 		transDiag --targModel=$baseModel --ethBuses="$(filterDevsOnBus $uutSlotBus $ethBuses)";;
+			PE310G2BPI71) 		transDiag --targModel=$baseModel --ethBuses="$(filterDevsOnBus $uutSlotBus $ethBuses)";;
+			PE340G2BPI71) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE210G2BPI40) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE310G4BPI40) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE310G4I40) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE310G4DBIR) 		transDiag --targModel="$baseModel" --nets="1 2 3 4" --uioDev="$uutUIOdevNum" --ethBuses="$(filterDevsOnBus $uutSlotBus $ethBuses)";;
+			PE340G2DBIR) 		transDiag --targModel="$baseModel" --nets="1 2" --uioDev="$uutUIOdevNum";;
+			PE3100G2DBIR) 		transDiag --targModel="$baseModel" --nets="1 2" --uioDev="$uutUIOdevNum";;
+			PE310G4BPI9) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE210G2BPI9) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE210G2SPI9A) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE325G2I71) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE31625G4I71L) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			M4E310G4I71) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			*) except "${FUNCNAME[0]}" "unknown baseModel: $baseModel"
+		esac
+	echo -e "\n"
+}
+
+bpModeTests() {
+	echo -e "\tChecking UUT BP modes:"
+		case "$baseModel" in
+			PE310G4BPI71) 		bpModeTest;;
+			PE310G2BPI71) 		bpModeTest;;
+			PE340G2BPI71) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE210G2BPI40) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE310G4BPI40) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE310G4I40) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE310G4DBIR) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE340G2DBIR) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE3100G2DBIR) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE310G4BPI9) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE210G2BPI9) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE210G2SPI9A) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE325G2I71) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			PE31625G4I71L) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			M4E310G4I71) 		warn "${FUNCNAME[0]}, not implemented for $baseModel";;
+			*) except "${FUNCNAME[0]}" "unknown baseModel: $baseModel"
+		esac
+	echo -e "\n"
+}
+
 bpSwitchTests() {
 	local options loopCount firstBpEth
 	
@@ -2928,6 +3254,14 @@ bpSwitchTests() {
 	fi
 	echo -e "\n"
 	
+	echo -e "\tUUT transceiver tests:"
+		transTests
+	echo -e "\n"
+
+	echo -e "\tUUT BP modes tests:"
+		bpModeTests
+	echo -e "\n"
+
 	echo -e "\n  Loop count:"
 	options=("1" "3" "10")
 	case `select_opt "${options[@]}"` in
@@ -2959,7 +3293,14 @@ trafficTests() {
 			sleep $globLnkUpDel
 			trafficTest "$uutSlotNum" 100000 "$baseModel"
 		;;
-		PE310G2BPI71) inform "Traffic tests are not defined for $baseModel";;
+		PE310G2BPI71)
+			allBPBusMode "$mastBpBuses" "inline"
+			allBPBusMode "$bpBuses" "inline"
+			inform "\t  Sourcing $baseModel lib."
+			source /root/PE310G2BPI71/library.sh 2>&1 > /dev/null
+			sleep $globLnkUpDel
+			trafficTest "$uutSlotNum" 100000 "$baseModel"
+		;;
 		PE340G2BPI71) 
 			allBPBusMode "$mastBpBuses" "inline"
 			allBPBusMode "$bpBuses" "inline"
@@ -2991,7 +3332,11 @@ trafficTests() {
 			sleep $globLnkUpDel				# to prevent duplication, hardcoded PN used
 			trafficTest "$uutSlotNum" 1000000 "PE310G4BPI40"
 		;;
-		PE310G4DBIR) inform "Traffic tests are not defined for $baseModel";;
+		PE310G4DBIR) 
+			allBPBusMode "$mastBpBuses" "inline"
+			allBPBusMode "$bpBuses" "inline"
+			sleep $globLnkUpDel
+			trafficTest "$uutSlotNum" 1000000 "PE310G4DBIR";;
 		PE340G2DBIR) 
 			allBPBusMode "$mastBpBuses" "inline"
 			allBPBusMode "$bpBuses" "inline"
@@ -3184,20 +3529,19 @@ assignBuses() {
 						PE310G4BPI40) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE310G4BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE310G2BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
-						PE310G2BPI71-SR) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
 						PE340G2BPI71) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
-						PE310G4DBIR) publicVarAssign critical bpBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
+						PE310G4DBIR) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE340G2DBIR) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE3100G2DBIR) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
 						PE310G4BPI9) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
-						PE210G2BPI9) publicVarAssign critical bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1 |grep $uutBus:);;
-						*) exitFail "assignBuses exception, unknown baseModel: $baseModel"
+						PE210G2BPI9) publicVarAssign critical bpBuses $(filterDevsOnBus $uutSlotBus $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1));;
+						*) except "${FUNCNAME[0]}" "unknown baseModel: $baseModel"
 					esac 
 				else
 					inform "  BP Bus assignation skipped for UUT"
 				fi
 			;;
-			*) exitFail "assignBuses exception, unknown bus type: $ARG"
+			*) except "${FUNCNAME[0]}" "unknown bus type: $ARG"
 		esac
 	done
 }
@@ -3224,7 +3568,7 @@ mainTest() {
 			1) ibsInfoTest=1;;
 			2) bpTest=1;;
 			3) drateTest=1;;
-			*) exitFail "mainTest exception, unknown option";;
+			*) except "${FUNCNAME[0]}" "unknown option";;
 		esac
 
 		if [ ! -z "$ibsInfoTest" ]; then
@@ -3251,7 +3595,7 @@ mainTest() {
 			inform "\tIBS Management rate test"
 		fi
 	else
-		if [ ! -z "$ignoreSlotDuplicate" ]; then pciTest=1;
+		if [ ! -z "$ignoreSlotDuplicate" ]; then pciTest=1; dumpTest=1;
 		else
 			echo -e "\n  Select tests:"
 			options=("Full test" "PCI test" "Dump test" "BP Switch test" "Data rate test" "Traffic test")
@@ -3268,7 +3612,7 @@ mainTest() {
 				3) bpTest=1;;
 				4) drateTest=1;;
 				5) trfTest=1;;
-				*) exitFail "mainTest exception, unknown option";;
+				*) except "${FUNCNAME[0]}" "unknown option";;
 			esac
 		fi 
 		dmsg inform "pciTest=$pciTest dumpTest=$dumpTest bpTest=$bpTest drateTest=$drateTest trfTest=$trfTest"
@@ -3295,6 +3639,10 @@ mainTest() {
 			echoSection "Info Dumps"
 				netInfoDump $(echo -n $mastNets|awk '{print $1}') "MASTER" |& tee /tmp/statusChk.log
 				netInfoDump $(echo -n $uutNets|awk '{print $1}') "UUT" |& tee -a /tmp/statusChk.log
+				inform "\tUUT transceivers:"
+				transceiverCheck $slcmMode "$(filterDevsOnBus $uutSlotBus $ethBuses)" |& tee -a /tmp/statusChk.log
+				inform "\tMaster transceivers:"
+				transceiverCheck $mastSlcmMode "$mastEthBuses" |& tee -a /tmp/statusChk.log
 			test -z "$ignDumpFail" && checkIfFailed "Info Dumps failed!" crit || checkIfFailed "Info Dumps failed!" warn
 			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 		else
@@ -3370,7 +3718,7 @@ initialSetup(){
 		acquireVal "Traffic gen slot" masterSlotArg mastSlotNum
 	fi
 
-	if [ "$mastSlotNum" = "$uutSlotNum" -a -z "$ignoreSlotDuplicate" ]; then exitFail "Illegal slot selected!"; fi
+	if [ "$mastSlotNum" = "$uutSlotNum" -a -z "$ignoreSlotDuplicate" ] ; then except "${FUNCNAME[0]}" "illegal slot selected!"; fi
 
 	acquireVal "Part Number" pnArg uutPn
 	
@@ -3387,7 +3735,7 @@ initialSetup(){
 	
 	if [[ -z "$ibsMode" ]]; then 
 		assignNets
-		test "$uutBus" = "ff" && exitFail "Card not detected, uutBus=ff"
+		test "$uutBus" = "ff" && except "${FUNCNAME[0]}" "card not detected, uutBus=ff"
 	else
 		publicVarAssign fatal uutNets "NET0 NET1 MON0 MON1"
 	fi
@@ -3412,7 +3760,7 @@ main() {
 	setupLinks "$mastNets"
 	
 	test ! -z "$(echo -n $uutBus$mastBus|grep ff)" && {
-		exitFail "UUT or Master invalid slot or not detected! uutBus: $uutBus mastBus: $mastBus"
+		except "${FUNCNAME[0]}" "UUT or Master invalid slot or not detected! uutBus: $uutBus mastBus: $mastBus"
 	} || {
 		mainTest
 		passMsg "\n\tDone!\n"

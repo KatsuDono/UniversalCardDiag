@@ -314,7 +314,7 @@ beep() {
 }
 
 execScript() {
-	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc retStatus nonVerb
+	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc retStatus nonVerb traceSnip
 	declare -a scriptExpect
 	declare -a scriptPrint
 	let retStatus=0
@@ -361,7 +361,12 @@ execScript() {
 	done
 	if [[ ! "$retStatus" = "0" ]]; then
 		echo -e "\n\t\e[0;31m -- TRACE START --\e[0;33m\n"
-		echo -e "$(echo "$cmdRes" |grep -B 10 -A 99 -w "$scriptTraceKeyw")"
+		traceSnip="$(echo "$cmdRes" |grep -B 10 -A 99 -w "$scriptTraceKeyw")"
+		if [[ -z "$traceSnip" ]]; then 
+			echo -e "$(echo "$cmdRes")"
+		else
+			echo -e "$(echo "$cmdRes" |grep -B 10 -A 99 -w "$scriptTraceKeyw")"
+		fi
 		echo -e "\n\t\e[0;31m --- TRACE END ---\e[m\n"
 	fi
 	unset cmdRes
@@ -864,16 +869,19 @@ publicVarAssign() {
 
 function checkDefinedVal () {
 	local funcName varVal
-	dmsg inform "DEBUG> checkDefinedVal> args: $*"
+	# dmsg inform "DEBUG> ${FUNCNAME[0]}> args: $*"
 	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
 	funcName="$1" ;shift
-	varName="$1" ;shift
-	varVal="$1" ;shift
-	dmsg inform "DEBUG> checkDefinedVal> funcName=$funcName varName=$varName varVal=$varVal"
-	if [[ -z "$varVal" ]]; then
-		except "${FUNCNAME[0]}" "in $funcName: varVal for $varName is undefined!"
+	varName="$1"
+	# dmsg inform "DEBUG> ${FUNCNAME[0]}> funcName=$funcName varName=$varName"
+	if [[ -z "$varName" ]]; then
+		except "${FUNCNAME[0]}" "in $funcName: varName is undefined!"
 	else
-		return 0
+		if [[ -z "${!varName}" ]]; then
+			except "${FUNCNAME[0]}" "in $funcName: value for $varName is undefined!"
+		else
+			return 0
+		fi
 	fi
 }
 
@@ -967,7 +975,7 @@ function testLinks () {
 	privateVarAssign "${FUNCNAME[0]}" "linkReq" "$2"
 	privateVarAssign "${FUNCNAME[0]}" "uutModel" "$3"
 	case "$uutModel" in
-		PE340G2DBIR|PE3100G2DBIR)
+		PE340G2DBIR|PE3100G2DBIR|PE310G4DBIR)
 			privateVarAssign "${FUNCNAME[0]}" "devNumRDIF" "$4"
 			privateVarAssign "${FUNCNAME[0]}" "retryCount" "$globLnkAcqRetr"
 		;;
@@ -991,15 +999,17 @@ function testLinks () {
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4DBIR) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
+					dmsg inform "${FUNCNAME[0]}> netId=$netId"
 					if [ "$netId" = "0" ]; then 
 						linkReq="no"
 						linkAcqRes="no"
 					else
 						linkAcqRes=$(rdifctl dev $devNumRDIF get_port_link $netId |grep UP)
+						
 						if [[ ! -z "$(echo $linkAcqRes |grep UP)" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
 					fi
 				;;
-				PE340G2DBIR|PE3100G2DBIR) 
+				PE340G2DBIR|PE3100G2DBIR|PE310G4DBIR) 
 					linkAcqRes=$(rdifctl dev $devNumRDIF get_port_link $netTarg |grep UP)
 					if [[ ! -z "$(echo $linkAcqRes |grep UP)" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
 				;;
@@ -1178,9 +1188,10 @@ function allNetAct () {
 
 net2bus() {
 	local net bus
-	privateVarAssign "net2bus" "net" "$1"
+	net=$1
+	checkDefinedVal "${FUNCNAME[0]}" "net"
 	bus=$(grep PCI_SLOT_NAME /sys/class/net/*/device/uevent |grep "$net" |cut -d ':' -f3-)
-	test -z "$bus" && exitFail "net2bus exception, bus returned nothing!" $PROC || echo -e -n "$bus"
+	test -z "$bus" && except "${FUNCNAME[0]}" "bus returned nothing!" || echo -e -n "$bus"
 }
 
 filterDevsOnBus() {
@@ -1246,7 +1257,7 @@ gatherPciInfo() {
 	local pciInfoDev nameLine
 	pciInfoDev="$1"
 	dmsg inform "pciInfoDev=$pciInfoDev"
-	test -z "$pciInfoDev" && exitFail "gatherPciInfo exception, pciInfoDev in undefined" $PROC
+	test -z "$pciInfoDev" && except "${FUNCNAME[0]}" "pciInfoDev in undefined" $PROC
 	clearPciVars
 	if [[ ! "$pciInfoDev" == *":"* ]]; then 
 		pciInfoDev="$pciInfoDev:"
@@ -1358,7 +1369,7 @@ listDevsPciLib() {
 			slot-width-max)			slotWidthMax=${VALUE} ;;
 			slot-number)			slotNumLocal=${VALUE} ;;
 
-			*) echo "listDevsPciLib exception, unknown arg: $listPciArg"; exit 1
+			*) except "${FUNCNAME[0]}" "unknown arg: $listPciArg"
 		esac
 	done
 	
@@ -1427,7 +1438,7 @@ listDevsPciLib() {
 	#	critWarn "No :$devId devices found on bus $targBus!"
 	#	exit 1
 	#}
-	test -z "$targBus" && exitFail "listDevsPciLib exception, targBus is undefined"
+	test -z "$targBus" && except "${FUNCNAME[0]}" "targBus is undefined"
 	# slotBus root is now defined earlier
 	dmsg inform "SLOTBUS=$slotBus"
 	dmsg inform "targBus=$targBus"
@@ -1511,7 +1522,7 @@ listDevsPciLib() {
 	else
 		dmsg inform "plxOnDevBus is not empty\nPLX is not empty! there is: >$plxOnDevBus<"
 		if [[ -z $infoMode ]]; then
-			test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on PLX!"
+			test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && except "${FUNCNAME[0]}" "no quantities are defined on PLX!"
 			checkDefinedVal "${FUNCNAME[0]}" "plxKernReq" "$plxKernReq"
 			if [[ -z "$plxDevQtyReq" ]]; then 
 				except "${FUNCNAME[0]}" "plxDevQtyReq undefined, but devices found"
@@ -1607,10 +1618,11 @@ listDevsPciLib() {
 		test -z "$accKernReq$accDevQtyReq$accDevSpeed$accDevWidth" || critWarn "  ACC bus empty! PCI info on ACC failed!"
 	else
 		if [[ -z $infoMode ]]; then
-			test -z "$accKernReq" && exitFail "listDevsPciLib exception, accKernReq undefined!"
-			test -z "$accDevQtyReq" && exitFail "listDevsPciLib exception, accDevQtyReq undefined, but devices found" || {
-				test -z "$accDevSpeed" && exitFail "listDevsPciLib exception, accDevSpeed undefined!"
-				test -z "$accDevWidth" && exitFail "listDevsPciLib exception, accDevWidth undefined!"
+			checkDefinedVal "${FUNCNAME[0]}" "plxVirtKeyw" "$plxVirtKeyw"
+			test -z "$accKernReq" && except "${FUNCNAME[0]}" "accKernReq undefined!"
+			test -z "$accDevQtyReq" && except "${FUNCNAME[0]}" "accDevQtyReq undefined, but devices found" || {
+				test -z "$accDevSpeed" && except "${FUNCNAME[0]}" "accDevSpeed undefined!"
+				test -z "$accDevWidth" && except "${FUNCNAME[0]}" "accDevWidth undefined!"
 			}
 		fi
 		accDevArr=""  
@@ -1650,10 +1662,10 @@ listDevsPciLib() {
 		test -z "$ethDevQtyReq$ethVirtDevQtyReq$ethKernReq$ethDevId" || critWarn "  ETH bus empty! PCI info on ETH failed!"
 	else
 		if [[ -z $infoMode ]]; then
-			test -z "$ethDevQtyReq$ethVirtDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on ETH!"
-			test -z "$ethKernReq" && exitFail "listDevsPciLib exception, ethKernReq undefined!"
-			test -z "$ethDevQtyReq" && exitFail "listDevsPciLib exception, ethDevQtyReq undefined, but devices found" || {
-				test -z "$ethDevSpeed" && exitFail "listDevsPciLib exception, ethDevSpeed undefined!"
+			test -z "$ethDevQtyReq$ethVirtDevQtyReq" && except "${FUNCNAME[0]}" "no quantities are defined on ETH!"
+			test -z "$ethKernReq" && except "${FUNCNAME[0]}" "ethKernReq undefined!"
+			test -z "$ethDevQtyReq" && except "${FUNCNAME[0]}" "ethDevQtyReq undefined, but devices found" || {
+				test -z "$ethDevSpeed" && except "${FUNCNAME[0]}" "ethDevSpeed undefined!"
 				test -z "$ethDevWidth" && exitFail "listDevsPciLib exception, ethDevWidth undefined!"
 			}
 			test ! -z "$ethVirtDevQtyReq" && {
