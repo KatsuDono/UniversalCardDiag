@@ -7,7 +7,8 @@ declareVars() {
 	btitle="  arturd@silicom.co.il"	
 	declare -a pciArgs=("null" "null")
 	declare exitExec=0
-	let debugBrackets=1
+	let debugBrackets=0
+	let debugShowAssignations=0
 }
 
 parseArgs() {
@@ -20,7 +21,15 @@ parseArgs() {
 			uut-pn) pnArg=${VALUE} ;;
 			silent) silentMode=1 ;;
 			skip-init) skipInit=1;;
-			debug) debugMode=1 ;;
+			debug) 
+				debugMode=1 
+				inform "Launch key: Debug mode"
+			;;
+			debug-show-assign) 
+				let debugShowAssignations=1
+				debugMode=1 
+				inform "Launch key: Debug mode, visible assignations"
+			;;
 			no-dbg-brk) debugBrackets=0 ;;
 			help) showHelp ;;
 			*) echo "Unknown arg: $ARG"; showHelp

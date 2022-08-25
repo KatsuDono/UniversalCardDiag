@@ -53,6 +53,7 @@ main() {
 		"sfpD9" 	"| PE210G2SPI9A-XR"
 		"sfpD2" 	"| PE310G4BPI71-SR"
 		"sfpD2-1" 	"| PE310G4BPI71-LR"
+		"sfpD2-2" 	"| PE310G4I71L-XR-CX1"
 		"sfpD3" 	"| PE310G2BPI71-SR"
 		"sfpD3-1" 	"| PE340G2BPI71-QS43"
 		"sfpD4" 	"| PE310G4DBIR"
@@ -81,6 +82,8 @@ main() {
 		"transRep" 	"| PE310G4BPI71-SR (transceiver check)"
 		# "transRep1" "| PE310G4BPI71-SR (transceiver clone)"
 		"erase1" 	"| PE2G4I35L (erase)"
+		"tsCy1" 	"| STS 4 - Traffic Tests"
+		"tsCy2" 	"| STS 4 - UBlox/TimeSync Tests"
 		"delim" 	"========================================"
 		"delim" 	"|  Settings"
 		"sett1" 	"| Ignore dump fails [ $ignoreDumpFail ]"
@@ -112,6 +115,7 @@ main() {
 		sfpD9)		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2SPI9A-XR" $@$addArgs;;
 		sfpD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI71-SR" $@$addArgs;;
 		sfpD2-1) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI71-LR" $@$addArgs;;
+		sfpD2-2) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I71L-XR-CX1" $@$addArgs;;
 		sfpD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G2BPI71-SR" $@$addArgs;;
 		sfpD3-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE340G2BPI71-QS43" $@$addArgs;;
 		sfpD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4DBIR" $@$addArgs;;
@@ -157,7 +161,12 @@ main() {
 			testFileExist "/root/PE310G4BPI71/sfpClone.sh"
 			/root/PE310G4BPI71/sfpClone.sh
 		;;
-		erase1)	${MC_SCRIPT_PATH}/progUtil.sh --uut-pn="PE2G4I35" $@$addArgs	;;
+		erase1)	${MC_SCRIPT_PATH}/progUtil.sh --uut-pn="PE2G4I35" $@$addArgs ;;
+		tsCy1) ${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="TS4" $@ ;;
+		tsCy2)
+			testFileExist "${MC_SCRIPT_PATH}/tsTest.sh"
+			${MC_SCRIPT_PATH}/tsTest.sh --uut-pn="TS4" $@
+		;;
 		delim) exit;;
 		Exit) exit;;
 		*) exitFail echo "Unknown menu entry: $whptRes"

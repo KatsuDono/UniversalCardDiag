@@ -13,6 +13,12 @@ defineColors() {
 	ec='\e[m'
 }
 
+defineCharrArr() {
+	echo "  Defining char arrays.."
+	unset delayChars
+	declare -ga delayChars; delayChars=( '[       ]' '[=      ]' '[==     ]' '[===    ]' '[ ===   ]' '[  ===  ]' '[   === ]' '[    ===]' '[     ==]' '[      =]' )
+}
+
 graph_6port_1() {
 echo -e "
        ┌──────────────────────────────────────────────────┐
@@ -146,5 +152,23 @@ untestedPnWarn() {
 	read foo
 }
 
+animDelay() {
+	local frame delayLength msgPrompt totalRuns
+	# privateVarAssign "${FUNCNAME[0]}" "delayLength" "$1"; shift
+	delayLength=$1; shift
+	msgPrompt=$*
+
+	let totalRuns=10
+	while [ $totalRuns -gt 0 ]; do
+		for frame in "${delayChars[@]}" ; do
+			printf "\r%s" "$msgPrompt ${frame}"
+			echo -en ""
+			sleep "$delayLength"
+			let totalRuns--
+		done
+	done
+}
+
 echo -e '  Loaded module: \tGraphics lib for testing (support: arturd@silicom.co.il)'
 defineColors
+defineCharrArr
