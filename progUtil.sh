@@ -241,10 +241,10 @@ selectFwVer() {
 				1.40)	fwFileName="PE2G4i35L.eep"	;;
 				2.20)	fwFileName="PE2G4i35LE_2v00.eep"	;;
 				erase)	fwFileName="i35blank.eep"	;;
-				*) except "${FUNCNAME[0]}" "unknown ver selected: $fwVerLocal"
+				*) except "unknown ver selected: $fwVerLocal"
 			esac
 		;;
-		*) except "${FUNCNAME[0]}" "unknown fwSyncPn: $fwSyncPn"
+		*) except "unknown fwSyncPn: $fwSyncPn"
 	esac
 
 	fwPath="$baseModelPath/$fwFileName"
@@ -291,7 +291,7 @@ defineRequirments() {
 		echoIfExists "  Net count:" "$uutNetQty"
 		echoIfExists "  BP count:" "$uutBpDevQty"
 	else
-		except "${FUNCNAME[0]}" "PN: $uutPn cannot be processed, requirements not defined"
+		except "PN: $uutPn cannot be processed, requirements not defined"
 	fi
 	
 	echo -e " Done.\n"
@@ -478,7 +478,7 @@ assignBuses() {
 			eth) publicVarAssign critical ethBuses $(filterDevsOnBus $uutSlotBus $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-)) ;;
 			plx) publicVarAssign warn plxBuses $(grep '0604' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
 			acc) publicVarAssign silent accBuses $(grep '0b40' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
-			*) except "${FUNCNAME[0]}" "unknown bus type: $ARG"
+			*) except "unknown bus type: $ARG"
 		esac
 	done
 }
@@ -491,7 +491,7 @@ eraseUUT() {
 			selectFwVer "erase"
 			flashCard "$(echo $ethBuses |cut -d ' ' -f1 |cut -d: -f1)" "$fwPath"
 		;;
-		*) except "${FUNCNAME[0]}" "unknown baseModel: $baseModel"
+		*) except "unknown baseModel: $baseModel"
 	esac 
 	echo "  Done."
 }
@@ -505,7 +505,7 @@ mainTest() {
 	options=("Erase")
 	case `select_opt "${options[@]}"` in
 		0) eraseOpt=1;;
-		*) except "${FUNCNAME[0]}" "unknown option";;
+		*) except "unknown option";;
 	esac
 
 	dmsg inform "eraseOpt=$eraseOpt"
@@ -549,7 +549,7 @@ initialSetup(){
 
 main() {	
 	test ! -z "$(echo -n $uutBus|grep ff)" && {
-		except "${FUNCNAME[0]}" "UUT invalid slot or not detected! uutBus: $uutBus"
+		except "UUT invalid slot or not detected! uutBus: $uutBus"
 	} || {
 		mainTest
 		passMsg "\n\tDone!\n"

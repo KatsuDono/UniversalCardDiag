@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echoHeader() {			
+echoHeader() {
 	local addEl hdrText toolName ver
 	toolName="$1"
 	ver="$2"
@@ -12,6 +12,7 @@ echoHeader() {
 }
 
 echoPass() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	echo -e "\n\e[0;32m     ██████╗░░█████╗░░██████╗░██████╗"
 	echo "     ██╔══██╗██╔══██╗██╔════╝██╔════╝"
 	echo "     ██████╔╝███████║╚█████╗░╚█████╗░"
@@ -21,6 +22,7 @@ echoPass() {
 }
 
 echoFail() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	echo -e "\n\e[0;31m     ███████╗░█████╗░██╗██╗░░░░░" 1>&2
 	echo "     ██╔════╝██╔══██╗██║██║░░░░░" 1>&2
 	echo "     █████╗░░███████║██║██║░░░░░" 1>&2
@@ -28,7 +30,8 @@ echoFail() {
 	echo "     ██║░░░░░██║░░██║██║███████╗" 1>&2
 	echo -e "     ╚═╝░░░░░╚═╝░░╚═╝╚═╝╚══════╝\e[m\n\n" 1>&2
 }
-echoSection() {		
+echoSection() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"		
 	local addEl
 	for ((e=0;e<=${#1};e++)); do addEl="$addEl="; done		
 	echo -e "\n  =====$addEl====="
@@ -37,6 +40,7 @@ echoSection() {
 }
 
 killAllScripts() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local procId scriptN scriptsN
 	#privateVarAssign "killAllScripts" "procId" "$1"
 	#kill -10 $procId
@@ -63,13 +67,13 @@ killAllScripts() {
 }
 
 exitFail() {
-	local procId
-	dmsg inform "exitFail executed, exitExec=$exitExec procId=$procId"
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local procId parentFunc
+	dmsg "exitExec=$exitExec procId=$procId"
 	test -z "$2" && procId=$PROC || procId=$2
 	test -z "$procId" && echo -e "\t\e[1;41;33mexitFail exception, procId not specified\e[m"
 	test -z "$guiMode" && echo -e "\t\e[1;41;33m$1\e[m\n" 1>&2 || msgBox "$1"
 	echo -e "\n"
-	sleep 1
 	test "$exitExec" = "3" && {
 		critWarn "\t Exit loop detected, exiting forced."
 		kill -9 $procId
@@ -80,26 +84,28 @@ exitFail() {
 		beepSpk fatal 3
 	fi
 	echo 1>/tmp/exitMsgExec
+	parentFunc=$(printCallstack |cut -d: -f2 |cut -d '>' -f1 |awk '{print $1=$1}')c
+	dmsg "parentFunc=$parentFunc"
 	if [[ -z "$debugNoExit" ]]; then exit 1; fi
 }
 
 dbgWarn() {	#nnl = no new line
 	test -z "$2" && echo -e "$blw$1$ec" || {
-		test "$2"="nnl" && echo -e -n "$blw$1$ec" || echo -e "$blw$1$ec"
+		test "$2"="nnl" && echo -e -n "$blw$1$ec" 1>&2 || echo -e "$blw$1$ec" 1>&2
 	}
 	test -z "$(echo "$*" |grep "\-\-sil")" && beepSpk crit
 }
 
-critWarn() {	#nnl = no new line
-	test -z "$2" && echo -e "\e[0;47;31m$1\e[m" || {
-		test "$2"="nnl" && echo -e -n "\e[0;47;31m$1\e[m" || echo -e "\e[0;47;31m$1\e[m"
+critWarn() {  #nnl = no new line
+	test -z "$2" && echo -e "\e[0;47;31m$1\e[m" 1>&2 || {
+		test "$2"="nnl" && echo -e -n "\e[0;47;31m$1\e[m" 1>&2 || echo -e "\e[0;47;31m$1\e[m" 1>&2
 	}
 	test -z "$(echo "$*" |grep "\-\-sil")" && beepSpk crit
 }
 
 warn() {	#nnl = no new line  #sil = silent mode
-	test -z "$2" && echo -e "\e[0;33m$1\e[m" || {
-		test "$2"="nnl" && echo -e -n "\e[0;33m$1\e[m" || echo -e "\e[0;33m$1\e[m"
+	test -z "$2" && echo -e "\e[0;33m$1\e[m" 1>&2 || {
+		test "$2"="nnl" && echo -e -n "\e[0;33m$1\e[m" 1>&2 || echo -e "\e[0;33m$1\e[m" 1>&2
 	}
 	test "$3"="sil" || beepSpk warn
 }
@@ -117,17 +123,17 @@ inform() {	#nnl = no new line  #sil = silent mode
 		esac
 	done
 
-	echo -e -n "\e[0;33m$msgNoKeys\e[m"
+	echo -e -n "\e[0;33m$msgNoKeys\e[m" 1>&2
 
 	if [ -z "$nnlEn" ]; then
-		echo -n -e "\n"
+		echo -n -e "\n" 1>&2
 	fi
 	if [ -z "$silEn" ]; then
 		beepSpk info
 	fi
 }
 
-passMsg() {	#nnl = no new line  #sil = silent mode
+passMsg() { #nnl = no new line  #sil = silent mode
 	test -z "$2" && echo -e "\t\e[0;32m$1\e[m" || {
 		test "$2"="nnl" && echo -e -n "\t\e[0;32m$1\e[m" || echo -e "\t\e[0;32m$1\e[m"
 	}
@@ -137,22 +143,26 @@ passMsg() {	#nnl = no new line  #sil = silent mode
 }
 
 dmsg() {
+	local addArg callerFunc
+	if [[ -z "${FUNCNAME[1]}" ]]; then callerFunc="  undefinedCallerFunc> "; else callerFunc="  ${FUNCNAME[1]}> "; fi
+	if [[ -z $(type -t $(echo "$@"|awk '{print $1}')) ]]; then addArg="inform "; else unset addArg; fi
 	if [[ ! -z "$@" ]]; then
 		if [ "$debugMode" == "1" ]; then
 			if [ "$debugBrackets" == "0" ]; then
-				echo -e -n "dbg> " 1>&2; "$@" 1>&2
+				echo -e -n "dbg>$callerFunc" 1>&2; $addArg"$@" 1>&2
 			else
-				inform "DEBUG> " --nnl 1>&2
-				"$@" 1>&2
+				inform "DEBUG>$callerFunc" --nnl 1>&2
+				$addArg"$addArg$@" 1>&2
 				inform "< DEBUG END" 1>&2
 			fi
 		fi
 	else
-		inform "dmsg exception, input parameters undefined!" 1>&2
+		echo "dmsg exception, input parameters undefined!" 1>&2
 	fi
 }
 
 function createLog () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local pingTest localTime ntpTime status ntpRet
 
 	for ARG in "$@"; do
@@ -223,6 +233,7 @@ function createLog () {
 }
 
 function getTracking () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	echo -e -n "\n\tEnter tracking: "
 	read -r trackNum
 	if [[ "${#trackNum}" = "13" ]]; then
@@ -248,6 +259,7 @@ testFileExist() {
 }
 
 beepNoExec() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local beepCount ttyName
 	privateVarAssign "beepNoExec" "beepCount" "$1"
 	test "$silentMode" = "1" || {
@@ -310,6 +322,7 @@ beepSpk() {
 }
 
 beep() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	test -z "$1" && let beepCount=1 || let beepCount=$1
 	if [ "$silentMode" = "1" ]; then
 		ttyName=$(ls /dev/tty6* |uniq |tail -n 1)
@@ -321,6 +334,7 @@ beep() {
 }
 
 execScript() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local scriptPath scriptArgs scriptExpect scriptTraceKeyw scriptFailDesc retStatus nonVerb traceSnip
 	declare -a scriptExpect
 	declare -a scriptPrint
@@ -340,14 +354,14 @@ execScript() {
 	scriptArgs="$2"
 	scriptTraceKeyw="$3"
 	scriptFailDesc="$4"
-	dmsg inform "scriptExpect=$scriptExpect"
-	dmsg inform "cmd=$scriptPath $scriptArgs"
+	dmsg "scriptExpect=$scriptExpect"
+	dmsg "cmd=$scriptPath $scriptArgs"
 	cmdRes="$($scriptPath $scriptArgs 2>&1)"
 	for expKw in "${scriptExpect[@]}"; do
-		dmsg inform "execScript loop> procerssing kw=>$expKw<"
+		dmsg "procerssing kw=>$expKw<"
 		if [[ ! $(echo "$cmdRes" |tail -n 10) =~ $expKw ]]; then
 			critWarn "\tTest: $expKw - NO"
-			dmsg inform ">${expKw}< wasnt found in $(echo "$cmdRes" |tail -n 10)"
+			dmsg ">${expKw}< wasnt found in $(echo "$cmdRes" |tail -n 10)"
 			test -z "$debugMode" || {
 				inform "pwd=$(pwd)"
 				echo -e "\n\e[0;31m -- FULL TRACE START --\e[0;33m\n"
@@ -467,13 +481,14 @@ function select_opt {
 }
 
 assignBusesInfo() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local bpCtlRes
 	bpCtlRes=$(bpctl_start 2>&1 > /dev/null)
 	bpCtlRes=$(bprdctl_start 2>&1 > /dev/null)	
 
 	for ARG in "$@"
 	do	
-		dmsg inform "ASSIGNING BUS: $ARG"
+		dmsg "ASSIGNING BUS: $ARG"
 		case "$ARG" in
 			spc) publicVarAssign silent spcBuses $(grep '1180' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;	
 			eth) publicVarAssign silent ethBuses $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
@@ -488,7 +503,8 @@ assignBusesInfo() {
 	done
 }
 
-drawPciSlot() {		
+drawPciSlot() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"		
 	local addEl addElDash addElSpace excessSymb cutText color slotWidthInfo pciInfoRes curLine curLineCut widthLocal cutAddExp addElDashSp
 	if [[ ! -z "$globDrawWidthAdj" ]]; then let widthLocal=$globDrawWidthAdj; else let widthLocal=15; fi
 	slotNum=$1
@@ -512,7 +528,7 @@ drawPciSlot() {
 	echo -e "\t░ Slot: $slotNum  ░  $color$cutText$addEl\e[m ░  $slotWidthInfo"
 	test -z "$pciArgs" || {
 		echo -e "\t░      - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -    $addElDashSp ░"
-		dmsg inform "DEBUG3: ${pciArgs[@]}"
+		dmsg "${pciArgs[@]}"
 		pciInfoRes="$(listDevsPciLib "${pciArgs[@]}")"
 		unset pciArgs
 		echo "${pciInfoRes[@]}" | while read curLine ; do	
@@ -530,6 +546,7 @@ drawPciSlot() {
 }
 
 showPciSlots() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local slotBuses slotNum slotBusRoot bpBusesTotal 
 	local pciBridges pciBr slotBrPhysNum pciBrInfo rootBus slotArr dmiSlotInfo minimalMode
 	local secBusArg secBusAddr firstDevInfo secDevInfo secDevSlotInfo
@@ -571,7 +588,7 @@ showPciSlots() {
 	
 
 	for ((i=1;i<=$maxSlots;i++)) do 
-		dmsg inform "slotArr 0, $i = ${slotArr[0,$i]}   4, $i = ${slotArr[4,$i]}   2, $i = ${slotArr[2,$i]}"
+		dmsg "slotArr 0, $i = ${slotArr[0,$i]}   4, $i = ${slotArr[4,$i]}   2, $i = ${slotArr[2,$i]}"
 	done
 
 # 		slotArr arraingment		slotArr[dataRow,slotNumber]
@@ -584,13 +601,13 @@ showPciSlots() {
 # 		4	DMI_Handle	DMI_Handle	DMI_Handle	DMI_Handle	DMI_Handle	DMI_Handle
 # 	----------------------------------------------------------------------------------
 
-	dmsg inform critWarn "MAKE sure that in case that +1 by hex address is an actual device, \n
+	dmsg critWarn "MAKE sure that in case that +1 by hex address is an actual device, \n
 	check that parent bus does not have slot capabilities \n
 	moreover, check if slot in theory can have more than 4x or 8x by its length"
-	dmsg inform slotBuses=$slotBuses
+	dmsg slotBuses=$slotBuses
 	for slotBus in $slotBuses; do
 		let slotNum=$slotNum+1
-		dmsg inform slotNum=$slotNum slotBus=$slotBus
+		dmsg slotNum=$slotNum slotBus=$slotBus
 		if [[ "$slotBus" = "ff" ]]; then 
 			drawPciSlot $slotNum "-- Empty --" 
 		else
@@ -640,6 +657,7 @@ showPciSlots() {
 }
 
 function selectSlot () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local slotBuses slotBus busesOnSlots devsOnSlots populatedSlots slotSelRes totalDevList populatedBuses selDesc activeSlots busMode
 	
 	privateVarAssign "selectSlot" "selDesc" "$1"
@@ -677,6 +695,7 @@ function selectSlot () {
 }
 
 function selectSerial () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local selDesc serialDevs slotSelRes
 	
 	privateVarAssign "${FUNCNAME[0]}" "selDesc" "$1"
@@ -688,11 +707,12 @@ function selectSerial () {
 		slotSelRes=$(select_opt "${serialDevs[@]}")
 		return $slotSelRes
 	else
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "no serial devs found!"
+		except "no serial devs found!"
 	fi
 }
 
 function ibsSelectMgntMasterPort () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local masterBus devsOnMastBus ethBuses ethBus netSelect ethListOnMaster mastNets ethOnDev
 	echo "  Select RJ45 MASTER card"
 	masterBus="$(selectSlot "nop" "bus")"
@@ -720,11 +740,12 @@ function ibsSelectMgntMasterPort () {
 		netSelect=$(select_opt "${mastNets[@]}")
 		return $(echo -n ${mastNets[$netSelect]} |cut -c4-)
 	else
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "unable to retrieve eth name!"
+		except "unable to retrieve eth name!"
 	fi
 }
 
 echoRes() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local cmdLn
 	cmdLn="$@"
 	cmdRes="$($cmdLn; echo "res:$?")"
@@ -732,6 +753,7 @@ echoRes() {
 }
 
 syncFilesFromServ() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local forcedExec
 	forcedExec="$3"
 	test -z "$forcedExec" || {
@@ -770,6 +792,7 @@ syncFilesFromServ() {
 }
 
 function selectProgVer () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local subfCount currDir searchDir searchDirFolders
 	privateVarAssign "selectProgVer" "fwPath" "$*"
 
@@ -796,6 +819,7 @@ function selectProgVer () {
 }
 
 getFwFromServ() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local seqPn syncPn 
 	privateVarAssign "getFwFromServ" "seqPn" "$1"
 	privateVarAssign "getFwFromServ" "syncPn" "$2"
@@ -825,6 +849,7 @@ getFwFromServ() {
 }
 
 acquireVal() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local valDesc varSrc varTarg
 	valDesc="$1"
 	varSrc="$2"
@@ -843,20 +868,24 @@ acquireVal() {
 	}
 }
 
+publicNumAssign() {
+	privateNumAssign "$1" $2
+	echo -e "  $1=$2"
+}
+
 privateNumAssign() {
 	local numInput varName numInput varNameDesc funcName
 
-	funcName="$1"
-	shift
+	funcName="${FUNCNAME[1]}"
 	varName="$1"
 	shift
 	numInput=$1 ;shift
-	if [[ ! -z "$*" ]]; then except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "function overloaded"; fi
+	if [[ ! -z "$*" ]]; then except "function overloaded"; fi
 	checkIfNumber $numInput
 
 	if [ ! "$funcName" == "beepSpk" ]; then
 		if [[ "$debugShowAssignations" = "1" ]]; then
-			dmsg echo "privateNumAssign>  funcName=$funcName  varName=$varName  numInput=$numInput"
+			dmsg echo "funcName=$funcName  varName=$varName  numInput=$numInput"
 		fi
 	fi
 	
@@ -877,7 +906,7 @@ privateVarAssign() {
 
 	if [ ! "$funcName" == "beepSpk" ]; then
 		if [[ "$debugShowAssignations" = "1" ]]; then
-			dmsg echo "privateVarAssign>  funcName=$funcName  varName=$varName  varVal=$varVal"
+			dmsg echo "funcName=$funcName  varName=$varName  varVal=$varVal"
 		fi
 	fi
 	
@@ -885,9 +914,9 @@ privateVarAssign() {
 	# test -z "$varName" && exitFail "privateVarAssign preEval check exception, caller: ${FUNCNAME[1]} > varName undefined!"
 	# test -z "$varVal" && exitFail "privateVarAssign preEval check exception, caller: ${FUNCNAME[1]} > $funcName: $varName definition failed, new value is undefined!"
 	
-	test -z "$funcName" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "preEval check, funcName undefined!"
-	test -z "$varName" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "preEval check, varName undefined!"
-	test -z "$varVal" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "preEval check, new value for $varName is undefined!"
+	test -z "$funcName" && except "preEval check, funcName undefined!"
+	test -z "$varName" && except "preEval check, varName undefined!"
+	test -z "$varVal" && except "preEval check, new value for $varName is undefined!"
 
 
 	test -z "$(echo $varVal|grep 'noargs')" && eval $varName=\$varVal
@@ -924,12 +953,13 @@ publicVarAssign() {
 			critical) critWarn "${FUNCNAME[0]} $errMsg" ;;
 			warn) warn "${FUNCNAME[0]} $errMsg" ;;
 			silent) ;;
-			*) except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "varSeverity not in range: $varSeverity"
+			*) except "varSeverity not in range: $varSeverity"
 		esac
 	}
 }
 
 function checkDefinedVal () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local funcName varVal
 	# dmsg inform "DEBUG> ${FUNCNAME[0]}> args: $*"
 	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
@@ -937,10 +967,10 @@ function checkDefinedVal () {
 	varName="$1"
 	# dmsg inform "DEBUG> ${FUNCNAME[0]}> funcName=$funcName varName=$varName"
 	if [[ -z "$varName" ]]; then
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "in $funcName: varName is undefined!"
+		except "in $funcName: varName is undefined!"
 	else
 		if [[ -z "${!varName}" ]]; then
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "in $funcName: value for $varName is undefined!"
+			except "in $funcName: value for $varName is undefined!"
 		else
 			return 0
 		fi
@@ -948,70 +978,75 @@ function checkDefinedVal () {
 }
 
 checkDefined() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local funcName varName
-	dmsg inform "DEBUG> checkDefined> args: $*"
+	dmsg "args: $*"
 	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
-	funcName="$1" ;shift
 	varName="$1" ;shift
-	checkOverload "${FUNCNAME[0]}" "$*" --arg-min=1
-	dmsg inform "DEBUG> checkDefined> funcName=$funcName varName=$varName"
+	checkOverload "$*"
+	dmsg "funcName=$funcName varName=$varName"
 	if [[ -z "${!varName}" ]]; then
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "$varName is undefined!"
+		except "$varName is undefined!"
 	fi
 }
 
 printCallstack() {
-	local func
 	echo -n "${FUNCNAME[1]} requested callstack: "
 	for (( idx=${#FUNCNAME[*]:2}-1 ; idx>=1 ; idx-- )) ; do echo -n "${FUNCNAME[idx]}> "; done
 	echo -ne "\n"
 }
 
 except() {
-	local funcName exceptDescr
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local exceptDescr
 	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
-	funcName=$1 ;shift
-	funcCallerName=$1 ;shift
 	exceptDescr="$*"
+	echo -e "[multiCard]: Exception raised: $exceptDescr" |& tee /dev/kmsg &> /dev/null
+	echo -e "[multiCard]: Exception callstack: $(caller): $(printCallstack)" |& tee /dev/kmsg &> /dev/null
 	critWarn "\t$(caller): $(printCallstack)"
-	exitFail "EXCEPTION> $exceptDescr"
-	
+	exitFail "${FUNCNAME[1]} exception> $exceptDescr"
 }
 
 removeArg() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local targArg
 	privateVarAssign "removeArg" "targArg" "$1"; shift
 	echo -n "$*" | sed 's/'" $targArg"'//g'
 }
 
 checkOverload() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local callerFunc funcArgs argsNoFlags optFlag compKey
-	callerFunc=$1 ;shift
-	funcArgs="$*"
+	callerFunc=${FUNCNAME[1]}
+	# funcArgs="$*"
 
-	[[ -z "$callerFunc" ]] && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "callerFunc is undefined!"
-	[[ -z "$funcArgs" ]] && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "funcArgs for callerFunc:$callerFunc are undefined!"
+	if [[ ! -z "$*" ]]; then
+		except "$callerFunc overloaded with parameters, unexpected args: $*"
+	fi
 
-	for ARG in "$@"; do
-		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
-		VALUE=$(echo $ARG |cut -f2 -d=)
-		if [[ ! -z $(echo -n $KEY |grep -w "arg-max\|arg-min\|arg-exact") ]]; then 
-			compKey=$KEY
-			[[ ! -z "${VALUE}" ]] && let compValue=${VALUE} || except "checkOverload exception, VALUE undefined for key: $KEY!"
-		else 
-			[[ -z "$argsNoFlags" ]] && argsNoFlags=("$ARG") || argsNoFlags+=("$ARG")	
-		fi
-	done
+	# [[ -z "$funcArgs" ]] && except "funcArgs for callerFunc:$callerFunc are undefined!"
 
-	case "$compKey" in
-		arg-max) if [[ ! ${#argsNoFlags[@]} -le $compValue ]]; then except "$callerFunc" "overloaded with parameters, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
-		arg-min) if [[ ! ${#argsNoFlags[@]} -ge $compValue ]]; then except "$callerFunc" "insufficent parameters, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
-		arg-exact) if [[ ! ${#argsNoFlags[@]} -eq $compValue ]]; then except "$callerFunc" "incorrect parameter count, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
-		*) except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "compKey received unexpected key: $compKey"
-	esac
+	# for ARG in "$@"; do
+	# 	KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
+	# 	VALUE=$(echo $ARG |cut -f2 -d=)
+	# 	if [[ ! -z $(echo -n $KEY |grep -w "arg-max\|arg-min\|arg-exact") ]]; then 
+	# 		compKey=$KEY
+	# 		[[ ! -z "${VALUE}" ]] && let compValue=${VALUE} || except "VALUE undefined for key: $KEY!"
+	# 	else 
+	# 		[[ -z "$argsNoFlags" ]] && argsNoFlags=("$ARG") || argsNoFlags+=("$ARG")	
+	# 	fi
+	# done
+
+	# case "$compKey" in
+	# 	arg-max) if [[ ! ${#argsNoFlags[@]} -le $compValue ]]; then except "$callerFunc" "overloaded with parameters, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
+	# 	arg-min) if [[ ! ${#argsNoFlags[@]} -ge $compValue ]]; then except "$callerFunc" "insufficent parameters, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
+	# 	arg-exact) if [[ ! ${#argsNoFlags[@]} -eq $compValue ]]; then except "$callerFunc" "incorrect parameter count, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
+	# 	*) except "compKey received unexpected key: $compKey"
+	# esac
 }
 
 speedWidthComp() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local reqSpeed actSpeed reqWidth actWidth testSeverity compRule varAssigner
 	#echo "speedWidthComp debug:  $1  =   $2  =   $3  =   $4"
 	privateVarAssign "speedWidthComp" "reqSpeed" "$1"
@@ -1042,6 +1077,7 @@ speedWidthComp() {
 }
 
 function testLinks () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local netTarg linkReq uutModel netId retryCount linkAcqRes cmdRes devNumRDIF
 	privateVarAssign "${FUNCNAME[0]}" "netTarg" "$1"
 	privateVarAssign "${FUNCNAME[0]}" "linkReq" "$2"
@@ -1056,7 +1092,7 @@ function testLinks () {
 		;;
 	esac
 	for ((r=0;r<=$retryCount;r++)); do 
-		dmsg inform "try:$r"
+		dmsg "try:$r"
 		if [ ! "$linkReq" = "$linkAcqRes" ]; then
 			if [ $r -gt 0 ]; then 
 				inform --sil --nnl "."
@@ -1072,7 +1108,7 @@ function testLinks () {
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4DBIR) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
-					dmsg inform "${FUNCNAME[0]}> netId=$netId"
+					dmsg "netId=$netId"
 					if [ "$netId" = "0" ]; then 
 						linkReq="no"
 						linkAcqRes="no"
@@ -1092,6 +1128,7 @@ function testLinks () {
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				P425G410G8TS81) linkAcqRes=$(ethtool $netTarg |grep 'Link detected:' |cut -d: -f2 |cut -d ' ' -f2);;
 				acNano) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				IBSGP-T-MC-AM) 
 					cmdRes="$(sendIBS $uutSerDev get_link $netTarg |grep -w 'link' |cut -d: -f2- |cut -d. -f1 |awk '{print $2}')"
@@ -1107,9 +1144,9 @@ function testLinks () {
 				;;
 				*) exitFail "testLinks exception, Unknown uutModel: $uutModel"
 			esac
-			dmsg inform $linkAcqRes
+			dmsg linkAcqRes=$linkAcqRes
 		else
-			dmsg inform "skipped because not empty"
+			dmsg "skipped because not empty"
 		fi
 	done
 	if [[ ! -z "$linkAcqRes" ]]; then
@@ -1136,6 +1173,7 @@ function testLinks () {
 }
 
 getEthRates() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local netTarg speedReq uutModel linkAcqRes netId
 	privateVarAssign "getEthRates" "netTarg" "$1"
 	privateVarAssign "getEthRates" "speedReq" "$2"
@@ -1156,7 +1194,7 @@ getEthRates() {
 
 	
 	for ((r=0;r<=$retryCount;r++)); do 
-		dmsg inform "try:$r"
+		dmsg "try:$r"
 		if [ -z "$linkAcqRes" -a "$speedReq" != "Fail" ] || [ "$speedReq" != "Fail" -a -z "$(echo $linkAcqRes |grep $speedReq)" ]; then
 			test $r -gt 0 && sleep 1
 			case "$uutModel" in
@@ -1184,12 +1222,13 @@ getEthRates() {
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
-				*) except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "unknown uutModel: $uutModel"
+				P425G410G8TS81) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				*) except "unknown uutModel: $uutModel"
 			esac
-			dmsg inform $linkAcqRes
+			dmsg linkAcqRes=$linkAcqRes
 		else
-			dmsg echo "getEthRates> linkAcqRes=$linkAcqRes"
-			dmsg echo "getEthRates> skipped because not empty"
+			dmsg "linkAcqRes=$linkAcqRes"
+			dmsg "skipped because not empty"
 		fi
 	done
 	
@@ -1210,6 +1249,7 @@ getEthRates() {
 }
 
 getEthSelftest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local netTarg
 	privateVarAssign "getEthSelftest" "netTarg" "$1"	
 	selftestRes=$(ethtool -t $netTarg |grep result |awk '{print $5}')
@@ -1223,6 +1263,7 @@ getEthSelftest() {
 }
 
 function allNetAct () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local nets act actDesc net status counter
 	privateVarAssign "${FUNCNAME[0]}" "nets" "$1"
 	shift
@@ -1231,7 +1272,7 @@ function allNetAct () {
 	privateVarAssign "${FUNCNAME[0]}" "act" "$1"
 	shift
 	privateVarAssign "${FUNCNAME[0]}" "actArgs" "$@"
-	dmsg inform "DEBUG: nets:"$nets"  actDesc:"$actDesc"   act:"$act"   actArgs:"$actArgs
+	dmsg inform "nets:"$nets"  actDesc:"$actDesc"   act:"$act"   actArgs:"$actArgs
 	case "$uutModel" in
 		PE340G2DBIR|PE3100G2DBIR)
 			echo -e -n "\t$actDesc: \n\t\t"; 
@@ -1239,7 +1280,7 @@ function allNetAct () {
 			for net in $nets; do 
 				echo -e -n "$net:"
 				$act "$counter" $actArgs
-				dmsg inform "DEBUG: net:"$net"  act:"$act"  counter:"$counter"  actArgs:"$actArgs
+				dmsg inform "net:"$net"  act:"$act"  counter:"$counter"  actArgs:"$actArgs
 				let status+=$?
 				echo -e -n "   "
 			done
@@ -1261,14 +1302,16 @@ function allNetAct () {
 }
 
 net2bus() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local net bus
 	net=$1
 	checkDefinedVal "${FUNCNAME[0]}" "net"
 	bus=$(grep PCI_SLOT_NAME /sys/class/net/*/device/uevent |grep "$net" |cut -d ':' -f3-)
-	test -z "$bus" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "bus returned nothing!" || echo -e -n "$bus"
+	test -z "$bus" && except "bus returned nothing!" || echo -e -n "$bus"
 }
 
 filterDevsOnBus() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sourceBus filterDevs devsTotal
 	if [[ -z "$debugMode" ]]; then  # it is messing up assignBuses because of debug messages
 		privateVarAssign "${FUNCNAME[0]}" "sourceBus" "$1"	;shift
@@ -1295,12 +1338,12 @@ filterDevsOnBus() {
 	if [[ ! -z "$devsTotal" ]]; then 
 		echo -n ${devsTotal[@]}
 	else
-		dmsg critWarn "${FUNCNAME[1]} > ${FUNCNAME[0]} > resulting dev count is null"
-		critWarn "${FUNCNAME[1]} > ${FUNCNAME[0]} > resulting dev count is null" 1>&2
+		critWarn "resulting dev count is null" 1>&2
 	fi
 }
 
 filterBpMast() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sourceBus filterDevs mastDevsTotal bpCmd
 	if [[ -z "$debugMode" ]]; then  # it is messing up assignBuses because of debug messages
 		privateVarAssign "devsOnBus" "bpCmd" "$1" ;shift
@@ -1314,16 +1357,16 @@ filterBpMast() {
 		busIsMast=$($bpCmd $devName get_bypass |grep unknown)
 		if [[ -z "$busIsMast" ]]; then
 			mastDevsTotal+=( "$devName" )
-			#dmsg inform "$devName is from source bus devs list"
+			dmsg inform "$devName is from source bus devs list"
 		else
-			echo -n "" #placeholder
-			#dmsg inform "$devName is not related to source bus"
+			:
 		fi
 	done
 	if [[ ! -z "$mastDevsTotal" ]]; then echo -n ${mastDevsTotal[@]}; fi
 }
 
 clearPciVars() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	fullPciInfo=""
 	pciInfoDevDesc=""
 	pciInfoDevSubs=""
@@ -1340,6 +1383,7 @@ clearPciVars() {
 }
 
 debugPciVars() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	 echo pciInfoDevDesc: $pciInfoDevDesc
 	 echo pciInfoDevSubs: $pciInfoDevSubs
 	 echo pciInfoDevLnkCap: $pciInfoDevLnkCap
@@ -1356,10 +1400,11 @@ debugPciVars() {
 }
 
 gatherPciInfo() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local pciInfoDev nameLine
 	pciInfoDev="$1"
 	dmsg inform "pciInfoDev=$pciInfoDev"
-	test -z "$pciInfoDev" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "pciInfoDev in undefined" $PROC
+	test -z "$pciInfoDev" && except "pciInfoDev in undefined" $PROC
 	clearPciVars
 	if [[ ! "$pciInfoDev" == *":"* ]]; then 
 		pciInfoDev="$pciInfoDev:"
@@ -1387,6 +1432,7 @@ gatherPciInfo() {
 }
 
 listDevsPciLib() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local targBus accBuses plxBuses ethBuses bpBuses plxBus ethBus accBus bpBus fullPciInfo busInfo subdevInfo
 	local ethKernReq plxKernReq accKernReq bpKernReq accDevArr plxDevArr plxDevSubArr plxDevEmptyArr bpDevArr
 	local plxOnDevBus accOnDevBus ethOnDevBus bpOnDevBus
@@ -1404,11 +1450,11 @@ listDevsPciLib() {
 	
 	argsTotal=$*
 	
-	test -z "$argsTotal" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "argsTotal undefined"
+	test -z "$argsTotal" && except "argsTotal undefined"
 	
 	for listPciArg in "$@"
 	do
-		dmsg inform "${FUNCNAME[0]}: processing arg: $listPciArg"
+		dmsg inform "processing arg: $listPciArg"
 		KEY=$(echo $listPciArg|cut -c3- |cut -f1 -d=)
 		VALUE=$(echo $listPciArg |cut -f2 -d=)
 		#echo -e "\tlistDevsPciLib debug: processing arg: $listPciArg   KEY:$KEY   VALUE:$VALUE"
@@ -1474,7 +1520,7 @@ listDevsPciLib() {
 			slot-width-max)			slotWidthMax=${VALUE} ;;
 			slot-number)			slotNumLocal=${VALUE} ;;
 
-			*) except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "unknown arg: $listPciArg"
+			*) except "unknown arg: $listPciArg"
 		esac
 	done
 	
@@ -1544,7 +1590,7 @@ listDevsPciLib() {
 	#	critWarn "No :$devId devices found on bus $targBus!"
 	#	exit 1
 	#}
-	test -z "$targBus" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "targBus is undefined"
+	test -z "$targBus" && except "targBus is undefined"
 	# slotBus root is now defined earlier
 	dmsg inform "SLOTBUS=$slotBus"
 	dmsg inform "targBus=$targBus"
@@ -1573,7 +1619,7 @@ listDevsPciLib() {
 		fi
 	fi
 
-	dmsg inform critWarn "check if next hex addr by bus existing and pciInfoDevPhysSlot corresponds to the slotNumLocal"
+	dmsg critWarn "check if next hex addr by bus existing and pciInfoDevPhysSlot corresponds to the slotNumLocal"
 
 	test ! -z "$plxBuses" && {
 		for bus in $plxBuses ; do
@@ -1581,7 +1627,7 @@ listDevsPciLib() {
 			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || plxOnDevBus=$(echo $plxOnDevBus $bus)
 		done
-		dmsg inform "\t${FUNCNAME[0]}> plxOnDevBus=$plxOnDevBus"
+		dmsg inform "plxOnDevBus=$plxOnDevBus"
 	}
 	test ! -z "$accBuses" && {
 		for bus in $accBuses ; do
@@ -1590,7 +1636,7 @@ listDevsPciLib() {
 			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || accOnDevBus=$(echo $accOnDevBus $bus)
 		done
-		dmsg inform "\t${FUNCNAME[0]}> accOnDevBus=$accOnDevBus"
+		dmsg inform "accOnDevBus=$accOnDevBus"
 	}
 	test ! -z "$spcBuses" && {
 		for bus in $spcBuses ; do
@@ -1598,7 +1644,7 @@ listDevsPciLib() {
 			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || spcOnDevBus=$(echo $spcOnDevBus $bus)
 		done
-		dmsg inform "\t${FUNCNAME[0]}> spcOnDevBus=$spcOnDevBus"
+		dmsg inform "spcOnDevBus=$spcOnDevBus"
 	}
 	test ! -z "$ethBuses" && {
 		for bus in $ethBuses ; do
@@ -1607,7 +1653,7 @@ listDevsPciLib() {
 			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || ethOnDevBus=$(echo $ethOnDevBus $bus)
 		done
-		dmsg inform "\t${FUNCNAME[0]}> ethOnDevBus=$ethOnDevBus"
+		dmsg inform "ethOnDevBus=$ethOnDevBus"
 	}
 	test ! -z "$bpBuses" && {
 		for bus in $bpBuses ; do
@@ -1615,10 +1661,10 @@ listDevsPciLib() {
 			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
 			test -z "$exist" || bpOnDevBus=$(echo $bpOnDevBus $bus)
 		done
-		dmsg inform "\t${FUNCNAME[0]}> bpOnDevBus=$bpOnDevBus"
+		dmsg inform "bpOnDevBus=$bpOnDevBus"
 	}
 	
-	dmsg inform "\t ${FUNCNAME[0]} WAITING FOR INPUT1"
+	dmsg inform "WAITING FOR INPUT1"
 	dmsg read foo
 	
 	dmsg inform "plxOnDevBus=$plxOnDevBus"
@@ -1632,23 +1678,23 @@ listDevsPciLib() {
 	else
 		dmsg inform "plxOnDevBus is not empty\nPLX is not empty! there is: >$plxOnDevBus<"
 		if [[ -z $infoMode ]]; then
-			test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "no quantities are defined on PLX!"
+			test -z "$plxDevQtyReq$plxDevSubQtyReq$plxDevEmptyQtyReq" && except "no quantities are defined on PLX!"
 			checkDefinedVal "${FUNCNAME[0]}" "plxKernReq" "$plxKernReq"
 			if [[ -z "$plxDevQtyReq" ]]; then 
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "plxDevQtyReq undefined, but devices found"
+				except "plxDevQtyReq undefined, but devices found"
 			else
 				checkDefinedVal "${FUNCNAME[0]}" "plxDevSpeed" "$plxDevSpeed"
 				checkDefinedVal "${FUNCNAME[0]}" "plxDevWidth" "$plxDevWidth"
 			fi
 
 			if [[ -z "$plxDevSubQtyReq" ]]; then 
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "plxDevSubQtyReq undefined, but devices found"
+				except "plxDevSubQtyReq undefined, but devices found"
 			else
 				checkDefinedVal "${FUNCNAME[0]}" "plxDevSubSpeed" "$plxDevSubSpeed"
 				checkDefinedVal "${FUNCNAME[0]}" "plxDevSubWidth" "$plxDevSubWidth"
 			fi
 			if [[ -z "$plxDevEmptyQtyReq" ]]; then 
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "plxDevEmptyQtyReq undefined, but devices found"
+				except "plxDevEmptyQtyReq undefined, but devices found"
 			else
 				checkDefinedVal "${FUNCNAME[0]}" "plxDevEmptySpeed" "$plxDevEmptySpeed"
 				checkDefinedVal "${FUNCNAME[0]}" "plxDevEmptyWidth" "$plxDevEmptyWidth"
@@ -1729,10 +1775,10 @@ listDevsPciLib() {
 	else
 		if [[ -z $infoMode ]]; then
 			checkDefinedVal "${FUNCNAME[0]}" "plxVirtKeyw" "$plxVirtKeyw"
-			test -z "$accKernReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "accKernReq undefined!"
-			test -z "$accDevQtyReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "accDevQtyReq undefined, but devices found" || {
-				test -z "$accDevSpeed" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "accDevSpeed undefined!"
-				test -z "$accDevWidth" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "accDevWidth undefined!"
+			test -z "$accKernReq" && except "accKernReq undefined!"
+			test -z "$accDevQtyReq" && except "accDevQtyReq undefined, but devices found" || {
+				test -z "$accDevSpeed" && except "accDevSpeed undefined!"
+				test -z "$accDevWidth" && except "accDevWidth undefined!"
 			}
 		fi
 		accDevArr=""  
@@ -1772,10 +1818,10 @@ listDevsPciLib() {
 		test -z "$ethDevQtyReq$ethVirtDevQtyReq$ethKernReq$ethDevId" || critWarn "  ETH bus empty! PCI info on ETH failed!"
 	else
 		if [[ -z $infoMode ]]; then
-			test -z "$ethDevQtyReq$ethVirtDevQtyReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "no quantities are defined on ETH!"
-			test -z "$ethKernReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "ethKernReq undefined!"
-			test -z "$ethDevQtyReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "ethDevQtyReq undefined, but devices found" || {
-				test -z "$ethDevSpeed" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "ethDevSpeed undefined!"
+			test -z "$ethDevQtyReq$ethVirtDevQtyReq" && except "no quantities are defined on ETH!"
+			test -z "$ethKernReq" && except "ethKernReq undefined!"
+			test -z "$ethDevQtyReq" && except "ethDevQtyReq undefined, but devices found" || {
+				test -z "$ethDevSpeed" && except "ethDevSpeed undefined!"
 				test -z "$ethDevWidth" && exitFail "listDevsPciLib exception, ethDevWidth undefined!"
 			}
 			test ! -z "$ethVirtDevQtyReq" && {
@@ -1837,11 +1883,11 @@ listDevsPciLib() {
 	dmsg inform "bpOnDevBus=$bpOnDevBus"
 	if [[ ! -z "$bpOnDevBus" ]]; then
 		if [[ -z $infoMode ]]; then
-			test -z "$bpDevQtyReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "no quantities are defined on BP!"
-			test -z "$bpKernReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "bpKernReq undefined!"
-			test -z "$bpDevQtyReq" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "bpDevQtyReq undefined, but devices found" || {
-				test -z "$bpDevSpeed" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "bpDevSpeed undefined!"
-				test -z "$bpDevWidth" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "bpDevWidth undefined!"
+			test -z "$bpDevQtyReq" && except "no quantities are defined on BP!"
+			test -z "$bpKernReq" && except "bpKernReq undefined!"
+			test -z "$bpDevQtyReq" && except "bpDevQtyReq undefined, but devices found" || {
+				test -z "$bpDevSpeed" && except "bpDevSpeed undefined!"
+				test -z "$bpDevWidth" && except "bpDevWidth undefined!"
 			}
 		fi
 		bpDevArr=""  
@@ -1924,6 +1970,7 @@ listDevsPciLib() {
 }
 
 checkIfContains() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local reqVal actVal compDesc reqValWithDelimeter
 	compDesc=$1
 	reqValWithDelimeter=$2
@@ -1942,6 +1989,7 @@ checkIfContains() {
 }
 
 qtyComp() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local reqQty actQty qtySeverity
 	reqQty=$1
 	actQty=$2
@@ -1958,16 +2006,17 @@ qtyComp() {
 }
 
 testArrQty() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local testDesc errDesc testArr exptQty testSeverity
-	dmsg inform "testArrQty> 1=$1 2=$2 3=$3 4=$4 5=$5 6=$6"
+	dmsg inform "1=$1 2=$2 3=$3 4=$4 5=$5 6=$6"
 	privateVarAssign "testArrQty" "testDesc" "$1"
 	testArr=$2
 	exptQty=$3
 	privateVarAssign "testArrQty" "errDesc" "$4"
 	testSeverity=$5 #empty=exit with fail  warn=just warn
-	dmsg inform 'testArrQty: >testArr='"$testArr"'< >exptQty='"$exptQty<"
+	dmsg inform 'testArr='"$testArr"'< >exptQty='"$exptQty<"
 	if [ -z "$exptQty" ]; then
-		dmsg inform "testArrQty> $testDesc skipped, no qty defined"
+		dmsg inform "$testDesc skipped, no qty defined"
 	else
 		if [ ! -z "$testArr" ]; then
 			echo -e "\t$testDesc: "$testArr" $(qtyComp $exptQty $(echo -e -n "$testArr"| tr " " "\n" | grep -c '^') $testSeverity)"
@@ -1978,6 +2027,7 @@ testArrQty() {
 }
 
 removePciDev() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local pciAddrs
 	privateVarAssign "${FUNCNAME[0]}" "pciAddrs" "$*"
 	for pciDev in $pciAddrs
@@ -1988,6 +2038,7 @@ removePciDev() {
 }
 
 flashCard() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local flashFile burnBus flashResCmd
 	privateVarAssign "${FUNCNAME[0]}" "burnBusHex" "$1"
 	privateVarAssign "${FUNCNAME[0]}" "flashFile" "$2"
@@ -1999,11 +2050,12 @@ flashCard() {
 		echo "   Burned successfully"
 	else
 		echo "$flashResCmd"
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "   Burn failed."
+		except "   Burn failed."
 	fi
 }
 
 qatConfig() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local confMode qatPath
 	privateVarAssign "qatConfig" "confMode" "$1"
 	privateVarAssign "qatConfig" "qatPath" "$2"
@@ -2023,6 +2075,7 @@ qatConfig() {
 }
 
 qatAction() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local qatDev qatAct
 	if [[ "$1" = "status" ]]; then
 		privateVarAssign "qatAction" "qatAct" "$1"
@@ -2035,12 +2088,14 @@ qatAction() {
 }
 
 qatTest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local execPath busNum forceBgaNum qatDevCut cpaRes cpaTrace kmodExist qatRes forceQat qatDevUp
 	privateVarAssign "qatTest" "execPath" "$1"
 	privateVarAssign "qatTest" "busNum" "$2"
 	forceBgaNum="$3"
 	
 	qatResStatus() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 		local execExitStatus cpaResInput
 		cpaResInput="$1"
 		execExitStatus=$(echo "$cpaResInput" |grep execRes |cut -d= -f2)
@@ -2172,6 +2227,7 @@ qatTest() {
 }
 
 setMgntIp() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ipReq cmdRes ethName actIp regEx
 	echo -e "\n Setting management IP.."
 
@@ -2180,7 +2236,7 @@ setMgntIp() {
 	if [[ "$ipReq" =~ $regEx ]]; then
 		echo "  IP Validated"
 	else
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "IP is not valid! Please check: $ipReq"
+		except "IP is not valid! Please check: $ipReq"
 	fi
 	echo "  Gathering ETH name"
 	ethName=$(ifconfig -a |head -1 |awk '{print $1}'|tr --delete :)
@@ -2195,6 +2251,7 @@ setMgntIp() {
 }
 
 pingTest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local actIp ethName regEx srvIp
 	echo -e "\n Ping test.."
 	
@@ -2214,7 +2271,7 @@ pingTest() {
 		if [[ "$actIp" =~ $regEx ]]; then
 			echo "  IP: $actIp"
 		else
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "IP is not valid! Please check: $ipReq"
+			except "IP is not valid! Please check: $ipReq"
 		fi
 	fi
 	srvIp="172.30.0.4"
@@ -2234,6 +2291,7 @@ pingTest() {
 }
 
 function sendIBS () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyR cmdR
 	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
@@ -2242,14 +2300,14 @@ function sendIBS () {
 	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
 	
 	case "$serState" in
-		null)	except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "null state received! (state: $serState)" ;;
+		null)	except "null state received! (state: $serState)" ;;
 		shell) 	
 			cmdRes=$(sendRootIBS $ttyR exit)
 			loginIBS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
 			if [ $? -eq 0 ]; then
 				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
 			else
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Unable to log in!"
+				except "Unable to log in!"
 			fi	
 		;;
 		gui) 
@@ -2260,7 +2318,7 @@ function sendIBS () {
 			if [ $? -eq 0 ]; then
 				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
 			else
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Unable to log in!"
+				except "Unable to log in!"
 			fi
 		;;
 		password) 
@@ -2270,14 +2328,15 @@ function sendIBS () {
 			if [ $? -eq 0 ]; then
 				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
 			else
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Unable to log in!"
+				except "Unable to log in!"
 			fi
 		;;
-		*) except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "unexpected case state received! (state: $serState)"
+		*) except "unexpected case state received! (state: $serState)"
 	esac
 }
 
 function sendRootIBS () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyR cmdR serState
 	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
@@ -2286,7 +2345,7 @@ function sendRootIBS () {
 	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
 	
 	case "$serState" in
-		null)	except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "null state received! (state: $serState)" ;;
+		null)	except "null state received! (state: $serState)" ;;
 		shell) 		
 			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
 		;;
@@ -2296,7 +2355,7 @@ function sendRootIBS () {
 			if [ $? -eq 0 ]; then
 				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
 			else
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Unable to log in!"
+				except "Unable to log in!"
 			fi
 		;;
 		login)
@@ -2304,7 +2363,7 @@ function sendRootIBS () {
 			if [ $? -eq 0 ]; then
 				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
 			else
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Unable to log in!"
+				except "Unable to log in!"
 			fi
 		;;
 		password) 
@@ -2314,14 +2373,15 @@ function sendRootIBS () {
 			if [ $? -eq 0 ]; then
 				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
 			else
-				except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Unable to log in!"
+				except "Unable to log in!"
 			fi
 		;;
-		*) except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "unexpected case state received! (state: $serState)"
+		*) except "unexpected case state received! (state: $serState)"
 	esac
 }
 
 function loginIBS () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN baud timeout cmd
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
@@ -2329,8 +2389,8 @@ function loginIBS () {
 	privateVarAssign "${FUNCNAME[0]}" "login" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "pass" "$1"
 
-	which expect > /dev/null || except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "expect not found by which!"
-	which tio > /dev/null || except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "tio not found by which!"
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
 
 	expect -c "
 	set timeout $timeout
@@ -2371,14 +2431,15 @@ function loginIBS () {
 }
 
 function sendSerialCmd () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN baud timeout cmd
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "cmd" "$*"
 
-	which expect > /dev/null || except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "expect not found by which!"
-	which tio > /dev/null || except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "tio not found by which!"
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
 
 	expect -c "
 	set timeout $timeout
@@ -2414,13 +2475,14 @@ function sendSerialCmd () {
 }
 
 function getIBSSerialState () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN baud timeout cmd
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
 
-	which expect > /dev/null || except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "expect not found by which!"
-	which tio > /dev/null || except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "tio not found by which!"
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
 
 	serialCmdNlRes="$(
 		expect -c "
@@ -2460,6 +2522,7 @@ function getIBSSerialState () {
 }
 
 kikusuiInit() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local kikusuiIP cmdRes
 	privateVarAssign "${FUNCNAME[0]}" "kikusuiIP" "$1"
 	verifyIp "${FUNCNAME[0]}" $kikusuiIP
@@ -2473,12 +2536,13 @@ kikusuiInit() {
 		sleep 0.1
 		printf "  Current: %1.2f\n" $(lxi scpi -a $kikusuiIP "MEAS:CURR?")
 	else
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Kikusui connection on $kikusuiIP failed, or incorrect model"
+		except "Kikusui connection on $kikusuiIP failed, or incorrect model"
 	fi
 	echo " Done."
 }
 
 kikusuiSetupDefault() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local cmdRes measVolt measCurr maxVolt maxCurr
 	acquireVal "Kikusui IP" kikusuiIP kikusuiIP
 	verifyIp "${FUNCNAME[0]}" $kikusuiIP
@@ -2501,17 +2565,18 @@ kikusuiSetupDefault() {
 		if [ "$maxVolt" = "12.2" -a "$maxCurr" = "7" ]; then
 			echo -e "  Checked PSU voltage: $maxVolt, current: $maxCurr: \e[0;32mok\e[m"
 		else
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Kikusui voltage ($measVolt) or current ($measCurr) not in range"
+			except "Kikusui voltage ($measVolt) or current ($measCurr) not in range"
 		fi
 	else 
 		echo -e "\e[0;31mon\e[m"
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "Kikusui on $kikusuiIP wasnt turned off"
+		except "Kikusui on $kikusuiIP wasnt turned off"
 	fi
 	
 	echo " Done."
 }
 
 sendKikusuiCmd() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local cmdRes sendCmd
 	privateVarAssign "${FUNCNAME[0]}" "sendCmd" "$1"
 	verifyIp "${FUNCNAME[0]}" $kikusuiIP
@@ -2520,6 +2585,7 @@ sendKikusuiCmd() {
 }
 
 getKikusuiCmd() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local cmdRes sendCmd
 	privateVarAssign "${FUNCNAME[0]}" "sendCmd" "$1"
 	verifyIp "${FUNCNAME[0]}" $kikusuiIP
@@ -2540,6 +2606,7 @@ getKikusuiCmd() {
 }
 
 checkJQPkg() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local whichCmd
 	echo " Checking JQ present.."
 	which jq 2>&1 > /dev/null
@@ -2553,6 +2620,7 @@ checkJQPkg() {
 }
 
 installJQTools() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	testFileExist "/root/multiCard/rpmPackages/jq-1.6-2.el7.x86_64.rpm"
 	testFileExist "/root/multiCard/rpmPackages/oniguruma-6.8.2-2.el7.x86_64.rpm"
 	
@@ -2560,16 +2628,17 @@ installJQTools() {
 	
 	inform "   Installing regular expressions library.."
 	rpm -i /root/multiCard/rpmPackages/oniguruma-6.8.2-2.el7.x86_64.rpm
-	if [ $? -eq 0 ]; then echo "    regular expressions library installed"; else except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "regular expressions library was not installed"; fi
+	if [ $? -eq 0 ]; then echo "    regular expressions library installed"; else except "regular expressions library was not installed"; fi
 		
 	inform "   Installing jq.."
 	rpm -i /root/multiCard/rpmPackages/jq-1.6-2.el7.x86_64.rpm
-	if [ $? -eq 0 ]; then echo "    jq installed"; else except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "jq was not installed"; fi
+	if [ $? -eq 0 ]; then echo "    jq installed"; else except "jq was not installed"; fi
 
 	inform "  Installing done."
 }
 
 checkLxiPkg() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local whichCmd
 	echo " Checking LXI tools present.."
 	which lxi 2>&1 > /dev/null
@@ -2583,30 +2652,33 @@ checkLxiPkg() {
 }
 
 installLxiTools() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	testFileExist "/root/multiCard/rpmPackages/liblxi-1.16-1.el7.x86_64.rpm"
 	testFileExist "/root/multiCard/rpmPackages/lxi-tools-2.1-1.el7.x86_64.rpm"
 	warn "  Initializing install.."
 	inform "   Installing liblxi.."
 	rpm -i /root/multiCard/rpmPackages/liblxi-1.16-1.el7.x86_64.rpm
-	if [ $? -eq 0 ]; then echo "    liblxi installed"; else except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "liblxi was not installed"; fi
+	if [ $? -eq 0 ]; then echo "    liblxi installed"; else except "liblxi was not installed"; fi
 	inform "   Installing lxi-tools.."
 	rpm -i /root/multiCard/rpmPackages/lxi-tools-2.1-1.el7.x86_64.rpm
-	if [ $? -eq 0 ]; then echo "    lxi-tools installed"; else except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "lxi-tools was not installed"; fi
+	if [ $? -eq 0 ]; then echo "    lxi-tools installed"; else except "lxi-tools was not installed"; fi
 	inform "  Installing done."
 }
 
 setUsbNICip() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local nicCount nicEth cmdRes
 	let nicCount=$(ls -l /sys/class/net |grep usb |wc -l)
 	if [ $nicCount -eq 1 ]; then
 		nicEth=$(ls -l /sys/class/net |grep -m1 usb |awk '{print $9}')
 		echo "NIC found: $nicEth" 
 	else
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "incorrect NIC count: $nicCount"
+		except "incorrect NIC count: $nicCount"
 	fi
 }
 
 ipPowerInit() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	acquireVal "IPPower IP address" ippIP ippIP
 	verifyIp "${FUNCNAME[0]}" $ippIP
 	acquireVal "IPPower user" ippUsr ippUsr
@@ -2615,16 +2687,19 @@ ipPowerInit() {
 }
 
 ipPowerSetPowerUP() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	ipPowerSetPowerHttp $ippIP $ippUsr $ippPsw 1 1
 	ipPowerSetPowerHttp $ippIP $ippUsr $ippPsw 2 1
 }
 
 ipPowerSetPowerDOWN() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	ipPowerSetPowerHttp $ippIP $ippUsr $ippPsw 1 0
 	ipPowerSetPowerHttp $ippIP $ippUsr $ippPsw 2 0
 }
 
 ipPowerSetPowerHttp() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ipPowerIP ipPowerUser ipPowerPass targPort targState cmdRes
 	privateVarAssign "${FUNCNAME[0]}" "ipPowerIP" "$1"
 	verifyIp "${FUNCNAME[0]}" $ipPowerIP
@@ -2637,6 +2712,7 @@ ipPowerSetPowerHttp() {
 }
 
 ipPowerSetPowerTelnet() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ipPowerIP ipPowerUser ipPowerPass targPort targState cmdRes
 	privateVarAssign "${FUNCNAME[0]}" "ipPowerIP" "$1"
 	verifyIp "${FUNCNAME[0]}" $ipPowerIP
@@ -2648,8 +2724,9 @@ ipPowerSetPowerTelnet() {
 }
 
 sshCheckPing() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local retryCount targIp
-	privateNumAssign "${FUNCNAME[0]}" "retryCount" "$1"
+	privateNumAssign "retryCount" "$1"
 	privateVarAssign "${FUNCNAME[0]}" "targIp" "$2"
 	verifyIp "${FUNCNAME[0]}" $targIp
 	echo "  Checking ping on $targIp"
@@ -2667,8 +2744,9 @@ sshCheckPing() {
 }
 
 sshWaitForPing() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local secondsPassed totalDelay targIp status startTime successPing
-	privateNumAssign "${FUNCNAME[0]}" "totalDelay" "$1"
+	privateNumAssign "totalDelay" "$1"
 	let secondsPassed=0
 	privateVarAssign "${FUNCNAME[0]}" "targIp" "$2"
 	verifyIp "${FUNCNAME[0]}" $targIp
@@ -2708,14 +2786,15 @@ sshWaitForPing() {
 }
 
 waitForLog() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local secondsPassed totalDelay status startTime retryDelay searchRes
 	privateVarAssign "${FUNCNAME[0]}" "logPath" "$1"
-	privateNumAssign "${FUNCNAME[0]}" "totalDelay" "$2"
-	privateNumAssign "${FUNCNAME[0]}" "retryDelay" "$3"
+	privateNumAssign "totalDelay" "$2"
+	privateNumAssign "retryDelay" "$3"
 	let secondsPassed=0
 	privateVarAssign "${FUNCNAME[0]}" "expKeyw" "$4"
 	
-	if [ ! -s "$logPath" ]; then except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "logPath does not exist: $logPath"; fi
+	if [ ! -s "$logPath" ]; then except "logPath does not exist: $logPath"; fi
 	tput civis
 	startTime="$(date -u +%s)"
 	while [ $secondsPassed -lt $totalDelay ]; do
@@ -2748,6 +2827,7 @@ waitForLog() {
 
 
 startServer() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local servIp
 	privateVarAssign "${FUNCNAME[0]}" "servIp" "$1"
 	verifyIp "${FUNCNAME[0]}" $servIp
@@ -2769,6 +2849,7 @@ startServer() {
 }
 
 stopServer() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local servIp
 	privateVarAssign "${FUNCNAME[0]}" "servIp" "$1"
 	verifyIp "${FUNCNAME[0]}" $servIp
@@ -2790,6 +2871,7 @@ stopServer() {
 }
 
 setupInternet() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	if [ $internetAcq -eq 0 ]; then
 		route add default gw 172.30.0.9 &> /dev/null
 		sleep 1
@@ -2809,6 +2891,7 @@ setupInternet() {
 }
 
 sshSendCmd() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sshIP sshUser sshPass sshCmd sshCmdRes pathAdd
 	privateVarAssign "${FUNCNAME[0]}" "sshIP" "$1"; shift
 	verifyIp "${FUNCNAME[0]}" $sshIP
@@ -2823,6 +2906,7 @@ sshSendCmd() {
 }
 
 sshSendCmdSilent() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sshIP sshUser sshPass sshCmd sshCmdRes pathAdd
 	privateVarAssign "${FUNCNAME[0]}" "sshIP" "$1"; shift
 	verifyIp "${FUNCNAME[0]}" $sshIP
@@ -2837,6 +2921,7 @@ sshSendCmdSilent() {
 }
 
 sshSendCmdNohup() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sshIP sshUser sshPass sshCmd sshCmdRes pathAdd
 	privateVarAssign "${FUNCNAME[0]}" "sshIP" "$1"; shift
 	verifyIp "${FUNCNAME[0]}" $sshIP
@@ -2852,6 +2937,7 @@ sshSendCmdNohup() {
 }
 
 sshCheckLink() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sshIP sshUser sshCmd linkSta targEth linkReq linkReqV
 	privateVarAssign "${FUNCNAME[0]}" "sshIP" "$1"
 	verifyIp "${FUNCNAME[0]}" $sshIP
@@ -2883,6 +2969,7 @@ sshCheckLink() {
 }
 
 sshCheckContains() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sshIP sshUser sshCmd keywReq sshCmdRes
 	privateVarAssign "${FUNCNAME[0]}" "sshIP" "$1" ;shift
 	verifyIp "${FUNCNAME[0]}" $sshIP
@@ -2893,9 +2980,9 @@ sshCheckContains() {
 	
 
 	sshCmdRes="$(sshSendCmd $sshIP $sshUser ${sshCmd})"
-	dmsg inform "${FUNCNAME[0]} > sshCmdRes=$sshCmdRes"
-	dmsg inform "${FUNCNAME[0]} > keywReq=$keywReq"
-	dmsg inform "${FUNCNAME[0]} > if grep = >$(echo "$sshCmdRes" |grep "$keywReq")<"
+	dmsg inform "sshCmdRes=$sshCmdRes"
+	dmsg inform "keywReq=$keywReq"
+	dmsg inform "if grep = >$(echo "$sshCmdRes" |grep "$keywReq")<"
 	
 	if [[ -z "$(echo "$sshCmdRes" |grep "$keywReq")" ]]; then
 		echo -e "\e[0;31mFAIL\e[m"
@@ -2907,14 +2994,15 @@ sshCheckContains() {
 }
 
 checkContains() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local keywReq cmdCheck
 	privateVarAssign "${FUNCNAME[0]}" "keywReq" "$1" ;shift
 	# keywReq="'"$keywReq"'"
 	privateVarAssign "${FUNCNAME[0]}" "cmdCheck" "$*"
 
-	dmsg inform "${FUNCNAME[0]} > cmdCheck=$cmdCheck"
-	dmsg inform "${FUNCNAME[0]} > keywReq=$keywReq"
-	dmsg inform "${FUNCNAME[0]} > if grep = >$(echo "$cmdCheck" |grep "$keywReq")<"
+	dmsg inform "cmdCheck=$cmdCheck"
+	dmsg inform "keywReq=$keywReq"
+	dmsg inform "if grep = >$(echo "$cmdCheck" |grep "$keywReq")<"
 	
 	if [[ -z "$(echo "$cmdCheck" |grep "$keywReq")" ]]; then
 		echo -e "\e[0;31mFAIL\e[m"
@@ -2926,15 +3014,17 @@ checkContains() {
 }
 
 checkIfNumber() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local numInput re
 	privateVarAssign "${FUNCNAME[0]}" "numInput" "$1"
 	re='^[0-9]+$'
 	if ! [[ $numInput =~ $re ]] ; then
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "provided: $numInput is not a number"
+		except "provided: $numInput is not a number"
 	fi
 }
 
 countDownDelay() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local delayTime msgPrompt totalSecs
 	privateVarAssign "${FUNCNAME[0]}" "numInput" "$1"; shift
 	msgPrompt=$*
@@ -2953,6 +3043,7 @@ countDownDelay() {
 }
 
 verifyIp() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ipInput callerFunc
 	privateVarAssign "${FUNCNAME[0]}" "callerFunc" "$1"
 	privateVarAssign "${FUNCNAME[0]}" "ipInput" "$2"
@@ -2960,11 +3051,12 @@ verifyIp() {
 	if [[ "$ipInput" =~ $regEx ]]; then
 		dmsg echo -e " $bl IP Validated$ec" 1>&2 # will mess up definition of bus addresses by ssh if sent by stdout
 	else
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "$callerFunc> IP is not valid! Please check: $ipInput"
+		except "$callerFunc> IP is not valid! Please check: $ipInput"
 	fi
 }
 
 echoIfExists() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	test -z "$2" || {
 		echo -n "$1 "
 		shift
@@ -2972,5 +3064,22 @@ echoIfExists() {
 	}
 }
 
-rm -f /tmp/exitMsgExec
-echo -e '  Loaded module: \tLib for testing (support: arturd@silicom.co.il)'
+libs() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	echo -e "\nSourcing graphics.."
+	source /root/multiCard/graphicsLib.sh
+	echo -e "\nSourcing ACC.."
+	source /root/multiCard/acc_diag_lib.sh
+	echo -e "\nSourcing SFP.."
+	source /root/multiCard/sfpLinkTest.sh
+	echo -e "\nSourcing TS.."
+	source /root/multiCard/tsTest.sh
+	echo -e "\n"
+}
+
+if (return 0 2>/dev/null) ; then
+	echo -e '  Loaded module: \tLib for testing (support: arturd@silicom.co.il)'
+	rm -f /tmp/exitMsgExec
+else	
+	critWarn "This file is only a library and ment to be source'd instead"
+fi

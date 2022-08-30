@@ -169,6 +169,11 @@ animDelay() {
 	done
 }
 
-echo -e '  Loaded module: \tGraphics lib for testing (support: arturd@silicom.co.il)'
-defineColors
-defineCharrArr
+
+if (return 0 2>/dev/null) ; then
+	echo -e '  Loaded module: \tGraphics lib for testing (support: arturd@silicom.co.il)'
+	defineColors
+	defineCharrArr
+else	
+	critWarn "This file is only a library and ment to be source'd instead"
+fi

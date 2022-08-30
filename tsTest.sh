@@ -18,6 +18,7 @@ declareVars() {
 }
 
 parseArgs() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	for ARG in "$@"
 	do
 		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
@@ -28,15 +29,18 @@ parseArgs() {
 			gold-ip) goldSrvIp=${VALUE} ;;
 			silent) 
 				silentMode=1 
+				minorArgs+="--silent "
 				inform "Launch key: Silent mode, no beeps allowed"
 			;;
 			debug) 
 				debugMode=1 
+				minorArgs+="--debug "
 				inform "Launch key: Debug mode"
 			;;
 			debug-show-assign) 
 				let debugShowAssignations=1
 				debugMode=1 
+				minorArgs+="--debug-show-assign "
 				inform "Launch key: Debug mode, visible assignations"
 			;;
 			help) showHelp ;;
@@ -51,6 +55,7 @@ parseArgs() {
 }
 
 showHelp() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	warn "\n=================================" "" "sil"
 	echo -e "$toolName"
 	echo -e " Arguments:"
@@ -69,13 +74,17 @@ showHelp() {
 }
 
 setEmptyDefaults() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	echo -e " Setting defaults.."
-	# publicVarAssign warn globLnkUpDel "0.3"
+	publicVarAssign warn globLnkUpDel "0.3"
+	publicVarAssign warn globLnkAcqRetr "7"
+	publicVarAssign warn globRtAcqRetr "7"
 	echo -e " Done.\n"
 }
 
 
 startupInit() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local drvInstallRes
 	echo -e " StartupInit.."
 	checkLxiPkg
@@ -86,6 +95,7 @@ startupInit() {
 }
 
 checkRequiredFiles() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local filePath filesArr
 	echo -e " Checking required files.."
 	
@@ -102,7 +112,7 @@ checkRequiredFiles() {
 				"/root/multiCard/tsTest.sh"
 			)
 		;;
-		*) except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "unknown baseModel: $baseModel"
+		*) except "unknown baseModel: $baseModel"
 	esac
 
 	test ! -z "$(echo ${filesArr[@]})" && {
@@ -120,9 +130,10 @@ checkRequiredFiles() {
 }
 
 defineRequirments() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ethToRemove
 	echo -e "\n Defining requirements.."
-	test -z "$uutPn" && except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "requirements cant be defined, empty uutPn"
+	test -z "$uutPn" && except "requirements cant be defined, empty uutPn"
 	if [[ ! -z $(echo -n $uutPn |grep "TS4\|nulll") ]]; then
 		
 		test ! -z $(echo -n $uutPn |grep "TS4") && {
@@ -130,13 +141,14 @@ defineRequirments() {
 		} 
 
 	else
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "$uutPn cannot be processed, requirements not defined"
+		except "$uutPn cannot be processed, requirements not defined"
 	fi
 	
 	echo -e " Done.\n"
 }
 
 checkIfFailed() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local curStep severity errMsg
 	
 	privateVarAssign "checkIfFailed" "curStep" "$1"
@@ -159,6 +171,7 @@ checkIfFailed() {
 }
 
 pcTest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	
 	echo "  Turning PSU output on"
 	sendKikusuiCmd "output on"
@@ -169,7 +182,9 @@ pcTest() {
 }
 
 chekcUsbDevs() {
-	local acmDev serialDev
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local acmDev serialDev status
+	let status=0
 	acmDev=$(ls /dev |grep ttyACM)
 	serialDev=$(ls /dev |grep ttyUSB0)
 	echo -n "  USB devices: ACM-"
@@ -177,16 +192,20 @@ chekcUsbDevs() {
 		echo -e -n "\e[0;32mdetected\e[m"
 	else 
 		echo -e -n "\e[0;31mNOT detected\e[m"
+		let status++
 	fi
 	echo -n "  SerialDev-"
 	if [[ ! -z "$serialDev" ]]; then 
 		echo -e "\e[0;32mdetected\e[m"
 	else 
 		echo -e "\e[0;31mNOT detected\e[m"
+		let status++
 	fi
+	return $status
 }
 
 pcTests() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local loopCount b
 	acquireVal "Kikusui IP" psuIPArg kikusuiIP
 	kikusuiInit $kikusuiIP
@@ -211,13 +230,14 @@ pcTests() {
 }
 
 initGolden25g() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local busAddr netIface sshCmd
 	if [[ -z "$busAddr25G" ]]; then
 		echo "  Getting 25G card first Eth bus"
 		sshCmd="lspci -nnd :158b |head -n1 |awk '{print \$1}'"
 		busAddr=$(sshSendCmd $goldSrvIp root ${sshCmd})
 		if [[ -z "$busAddr" ]]; then
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "25G card not found!"
+			except "25G card not found!"
 		else
 			publicVarAssign warn busAddr25G "$busAddr"
 		fi
@@ -227,7 +247,7 @@ initGolden25g() {
 		sshCmd="ls -l /sys/class/net |cut -d'>' -f2 |grep $busAddr25G |awk -F/ '{print \$NF}'"
 		netIface=$(sshSendCmd $goldSrvIp root ${sshCmd})
 		if [[ -z "$netIface" ]]; then
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "25G card first eth not found!"
+			except "25G card first eth not found!"
 		else
 			publicVarAssign warn firstEthNameGOLD25G "$netIface"
 		fi
@@ -236,13 +256,14 @@ initGolden25g() {
 }
 
 initGolden10g() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local busAddr sshCmd
 	if [[ -z "$busAddr10G" ]]; then
 		echo "  Getting 10G card first Eth bus"
 		sshCmd="lspci -nnd :1572 |head -n1 |awk '{print \$1}'"
 		busAddr=$(sshSendCmd $goldSrvIp root ${sshCmd})
 		if [[ -z "$busAddr" ]]; then
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "10G card not found!"
+			except "10G card not found!"
 		else
 			publicVarAssign warn busAddr10G "$busAddr"
 		fi
@@ -253,7 +274,7 @@ initGolden10g() {
 		sshCmd="ls -l /sys/class/net |cut -d'>' -f2 |grep $busAddr10G |awk -F/ '{print \$NF}'"
 		netIface=$(sshSendCmd $goldSrvIp root ${sshCmd})
 		if [[ -z "$netIface" ]]; then
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "10G card first eth not found!"
+			except "10G card first eth not found!"
 		else
 			publicVarAssign warn firstEthNameGOLD10G "$netIface"
 		fi
@@ -263,7 +284,7 @@ initGolden10g() {
 	sshCmd="ifconfig $firstEthNameGOLD10G |grep ether | grep '00:00:00'"
 	emptyMac=$(sshSendCmd $goldSrvIp root ${sshCmd})
 	if [[ ! -z "$emptyMac" ]]; then
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "10G card first eth MAC is not burned!"
+		except "10G card first eth MAC is not burned!"
 	else
 		echo -e "\e[0;32mOK\e[m"
 	fi
@@ -272,19 +293,20 @@ initGolden10g() {
 }
 
 initUUTeth() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local busAddr secBusAddr sshCmd
 	if [[ -z "$busAddrUUT10G" ]]; then
 		echo "  Getting UUT 10G card first Eth bus"
 		
 		busAddr=$(lspci -d :1591 |grep .7 |cut -d: -f1)
 		if [[ -z "$busAddr" ]]; then
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "UUT card not found! (busAddr=$busAddr)"
+			except "UUT card not found! (busAddr=$busAddr)"
 		fi
 		checkIfNumber $((16#$busAddr))
 		echo "  Getting UUT 25G card first Eth bus"
 		secBusAddr=$(printf '%#X' "$((0x$busAddr + 0x01))" |cut -dX -f2)
 		if [[ -z "$(lspci -nns $secBusAddr:00.0 |grep E810)" ]]; then
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "second bus does not correspond to E810 device (bus=$secBusAddr)"
+			except "second bus does not correspond to E810 device (bus=$secBusAddr)"
 		else
 			publicVarAssign warn busAddrUUT10G "$busAddr:00.0"
 			publicVarAssign warn busAddrUUT25G "$secBusAddr:00.0"
@@ -301,13 +323,14 @@ initUUTeth() {
 	uutPortCount=$(lspci -d :1591 |wc -l)
 	checkIfNumber $uutPortCount; let uutPortCount=$uutPortCount
 	if ! [ $uutPortCount -eq 12 ]; then
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "port count on UUT is incorrect: $uutPortCount"
+		except "port count on UUT is incorrect: $uutPortCount"
 	else
 		echo -e "\e[0;32mOK\e[m"
 	fi
 }
 
 setUpGolden10g() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sshCmd cmdRes
 	echo "  Setting 25G card eth down on gold server"
 	sshCmd="ifconfig $firstEthNameGOLD25G down"
@@ -325,7 +348,7 @@ setUpGolden10g() {
 	echo -n "  Checking gold server 10G link is UP: "
 	sshCmd="ethtool $firstEthNameGOLD10G |grep 'Link detected'"
 	sshCheckContains $goldSrvIp root "yes" ${sshCmd}
-	if ! [ $? -eq 0 ]; then	except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "No link on first GOLDEN server 10G Eth!"; fi	
+	if ! [ $? -eq 0 ]; then	except "No link on first GOLDEN server 10G Eth!"; fi	
 
 	echo -n "  Setting gold server 10G card rate: "
 	sshCmd="/root/bin/netsetrate.sh 0x80000000000 10000 $firstEthNameGOLD10G"
@@ -334,10 +357,12 @@ setUpGolden10g() {
 }
 
 setUpGolden25g() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	:
 }
 
 setUpUUT10g() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local cmdRes
 	echo "  Setting 25G card eth down on UUT"
 	ifconfig $firstEthNameUUT25G down
@@ -353,7 +378,7 @@ setUpUUT10g() {
 	echo -n "  Checking UUT 10G eth link is UP: "
 	cmdRes="$(ethtool $firstEthNameUUT10G |grep 'Link detected' 2>&1)"
 	checkContains "yes" ${cmdRes}
-	if ! [ $? -eq 0 ]; then	except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "No link on first UUT server 10G Eth!"; fi	
+	if ! [ $? -eq 0 ]; then	except "No link on first UUT server 10G Eth!"; fi	
 
 	echo -n "  Setting UUT 10G rate: "
 	cmdRes="$(/root/bin/netsetrate.sh 0x80000 10000 $firstEthNameUUT10G 2>&1)"
@@ -362,20 +387,24 @@ setUpUUT10g() {
 
 
 pwUpTest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	startServer $goldSrvIp
 }
 
 pwDwTest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	stopServer $goldSrvIp
 }
 
 initGoldenServer() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	startServer $goldSrvIp
 	initGolden10g
 	initGolden25g
 }
 
 iperfTests() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local sshCmd cmdRes
 	echo -e "\n Initializing golden server"
 	initGoldenServer
@@ -390,6 +419,7 @@ iperfTests() {
 }
 
 iperfTrafficTest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	echo -e "\n Starting traffic test"
 	echo "  Killing iperf on gold server"
 	sshCmd="kill -9 \$(top -b -n1 |grep iperf |awk '{print \$1}')"
@@ -407,6 +437,7 @@ iperfTrafficTest() {
 }
 
 iperfSendTraffic() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	echo -n "  Sending iperf traffic: "
 	cmdRes="$(iperf -c 10.10.10.11 -n 1024K -u)"
 	checkContains "1.00 MBytes" ${cmdRes}
@@ -415,6 +446,7 @@ iperfSendTraffic() {
 }
 
 startTsyncService() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	stopTsyncService
 	echo "  Starting tsyncd_gps service on UUT server"
 	systemctl start tsyncd_gps.service
@@ -422,6 +454,7 @@ startTsyncService() {
 }
 
 stopTsyncService() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	echo "  Stopping tsyncd_gps service on UUT server"
 	systemctl stop tsyncd_gps.service
 	echo "  Clearing log file on UUT server"
@@ -429,8 +462,10 @@ stopTsyncService() {
 	sleep 1
 }
 
-initUUTGPS() {
-	local tsyncdStat
+initUUTBCM() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	chekcUsbDevs
+	if ! [ $? -eq 0 ]; then except "USB devices were not detected. Chech USB cable and run again"; fi
 	echo "  Check tsyncd_gps service status on UUT server"
 	tsyncdStat="$(systemctl status tsyncd_gps.service |grep 'active (running)')"
 	if [[ -z "$tsyncdStat" ]]; then
@@ -448,8 +483,16 @@ initUUTGPS() {
 	echo "  Check if config is done"
 	waitForLog "/var/log/tsyncd.log" 460 2 "PHY BCM81385 INIT Done, 0"
 	if ! [ $? -eq 0 ]; then
-		except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "TsyncD service was unable to start properly"
+		except "TsyncD service was unable to start properly"
 	fi
+}
+
+initUUTGPS() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local tsyncdStat
+
+	initUUTBCM
+
 	echo "  Check if antenna is connected"
 	
 	waitForLog "/var/log/tsyncd.log" 2 2 "Antenna connected" 2>&1 > /dev/null
@@ -457,12 +500,13 @@ initUUTGPS() {
 		countDownDelay 90 "  Waiting for the GPS antenna init:"
 		waitForLog "/var/log/tsyncd.log" 210 2 "Antenna connected"
 		if ! [ $? -eq 0 ]; then 
-			except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "  Antenna failed to connect"
+			except "  Antenna failed to connect"
 		fi
 	fi
 }
 
 ptp4lTest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 
 	iperfTrafficTest
 
@@ -522,20 +566,21 @@ ptp4lTest() {
 }
 
 ubloxTests() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local geoResp ubloxResp timeAcc satQty posLon posLat addrName
-
+	initUUTGPS
 	echo "  UBlox GPS tests:"
 	echo "   Gathering UBlox GPS data:"
 	privateVarAssign "${FUNCNAME[0]}" "ubloxResp" "$(ubxtool -p CFG-GNSS)"
 
 	echo "    Gathering time accuracy"
-	privateNumAssign "${FUNCNAME[0]}" "timeAcc" "$(echo "$ubloxResp" | grep tAcc |head -1 | awk '{print $2}')"
+	privateNumAssign "timeAcc" "$(echo "$ubloxResp" | grep tAcc |head -1 | awk '{print $2}')"
 	echo "    Gathering sattelite quantinty"
-	privateNumAssign "${FUNCNAME[0]}" "satQty" "$(echo "$ubloxResp" | grep numSV |head -1 | awk '{print $2}')"
+	privateNumAssign "satQty" "$(echo "$ubloxResp" | grep numSV |head -1 | awk '{print $2}')"
 	echo "    Gathering GPS x pos"
-	privateNumAssign "${FUNCNAME[0]}" "posLon" "$(echo "$ubloxResp" | grep numSV |head -1 | awk '{print $4}')"
+	privateNumAssign "posLon" "$(echo "$ubloxResp" | grep numSV |head -1 | awk '{print $4}')"
 	echo "    Gathering GPS y pos"
-	privateNumAssign "${FUNCNAME[0]}" "posLat" "$(echo "$ubloxResp" | grep numSV |head -1 | awk '{print $6}')"
+	privateNumAssign "posLat" "$(echo "$ubloxResp" | grep numSV |head -1 | awk '{print $6}')"
 	echo -e "   Done\n"
 	if [ $internetAcq -eq 1 ]; then
 		checkJQPkg
@@ -561,6 +606,7 @@ ubloxTests() {
 }
 
 tsTests() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local cmdRes
 
 	echo -e "\n Initializing golden server"
@@ -593,29 +639,123 @@ tsTests() {
 	ubloxTests
 }
 
+pciTests() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local slotNum devCount
+
+	devCount="$(lspci -d :1591 |wc -l 2>&1)"
+	if [ $devCount -eq 12 ]; then
+		publicNumAssign "slotNum" $(lspci -vvvnnd :1591 |grep "Physical Slot" |grep -v 0 |uniq |cut -d ' ' -f3 2>&1)
+		export MC_SCRIPT_PATH=/root/multiCard &> /dev/null
+		testFileExist "${MC_SCRIPT_PATH}/sfpLinkTest.sh" > /dev/null
+		${MC_SCRIPT_PATH}/sfpLinkTest.sh --minor-launch --noMasterMode --slDupSkp --uut-slot-num=$slotNum --uut-pn="TS4" --test-sel=pciTest $minorArgs
+	else
+		except "dev count is not expected ($devCount), check port count"
+	fi	 
+}
+
+linksFlushAndUP() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local linkStatus net nets
+	privateVarAssign "${FUNCNAME[0]}" "nets" "$*"
+	let linkStatus=0
+	for net in $nets; do
+		echo -n "  Setting $net DOWN, "
+		ifconfig $net down
+		let linkStatus+=$?
+		echo -n "flushing, "
+		ip a flush dev $net
+		let linkStatus+=$?
+		echo -n "setting UP. "
+		ifconfig $net up
+		let linkStatus+=$?
+		echo "(status=$linkStatus)"
+	done
+	if ! [ $linkStatus -eq 0 ]; then echo -e "\e[0;31m   Link setup failed!\e[m\n"; else echo -e "\e[0;32m   Link setup passed.\e[m\n"; fi
+}
+
+linkTests() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	
+	local uutSlotBus uutNets10G uutNets25G uutAllNets net linkStatus
+	
+	initUUTBCM
+	initUUTeth
+	publicVarAssign warn uutNets10G $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $(echo $busAddrUUT10G |cut -d. -f1 ) |awk -F/ '{print $NF}')
+	publicVarAssign warn uutNets25G $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $(echo $busAddrUUT25G |cut -d. -f1 ) |awk -F/ '{print $NF}')
+	publicVarAssign warn uutSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$(echo $busAddrUUT10G |cut -d: -f1-2 ) |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
+	publicVarAssign warn uutAllNets $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $uutSlotBus |awk -F/ '{print $NF}')
+
+	linksFlushAndUP $uutAllNets
+
+	allNetAct "$uutNets10G" "Check links are UP on UUT 10G ports" "testLinks" "yes" "P425G410G8TS81"
+	allNetAct "$uutNets10G" "Check Data rates on UUT 10G ports" "getEthRates" "10000" "P425G410G8TS81"
+
+	allNetAct "$uutNets25G" "Check links are UP on UUT 25G ports" "testLinks" "yes" "P425G410G8TS81"
+	allNetAct "$uutNets25G" "Check Data rates on UUT 25G ports" "getEthRates" "25000" "P425G410G8TS81"
+}
+
+trafficTests() {
+	local slotNum
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	inform "  Defining uutSlotNum before passsing it to sfpLinkTest"
+	privateNumAssign "slotNum" $(lspci -vvvnnd :1591 |grep "Physical Slot" |grep -v 0 |uniq |cut -d ' ' -f3 2>&1)
+
+}
+
 mainTest() {
-	local pciTest dumpTest bpTest drateTest trfTest tsTest iperfTest pwUpGolden
-	
-	
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local pciTest linkTest trafficTest dumpTest bpTest drateTest trfTest tsTest iperfTest pwUpGolden
 
 	if [[ ! -z "$untestedPn" ]]; then untestedPnWarn; fi
 	
-
-	
 	if [[ -z "$testArg" ]]; then
 		echo -e "\n  Select tests:"
-		options=("TimeSync Test" "IPerf Ping Test" "UBlox Test" "GPS Initialize" "PowerCycle USB Test" "Power UP golden" "Power DOWN golden")
+		options=("PCI, Links, Traffic Test" "PCI Test" "Link Test" "Traffic Test" "TimeSync Test" "IPerf Ping Test" "UBlox Test" "GPS Initialize" "BCM Initialize" "PowerCycle USB Test" "Power UP golden" "Power DOWN golden")
 		case `select_opt "${options[@]}"` in
-			0) tsTest=1;;
-			1) iperfTest=1;;
-			2) ubloxTest=1;;
-			3) gpsInit=1;;
-			4) pcUsbTest=1;;
-			5) pwUpGolden=1;;
-			6) pwDwGolden=1;;
-			*) except "${FUNCNAME[0]}" "${FUNCNAME[1]}" "unknown option";;
+			0) 
+				pciTest=1
+				linkTest=1
+				trafficTest=1
+			;;
+			1) pciTest=1;;
+			2) linkTest=1;;
+			3) trafficTest=1;;
+			4) tsTest=1;;
+			5) iperfTest=1;;
+			6) ubloxTest=1;;
+			7) gpsInit=1;;
+			8) bcmInit=1;;
+			9) pcUsbTest=1;;
+			10) pwUpGolden=1;;
+			11) pwDwGolden=1;;
+			*) except "unknown option";;
 		esac
 	fi 
+
+	if [ ! -z "$pciTest" ]; then
+		echoSection "PCI Test"
+			pciTests |& tee /tmp/statusChk.log
+		checkIfFailed "PCI Test failed!" exit
+	else
+		inform "\tPCI Test skipped"
+	fi
+
+	if [ ! -z "$linkTest" ]; then
+		echoSection "Link Test"
+			linkTests |& tee /tmp/statusChk.log
+		checkIfFailed "Link Test failed!" exit
+	else
+		inform "\tLink Test skipped"
+	fi
+
+	if [ ! -z "$trafficTest" ]; then
+		echoSection "Traffic Test"
+			trafficTests |& tee /tmp/statusChk.log
+		checkIfFailed "Traffic Test failed!" exit
+	else
+		inform "\tTraffic Test skipped"
+	fi
 
 	if [ ! -z "$tsTest" ]; then
 		echoSection "TimeSync Test"
@@ -647,6 +787,12 @@ mainTest() {
 		checkIfFailed "GPS Initialize failed!" exit
 	fi
 
+	if [ ! -z "$bcmInit" ]; then
+		echoSection "BCM Initialize"
+			initUUTBCM |& tee /tmp/statusChk.log
+		checkIfFailed "BCM Initialize failed!" exit
+	fi
+
 	if [ ! -z "$pcUsbTest" ]; then
 		echoSection "PowerCycle USB Test"
 			pcTests |& tee /tmp/statusChk.log
@@ -666,33 +812,32 @@ mainTest() {
 }
 
 
-initialSetup(){
+initialSetup() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	acquireVal "Part Number" pnArg uutPn
 	defineRequirments
 	checkRequiredFiles
 }
 
-main() {	
+main() {
 	mainTest
 	passMsg "\n\tDone!\n"
 }
 
-function ctrl_c()
-{
-	echo
-	echo
-	echo -e "\n\e[0;31mTrapped Ctrl+C\nExiting.\e[m"
-
+function ctrl_c () {
+	echo -e "'\n\n\n\e[0;31mTrapped Ctrl+C\nExiting.\e[m"
 	tput cnorm
 	exit 
 }
 
-echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
-(return 0 2>/dev/null) && echo -e "\tsfpLinkTest has been loaded as lib" || {
+if (return 0 2>/dev/null) ; then
+	echo -e '  Loaded module: \ttsTest has been loaded as lib (support: arturd@silicom.co.il)'
+else
+	echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
 	trap "exit 1" 10
 	trap ctrl_c SIGINT
 	trap ctrl_c SIGQUIT
-	PROC="$$"
+	PROC="$$" 
 	declareVars
 	source /root/multiCard/arturLib.sh; let status+=$?
 	source /root/multiCard/graphicsLib.sh; let status+=$?
@@ -708,4 +853,4 @@ echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
 	startupInit
 	main
 	echo -e "See $(inform "--help" "--nnl" "--sil") for available parameters\n"
-}
+fi
