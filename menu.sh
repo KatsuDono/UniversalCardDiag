@@ -81,13 +81,14 @@ main() {
 		"delim" 	"|  Etc.."
 		"transRep" 	"| PE310G4BPI71-SR (transceiver check)"
 		# "transRep1" "| PE310G4BPI71-SR (transceiver clone)"
-		"erase1" 	"| PE2G4I35L (erase)"
+		"transRep2" "| PE310G4BPI71-SR (transceiver check NEW)"
+		"erase1" 	"| PE2G4I35L (erase)".]
 		"tsCy2" 	"| STS 4 - UBlox/TimeSync/Traffic Tests"
 		"delim" 	"========================================"
 		"delim" 	"|  Settings"
 		"sett1" 	"| Ignore dump fails [ $ignoreDumpFail ]"
 		"delim" 	"========================================"
-		"Exit" 		"| Exit"
+		"Exit" 		"| Exit" 
 		"delim" 	"========================================"
 	)
 
@@ -160,6 +161,7 @@ main() {
 			testFileExist "/root/PE310G4BPI71/sfpClone.sh"
 			/root/PE310G4BPI71/sfpClone.sh
 		;;
+		transRep2)	checkUUTTransceivers;;
 		erase1)	${MC_SCRIPT_PATH}/progUtil.sh --uut-pn="PE2G4I35" $@$addArgs ;;
 		tsCy2)
 			testFileExist "${MC_SCRIPT_PATH}/tsTest.sh"

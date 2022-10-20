@@ -727,7 +727,7 @@ main() {
 if (return 0 2>/dev/null) ; then
 	echo -e '  Loaded module: \tacc_diag_lib has been loaded as lib (support: arturd@silicom.co.il)'
 else
-	echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
+	echo -e '\n# arturd@silicom.co.il\n\n'
 	trap "exit 1" 10
 	PROC="$$"
 	declareVars
