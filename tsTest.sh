@@ -10,7 +10,7 @@ declareVars() {
 	let exitExec=0
 	let debugBrackets=0
 	let debugShowAssignations=0
-	let internetAcq=0
+	let internetAcq=0 
 	ippIP=172.30.4.207
 	ippUsr=admin
 	ippPsw=12345678
@@ -677,7 +677,7 @@ linksFlushAndUP() {
 linkTests() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	
-	local uutSlotBus uutNets10G uutNets25G uutAllNets net linkStatus
+	local uutSlotBus net linkStatus
 	
 	initUUTBCM
 	initUUTeth
@@ -698,9 +698,15 @@ linkTests() {
 trafficTests() {
 	local slotNum
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	linkTests
 	inform "  Defining uutSlotNum before passsing it to sfpLinkTest"
-	privateNumAssign "slotNum" $(lspci -vvvnnd :1591 |grep "Physical Slot" |grep -v 0 |uniq |cut -d ' ' -f3 2>&1)
-
+	publicNumAssign "slotNum" $(lspci -vvvnnd :1591 |grep "Physical Slot" |grep -v 0 |uniq |cut -d ' ' -f3 2>&1)
+	export MC_SCRIPT_PATH=/root/multiCard &> /dev/null
+	testFileExist "${MC_SCRIPT_PATH}/sfpLinkTest.sh" > /dev/null
+	dmsg uutNets10G=$uutNets10G
+	declare -g utNets10G=$uutNets10G
+	declare -g utNets25G=$uutNets25G
+	${MC_SCRIPT_PATH}/sfpLinkTest.sh --minor-launch --noMasterMode --slDupSkp --uut-slot-num=$slotNum --uut-pn="TS4" --test-sel=trfTest $minorArgs
 }
 
 mainTest() {
@@ -711,7 +717,7 @@ mainTest() {
 	
 	if [[ -z "$testArg" ]]; then
 		echo -e "\n  Select tests:"
-		options=("PCI, Links, Traffic Test" "PCI Test" "Link Test" "Traffic Test" "TimeSync Test" "IPerf Ping Test" "UBlox Test" "GPS Initialize" "BCM Initialize" "PowerCycle USB Test" "Power UP golden" "Power DOWN golden")
+		options=("FT> FULL FT Test" "  PCI Test" "  Link Test" "  Traffic Test" "TS> FULL TS Test" "  IPerf Ping Test" "  UBlox Test" "  GPS Initialize" "  BCM Initialize" "  Power DOWN golden")
 		case `select_opt "${options[@]}"` in
 			0) 
 				pciTest=1
@@ -726,9 +732,7 @@ mainTest() {
 			6) ubloxTest=1;;
 			7) gpsInit=1;;
 			8) bcmInit=1;;
-			9) pcUsbTest=1;;
-			10) pwUpGolden=1;;
-			11) pwDwGolden=1;;
+			9) pwDwGolden=1;;
 			*) except "unknown option";;
 		esac
 	fi 
@@ -833,7 +837,7 @@ function ctrl_c () {
 if (return 0 2>/dev/null) ; then
 	echo -e '  Loaded module: \ttsTest has been loaded as lib (support: arturd@silicom.co.il)'
 else
-	echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
+	echo -e '\n# arturd@silicom.co.il\n\n'
 	trap "exit 1" 10
 	trap ctrl_c SIGINT
 	trap ctrl_c SIGQUIT
@@ -852,5 +856,5 @@ else
 	initialSetup
 	startupInit
 	main
-	echo -e "See $(inform "--help" "--nnl" "--sil") for available parameters\n"
+	echo -e "See $(inform "--help" "--nnl" "--sil" 2>&1) for available parameters\n"
 fi

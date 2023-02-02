@@ -73,20 +73,25 @@ exitFail() {
 	test -z "$2" && procId=$PROC || procId=$2
 	test -z "$procId" && echo -e "\t\e[1;41;33mexitFail exception, procId not specified\e[m"
 	test -z "$guiMode" && echo -e "\t\e[1;41;33m$1\e[m\n" 1>&2 || msgBox "$1"
+	if [ ! -z "$minorLaunch" ]; then echo -e "\n\tTotal Summary: \e[0;31mTESTS FAILED\e[m" 1>&2; fi
 	echo -e "\n"
 	test "$exitExec" = "3" && {
 		critWarn "\t Exit loop detected, exiting forced."
 		kill -9 $procId
 		killAllScripts
 	}
-	if [[ -e "/tmp/exitMsgExec" ]]; then 
-		echoFail
-		beepSpk fatal 3
-	fi
-	echo 1>/tmp/exitMsgExec
 	parentFunc=$(printCallstack |cut -d: -f2 |cut -d '>' -f1 |awk '{print $1=$1}')c
 	dmsg "parentFunc=$parentFunc"
-	if [[ -z "$debugNoExit" ]]; then exit 1; fi
+	if ! [[ -e "/tmp/exitMsgExec" ]]; then 
+		echo a>/tmp/exitMsgExec
+		if [ -z "$minorLaunch" ]; then 
+			echoFail
+			beepSpk fatal 3
+		fi
+	fi
+	if [[ -z "$noExit" ]]; then 
+		exit 1
+	fi
 }
 
 dbgWarn() {	#nnl = no new line
@@ -138,14 +143,26 @@ passMsg() { #nnl = no new line  #sil = silent mode
 		test "$2"="nnl" && echo -e -n "\t\e[0;32m$1\e[m" || echo -e "\t\e[0;32m$1\e[m"
 	}
 	echo -e "\n"
-	echoPass
+	if [ -z "$minorLaunch" ]; then 
+		echoPass
+	else
+		echo -e "\tTotal Summary: \e[0;32mALL TESTS PASSED\e[m"
+	fi
 	beepSpk pass
 }
 
 dmsg() {
 	local addArg callerFunc
 	if [[ -z "${FUNCNAME[1]}" ]]; then callerFunc="  undefinedCallerFunc> "; else callerFunc="  ${FUNCNAME[1]}> "; fi
-	if [[ -z $(type -t $(echo "$@"|awk '{print $1}')) ]]; then addArg="inform "; else unset addArg; fi
+	if [ "$(type -t $(echo "$@"|awk '{print $1}') 2>&1)" == "function" ]; then 
+		addArg="inform "
+	else
+		if [ "$(type -t $(echo "$@"|awk '{print $1}') 2>&1)" == "" ]; then 
+			addArg="inform "
+		else
+			unset addArg
+		fi
+	fi
 	if [[ ! -z "$@" ]]; then
 		if [ "$debugMode" == "1" ]; then
 			if [ "$debugBrackets" == "0" ]; then
@@ -261,7 +278,8 @@ testFileExist() {
 beepNoExec() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local beepCount ttyName
-	privateVarAssign "beepNoExec" "beepCount" "$1"
+	let beepCount=$1
+	if [ -z "$beepCount" ]; then echo "beepNoExec> beepCount is zero!"; fi
 	test "$silentMode" = "1" || {
 		ttyName=$(ls /dev/tty6* |uniq |tail -n 1)
 		for ((b=1;b<=$beepCount;b++)); do 
@@ -305,26 +323,37 @@ beepSpk() {
 			test "$?" = "0" && let beepInstalled=1 || let beepInstalled=0
 		fi
 		case "$beepMode" in
-			fatal) test "$beepInstalled" = "0" && beepNoExec 3 || {
+			fatal) test "$beepInstalled" = "0" && beepNoExec 5 || {
 				beep -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6
 				sleep 0.1
 				beep -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6
 				sleep 0.1
 				beep -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6
 			};;
-			crit) test "$beepInstalled" = "0" && beepNoExec || beep -f 783 -l 20 -n -f 830 -l 20 -n -f 783 -l 20 -n -f 830 -l 20 -n -f 783 -l 20 -n -f 830 -l 20;;
-			warn) test "$beepInstalled" = "0" && beepNoExec || beep -f 783 -l 20 -n -f 830 -l 20;;
-			info) test "$beepInstalled" = "0" && beepNoExec || beep -f 783 -l 20;;
-			pass) test "$beepInstalled" = "0" && beepNoExec || beep -f 523 -l 90 -n -f 659 -l 90 -n -f 783 -l 90 -n -f 1046 -l 90;;
+			crit) test "$beepInstalled" = "0" && beepNoExec 3 || beep -f 783 -l 20 -n -f 830 -l 20 -n -f 783 -l 20 -n -f 830 -l 20 -n -f 783 -l 20 -n -f 830 -l 20;;
+			warn) test "$beepInstalled" = "0" && beepNoExec 2 || beep -f 783 -l 20 -n -f 830 -l 20;;
+			info) test "$beepInstalled" = "0" && beepNoExec 1 || beep -f 783 -l 20;;
+			pass) test "$beepInstalled" = "0" && beepNoExec 2 || beep -f 523 -l 90 -n -f 659 -l 90 -n -f 783 -l 90 -n -f 1046 -l 90;;
+			headsUp) test "$beepInstalled" = "0" && beepNoExec 1 || {
+				beep -f 523 -l 1000
+				sleep 0.05
+				beep -f 1046 -l 15 -n -f 1046 -l 10
+				sleep 0.08
+				beep -f 1046 -l 15 -n -f 1046 -l 10
+				sleep 0.08
+				beep -f 1046 -l 15 -n -f 1046 -l 10
+				sleep 0.05
+				beep -f 1046 -l 140 -n -f 1046 -l 140
+			};;
 			*) exitFail "beepSpk exception, unknown beepMode: $beepMode"
 		esac
 	fi
 }
 
-beep() {
+beepLegacy() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	test -z "$1" && let beepCount=1 || let beepCount=$1
-	if [ "$silentMode" = "1" ]; then
+	if ! [ "$silentMode" = "1" ]; then
 		ttyName=$(ls /dev/tty6* |uniq |tail -n 1)
 		for ((b=1;b<=$beepCount;b++)); do 
 			echo -ne "\a" > $ttyName
@@ -488,12 +517,12 @@ assignBusesInfo() {
 
 	for ARG in "$@"
 	do	
-		dmsg "ASSIGNING BUS: $ARG"
+		dmsg inform "ASSIGNING BUS: $ARG"
 		case "$ARG" in
 			spc) publicVarAssign silent spcBuses $(grep '1180' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;	
 			eth) publicVarAssign silent ethBuses $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
 			plx) publicVarAssign silent plxBuses $(grep '0604' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
-			acc) publicVarAssign silent accBuses $(grep '0b40' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
+			acc) publicVarAssign silent accBuses $(grep '0b40\|1200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
 			bp) 
 				publicVarAssign silent bpBuses $(bpctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1)
 				publicVarAssign silent bprdBuses $(bprdctl_util all is_bypass |grep master |sort -u |cut -d ' ' -f1)
@@ -528,7 +557,7 @@ drawPciSlot() {
 	echo -e "\t░ Slot: $slotNum  ░  $color$cutText$addEl\e[m ░  $slotWidthInfo"
 	test -z "$pciArgs" || {
 		echo -e "\t░      - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -    $addElDashSp ░"
-		dmsg "${pciArgs[@]}"
+		dmsg inform "${pciArgs[@]}"
 		pciInfoRes="$(listDevsPciLib "${pciArgs[@]}")"
 		unset pciArgs
 		echo "${pciInfoRes[@]}" | while read curLine ; do	
@@ -566,11 +595,18 @@ showPciSlots() {
 	
 	for slotBus in $slotBuses; do
 		if [[ ! "$slotBus" = "ff" ]]; then 
-			populatedRootBuses+=( "$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' )" )
+			falseDetect=$(ls /sys/bus/pci/devices/ |grep -w "0000:$slotBus")
+			if [[ -z "$falseDetect" ]]; then
+				dmsg inform "populatedRootBuses false deteted slotbus $slotBus, skipping"
+			else
+				populatedRootBuses+=( "$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' )" )
+				dmsg inform "Added $(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' ) to populatedRootBuses"
+			fi
 		fi	
 	done
 
 	pciBridges=$( echo -n "${populatedRootBuses[@]}" |tr ' ' '\n' |sort |uniq)
+	dmsg inform "pciBridges="$pciBridges
 	for pciBr in $pciBridges; do
 		pciBrInfo="$(lspci -vvvs $pciBr)"
 		
@@ -588,7 +624,7 @@ showPciSlots() {
 	
 
 	for ((i=1;i<=$maxSlots;i++)) do 
-		dmsg "slotArr 0, $i = ${slotArr[0,$i]}   4, $i = ${slotArr[4,$i]}   2, $i = ${slotArr[2,$i]}"
+		dmsg inform "slotArr 0, $i = ${slotArr[0,$i]}   4, $i = ${slotArr[4,$i]}   2, $i = ${slotArr[2,$i]}"
 	done
 
 # 		slotArr arraingment		slotArr[dataRow,slotNumber]
@@ -604,10 +640,10 @@ showPciSlots() {
 	dmsg critWarn "MAKE sure that in case that +1 by hex address is an actual device, \n
 	check that parent bus does not have slot capabilities \n
 	moreover, check if slot in theory can have more than 4x or 8x by its length"
-	dmsg slotBuses=$slotBuses
+	dmsg inform slotBuses=$slotBuses
 	for slotBus in $slotBuses; do
 		let slotNum=$slotNum+1
-		dmsg slotNum=$slotNum slotBus=$slotBus
+		dmsg inform slotNum=$slotNum slotBus=$slotBus
 		if [[ "$slotBus" = "ff" ]]; then 
 			drawPciSlot $slotNum "-- Empty --" 
 		else
@@ -778,7 +814,7 @@ syncFilesFromServ() {
 		echo -e -n "    Syncing scripts to /root/$syncPn: "; echoRes "rsync -r --ignore-existing --chmod=D=rwx,F=rw /mnt/$syncPn/ /root/$syncPn"
 		echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"
 		
-		echo -e -n "    Mounting $seqPn folder: "; echoRes "mount.cifs \\\\172.30.0.4\\e\\Seq_DB\\$syncPn /mnt/$syncPn"' -o user=LinuxCopy,pass=LnX5CpY'
+		echo -e -n "    Mounting $seqPn folder: "; echoRes "mount.cifs \\\\172.30.0.4\\e\\Seq_DB\\$seqPn /mnt/$syncPn"' -o user=LinuxCopy,pass=LnX5CpY'
 		echo -e -n "    Syncing $seqPn to root: "; echoRes "rsync -r --chmod=D=rwx,F=rw /mnt/$syncPn/ /root/$syncPn"
 		echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"
 		
@@ -1129,6 +1165,9 @@ function testLinks () {
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				P425G410G8TS81) linkAcqRes=$(ethtool $netTarg |grep 'Link detected:' |cut -d: -f2 |cut -d ' ' -f2);;
+				P410G8TS81-XR) linkAcqRes=$(ethtool $netTarg |grep 'Link detected:' |cut -d: -f2 |cut -d ' ' -f2);;
+				PE2G2I35) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE2G4I35) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				acNano) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				IBSGP-T-MC-AM) 
 					cmdRes="$(sendIBS $uutSerDev get_link $netTarg |grep -w 'link' |cut -d: -f2- |cut -d. -f1 |awk '{print $2}')"
@@ -1222,7 +1261,10 @@ getEthRates() {
 				PE325G2I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE31625G4I71L) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				M4E310G4I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				P410G8TS81-XR) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				P425G410G8TS81) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE2G2I35) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE2G4I35) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				*) except "unknown uutModel: $uutModel"
 			esac
 			dmsg linkAcqRes=$linkAcqRes
@@ -1444,7 +1486,7 @@ listDevsPciLib() {
 	local rootBusWidthCap rootBusSpeedCap
 	local spcBuses spcDevId spcDevQtyReq spcKernReq spcDevSpeed spcDevWidth spcOnDevBus
 	local plxKeyw plxVirtKeyw plxEmptyKeyw
-	local listPciArg argsTotal infoMode
+	local listPciArg argsTotal infoMode noKernelMode
 	local netRes slotWidthCap slotWidthMax slotNumLocal
 	local secBus
 	
@@ -1516,6 +1558,7 @@ listDevsPciLib() {
 			plx-empty-keyw)			plxEmptyKeyw=${VALUE} ;;
 			
 			info-mode)				infoMode="true" ;;
+			no-kern)				noKernelMode="true" ;;
 			slot-width-cap)			slotWidthCap=${VALUE} ;;
 			slot-width-max)			slotWidthMax=${VALUE} ;;
 			slot-number)			slotNumLocal=${VALUE} ;;
@@ -1581,6 +1624,8 @@ listDevsPciLib() {
 		dmsg inform "plxEmptyKeyw=$plxEmptyKeyw"
 		
 		dmsg inform "infoMode=$infoMode"
+		dmsg inform "noKernelMode=$noKernelMode"
+		
 	}
 	
 	#devId=$pciDevId
@@ -1774,8 +1819,7 @@ listDevsPciLib() {
 		test -z "$accKernReq$accDevQtyReq$accDevSpeed$accDevWidth" || critWarn "  ACC bus empty! PCI info on ACC failed!"
 	else
 		if [[ -z $infoMode ]]; then
-			checkDefinedVal "${FUNCNAME[0]}" "plxVirtKeyw" "$plxVirtKeyw"
-			test -z "$accKernReq" && except "accKernReq undefined!"
+			if [ -z "$accKernReq" -a -z "$noKernelMode" ]; then except "accKernReq undefined!"; fi
 			test -z "$accDevQtyReq" && except "accDevQtyReq undefined, but devices found" || {
 				test -z "$accDevSpeed" && except "accDevSpeed undefined!"
 				test -z "$accDevWidth" && except "accDevWidth undefined!"
@@ -1800,7 +1844,11 @@ listDevsPciLib() {
 				echo -e -n "\t  $pciInfoDevLnkSta"
 			fi
 			if [[ -z $infoMode ]]; then
-				echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $accKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+				if [[ -z $noKernelMode ]]; then
+					echo -e -n "\t$(test ! -z "$(echo $pciInfoDevKernUse $pciInfoDevKernMod|grep $accKernReq)" && echo -n "KERN: \e[0;32mOK\e[m " || echo -n "KERN: \e[0;31mFAIL!\e[m ")$pciInfoDevSubInfo\n\t "'|'"\n"
+				else
+					echo -en "\tKERN: \e[0;33mSKIPPED\e[m\n\t "'|'"\n"
+				fi
 			else
 				test -z "$pciInfoDevKernUse" && echo " Kern: not loaded" || echo " Kern: $pciInfoDevKernUse"
 			fi
@@ -1819,7 +1867,7 @@ listDevsPciLib() {
 	else
 		if [[ -z $infoMode ]]; then
 			test -z "$ethDevQtyReq$ethVirtDevQtyReq" && except "no quantities are defined on ETH!"
-			test -z "$ethKernReq" && except "ethKernReq undefined!"
+			if [ -z "$ethKernReq" -a -z "$noKernelMode" ]; then except "ethKernReq undefined!"; fi
 			test -z "$ethDevQtyReq" && except "ethDevQtyReq undefined, but devices found" || {
 				test -z "$ethDevSpeed" && except "ethDevSpeed undefined!"
 				test -z "$ethDevWidth" && exitFail "listDevsPciLib exception, ethDevWidth undefined!"
@@ -1884,7 +1932,7 @@ listDevsPciLib() {
 	if [[ ! -z "$bpOnDevBus" ]]; then
 		if [[ -z $infoMode ]]; then
 			test -z "$bpDevQtyReq" && except "no quantities are defined on BP!"
-			test -z "$bpKernReq" && except "bpKernReq undefined!"
+			if [ -z "$bpKernReq" -a -z "$noKernelMode" ]; then except "bpKernReq undefined!"; fi
 			test -z "$bpDevQtyReq" && except "bpDevQtyReq undefined, but devices found" || {
 				test -z "$bpDevSpeed" && except "bpDevSpeed undefined!"
 				test -z "$bpDevWidth" && except "bpDevWidth undefined!"
@@ -1929,7 +1977,7 @@ listDevsPciLib() {
 	else
 		if [[ -z $infoMode ]]; then
 			test -z "$spcDevQtyReq" && exitFail "listDevsPciLib exception, no quantities are defined on SPC!"
-			#test -z "$spcKernReq" && exitFail "listDevsPciLib exception, spcKernReq undefined!"
+			if [ -z "$spcKernReq" -a -z "$noKernelMode" ]; then except "spcKernReq undefined!"; fi
 			test -z "$spcDevQtyReq" && exitFail "listDevsPciLib exception, spcDevQtyReq undefined, but devices found" || {
 				test -z "$spcDevSpeed" && exitFail "listDevsPciLib exception, spcDevSpeed undefined!"
 				test -z "$spcDevWidth" && exitFail "listDevsPciLib exception, spcDevWidth undefined!"
@@ -2290,6 +2338,232 @@ pingTest() {
 	echo -e " Done.\n"
 }
 
+function sendIS40 () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyR cmdR
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	serState=$(getIS40SerialState $ttyR $uutBaudRate 5 2>&1)
+	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
+	
+	case "$serState" in
+		null)	
+			warn "Couldnt get status of the box, is the device connected and turned on?"
+			except "null state received! (state: $serState)" 
+		;;
+		shell) 	
+			cmdRes=$(sendRootIS40 $ttyR exit)
+			sleep 3
+			loginIS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in from $serState!"
+			fi	
+		;;
+		gui) 
+			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+		;;
+		login)
+			loginIS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in from $serState!"
+			fi
+		;;
+		password) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 nop)
+			sleep 3
+			loginIS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in from $serState!"
+			fi
+		;;
+		*) except "unexpected case state received! (state: $serState)"
+	esac
+}
+
+function sendRootIS40 () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyR cmdR serState
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	serState=$(getIS40SerialState $ttyR $uutBaudRate 5 2>&1)
+	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
+	
+	case "$serState" in
+		null)	
+			warn "Couldnt get status of the box, is the device connected and turned on?"
+			except "null state received! (state: $serState)" 
+		;;
+		shell) 		
+			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+		;;
+		gui) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 exit)
+			sleep 3
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutRootUser" $uutRootPass)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in!"
+			fi
+		;;
+		login)
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutRootUser" $uutRootPass)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in!"
+			fi
+		;;
+		password) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 nop)
+			sleep 3
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutRootUser" $uutRootPass)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in!"
+			fi
+		;;
+		*) except "unexpected case state received! (state: $serState)"
+	esac
+}
+
+function sendIS100 () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyR cmdR
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	serState=$(getIS100SerialState $ttyR $uutBaudRate 5 2>&1)
+	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
+	
+	case "$serState" in
+		null)	
+			warn "Couldnt get status of the box, is the device connected and turned on?"
+			except "null state received! (state: $serState)" 
+		;;
+		shell) 	
+			cmdRes=$(sendRootIS100 $ttyR exit)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in from $serState!"
+			fi	
+		;;
+		gui) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 enable)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 configure)
+			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+		;;
+		guiEn)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 configure)
+			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+		;;
+		guiConf)
+			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+		;;
+		login)
+			loginIS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in from $serState!"
+			fi
+		;;
+		password) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 nop)
+			sleep 3
+			loginIS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in from $serState!"
+			fi
+		;;
+		*) except "unexpected case state received! (state: $serState)"
+	esac
+}
+
+function sendRootIS100 () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyR cmdR serState
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	serState=$(getIS100SerialState $ttyR $uutBaudRate 5 2>&1)
+	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
+	
+	case "$serState" in
+		null)	
+			warn "Couldnt get status of the box, is the device connected and turned on?"
+			except "null state received! (state: $serState)" 
+		;;
+		shell) 		
+			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+		;;
+		gui) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 enable)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 configure)
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutRootUser" $uutRootPass)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in!"
+			fi
+		;;
+		guiEn) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 configure)
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutRootUser" $uutRootPass)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in!"
+			fi
+		;;
+		guiConf) 
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutRootUser" $uutRootPass)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in!"
+			fi
+		;;
+		login)
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutBdsUser" $uutBdsPass)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 enable)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 configure)
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutRootUser" $uutRootPass)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in!"
+			fi
+		;;
+		password) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 nop)
+			sleep 3
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutBdsUser" $uutBdsPass)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 enable)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 configure)
+			loginRes=$(loginIS $ttyR $uutBaudRate 5 "$uutRootUser" $uutRootPass)
+			if [ $? -eq 0 ]; then
+				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
+			else
+				except "Unable to log in!"
+			fi
+		;;
+		*) except "unexpected case state received! (state: $serState)"
+	esac
+}
+
 function sendIBS () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyR cmdR
@@ -2300,7 +2574,10 @@ function sendIBS () {
 	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
 	
 	case "$serState" in
-		null)	except "null state received! (state: $serState)" ;;
+		null)	
+			warn "Couldnt get status of the box, is the device connected and turned on?"
+			except "null state received! (state: $serState)" 
+		;;
 		shell) 	
 			cmdRes=$(sendRootIBS $ttyR exit)
 			loginIBS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
@@ -2322,7 +2599,7 @@ function sendIBS () {
 			fi
 		;;
 		password) 
-			cmdRes=$(sendIBS $ttyR nop)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 nop)
 			sleep 3
 			loginIBS $ttyR $uutBaudRate 5 $uutBdsUser $uutBdsPass
 			if [ $? -eq 0 ]; then
@@ -2345,12 +2622,16 @@ function sendRootIBS () {
 	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
 	
 	case "$serState" in
-		null)	except "null state received! (state: $serState)" ;;
+		null)	
+			warn "Couldnt get status of the box, is the device connected and turned on?"
+			except "null state received! (state: $serState)" 
+		;;
 		shell) 		
 			sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
 		;;
 		gui) 
 			cmdRes=$(sendIBS $ttyR exit)
+			sleep 1
 			loginIBS $ttyR $uutBaudRate 5 $uutRootUser $uutRootPass
 			if [ $? -eq 0 ]; then
 				sendSerialCmd $ttyR $uutBaudRate 5 $cmdR
@@ -2367,7 +2648,7 @@ function sendRootIBS () {
 			fi
 		;;
 		password) 
-			cmdRes=$(sendIBS $ttyR nop)
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate 5 nop)
 			sleep 3
 			loginIBS $ttyR $uutBaudRate 5 $uutRootUser $uutRootPass
 			if [ $? -eq 0 ]; then
@@ -2378,6 +2659,132 @@ function sendRootIBS () {
 		;;
 		*) except "unexpected case state received! (state: $serState)"
 	esac
+}
+
+function sendBCMShellCmd () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local timeout cmd cmdR
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	expect -c "
+	set timeout $timeout
+	log_user 1
+	exp_internal 0
+	spawn /home/BCM_PHY/20220801_Quadra_1_8/Q28_1_8/quadra28_reference_app/bin/bcm82780_phy_init
+	send \r\n
+	expect {
+	*Q28:)* { 
+		send_user \"\nSending cmd: $cmdR\n\"
+		send \"$cmdR\r\n\" 
+		send_user \"\nCmd: $cmdR - Sent.\n\"
+	}
+	timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	*Q28:)* { send \"$cmdR\r\n\" }
+	timeout { send_user \"\nTimeout4\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	Disconnected { send_user Done\n }
+	timeout { send_user \"\nTimeout5\n\"; exit 1 }
+	eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	" 
+	return $?
+}
+
+# function sendBCMGetQ-SFPInfo () {
+# 	dmsg dbgWarn "### $(caller): $(printCallstack)"
+# 	local timeout cmd cmdR
+# 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
+
+# 	which expect > /dev/null || except "expect not found by which!"
+# 	which tio > /dev/null || except "tio not found by which!"
+
+# 	expect -c "
+# 	set timeout $timeout
+# 	log_user 1
+# 	exp_internal 0
+# 	spawn /home/BCM_PHY/20220801_Quadra_1_8/Q28_1_8/quadra28_reference_app/bin/bcm82780_phy_init
+# 	expect {
+# 		*Q28:)* { 
+# 			send_user \"\nSending cmd: get_sfp_info\n\"
+# 			send \"get_sfp_info\r\" 
+# 			send_user \"\nCmd: get_sfp_info - Sent.\n\"
+# 		}
+
+# 		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+# 		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+# 		exp_continue
+# 	}
+# 	sleep 1
+# 	expect {
+# 	*Q28:)* { 
+# 		send_user \"\nSending cmd: get_qsfp_info\n\"
+# 		send \"get_qsfp_info\r\n\" 
+# 		send_user \"\nCmd: get_qsfp_info - Sent.\n\"
+# 	}
+# 	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+# 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+# 	}
+# 	sleep 1
+# 	expect {
+# 	*Q28:)* { 
+# 		send_user \"\nExiting..\n\"
+# 		send \"exit\r\n\" 
+# 		send_user \"\nCmd: exit - Sent.\n\"
+# 	}
+# 	timeout { send_user \"\nTimeout4\n\"; send \x14q\r ; exit 1 }
+# 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+# 	}
+# 	" 
+# 	return $?
+# }
+
+function sendBCMGetQ-SFPInfo () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local timeout cmd cmdR
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	srcDir=$(pwd)
+	cd /home/BCM_PHY/20220801_Quadra_1_8/Q28_1_8/quadra28_reference_app/bin/
+	expect -c "
+	set timeout $timeout
+	log_user 1
+	exp_internal 0
+	spawn /home/BCM_PHY/20220801_Quadra_1_8/Q28_1_8/quadra28_reference_app/bin/bcm82780_phy_init
+	expect {
+		*Q28:)* { 
+			send_user \"\nSending cmd: get_all_sfp_info\n\"
+			send \"get_all_sfp_info\r\" 
+			send_user \"\nCmd: get_all_sfp_info - Sent.\n\"
+		}
+
+		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		exp_continue
+	}
+	sleep 1
+	expect {
+	*Q28:)* { 
+		send_user \"\nExiting..\n\"
+		send \"exit\r\n\" 
+	}
+	timeout { send_user \"\nTimeout4\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	" 
+	cd $srcDir
+	return $?
 }
 
 function loginIBS () {
@@ -2430,6 +2837,59 @@ function loginIBS () {
 	return $?
 }
 
+function loginIS () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "login" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "pass" "$1"
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	expect -c "
+	set timeout $timeout
+	log_user 1
+	exp_internal 0
+	spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+	send \r
+	expect {
+	Connected { send \r }
+	timeout { send_user \"\nTimeout1\n\"; exit 1 }
+	eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	expect {
+	*g)#* { send \"$login\r\" }
+	*RU\$* { send \"$login\r\" }
+	*login:* { send \"$login\r\" }
+	*:~#* { send \"$login\r\" }
+	timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	*Password:* { send \"$pass\r\" }
+	*:~#* { send \"$pass\r\" }
+	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	*\$* { send \x14q\r }
+	*#* { send \x14q\r }
+	*0>* { send \x14q\r }
+	timeout { send_user \"\nTimeout4\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	Disconnected { send_user Done\n }
+	timeout { send_user \"\nTimeout5\n\"; exit 1 }
+	eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	" 
+	return $?
+}
+
 function sendSerialCmd () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN baud timeout cmd
@@ -2455,12 +2915,195 @@ function sendSerialCmd () {
 	expect {
 	*\$* { send \"$cmd\r\" }
 	*#* { send \"$cmd\r\" }
+	*0>* { send \"$cmd\r\" }
 	timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
 	}
 	expect {
 	*\$* { send \x14q\r }
 	*#* { send \x14q\r }
+	*0>* { send \x14q\r }
+	*login:* { send \x14q\r }
+	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	Disconnected { send_user Done\n }
+	timeout { send_user \"\nTimeout4\n\"; exit 1 }
+	eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	" 
+	return $?
+}
+
+function killLogWriters () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local logFilePath lsofPids pid 
+	privateVarAssign "${FUNCNAME[0]}" "logFilePath" "$1"; shift
+	echo " Killing log writers on $logFilePath"
+	if [ -e $logFilePath ];	then
+		echo " Checking activity on log file."
+		lsofPids=$(lsof $logFilePath |awk '{print $2}' |grep -v PID)
+
+		if [ ! -z "$lsofPids" ]; then
+			echo " Killing active writers on log file"
+			for pid in $lsofPids; do kill -9 $pid; echo "  Killing PID $pid"; done
+		fi
+		echo " Done."
+	fi
+}
+
+function IPPowerCheckSerial () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local i ttyN outlet swRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
+
+	echo -n " Checking serial connections to IPPower, "
+	swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.1 read p6)"
+	if [ ! -z "$(echo "$swRes" |grep "1=")" ]; then
+		echo -e "\e[0;32mok.\e[m"
+	else
+		except "IPPower serial connection failure"
+	fi
+}
+
+function IPPowerSwPowerAll () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local i
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
+	privateNumAssign "targState" "$2"
+
+	for (( i=1; i<5; i++ )); do
+		IPPowerSwPower ttyUSB0 $i $targState
+	done
+}
+
+function IPPowerSwPower () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN outlet swRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
+	privateNumAssign "outlet" "$2"
+	privateNumAssign "targState" "$3"
+	if [ "$outlet" -ge 0 ] && [ "$outlet" -le 5 ]; then
+		echo -n " Switching $outlet outlet to $targState, "
+		swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.05 set p6$outlet $targState)"
+		if [ "$targState" = "$(echo "$swRes" |grep "$outlet=" |cut -d= -f2)" ]; then
+			echo -e "\e[0;32mok.\e[m"
+		else
+			echo -e "\e[0;31mfail.\e[m"
+			echo -n " Retrying to switch $outlet outlet to $targState, "
+			swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.04 set p6$outlet $targState)"
+			if [ "$targState" = "$(echo "$swRes" |grep "$outlet=" |cut -d= -f2)" ]; then
+				echo -e "\e[0;32mok.\e[m"
+			else
+				except "Outlet could not be switched"
+			fi
+		fi
+	else
+		except "Outlet nuber is not in range: $outlet"
+	fi
+}
+
+function sendIPPowerSerialCmdDelayed () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd i 
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "delay" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmd" "$*"
+
+	logFilePath="/tmp/IPPowerSerialCMD.log"
+
+	if ! [[ -e "/dev/$ttyN" ]]; then
+		except "Serial dev does not exist"
+	fi
+
+	echo " Owning $ttyN"
+	chmod o+rw /dev/$ttyN
+	echo " Setting baud $baud"
+	stty $baud < /dev/$ttyN
+	stty $baud -F /dev/$ttyN
+
+	killLogWriters $logFilePath
+	rm -f $logFilePath
+	
+	echo " Started log file"
+	cat -v < /dev/$ttyN |& tee $logFilePath >/dev/null &
+
+	echo " Sending cmd: $cmd"
+	echo -ne "\r" > /dev/$ttyN
+	sleep $delay
+	echo -ne "\r" > /dev/$ttyN
+	sleep $delay
+	for (( i=0; i<${#cmd}; i++ )); do echo -ne "${cmd:$i:1}" > /dev/$ttyN; sleep $delay; done
+	echo -e "\r" > /dev/$ttyN
+	echo -e "\r" > /dev/$ttyN
+	echo -e "\r" > /dev/$ttyN
+	echo -e "\r" > /dev/$ttyN
+	echo -e "\r" > /dev/$ttyN
+	echo -e "\r" > /dev/$ttyN
+	echo -e "\r" > /dev/$ttyN
+	echo -e "\r" > /dev/$ttyN
+	echo -e "\r" > /dev/$ttyN
+	sleep $delay
+
+	killLogWriters $logFilePath
+
+	echo " Reading log file"
+	outlStat="$(cat "$logFilePath" )"
+	# echo " FULL LOG: $outlStat"
+
+	outlStat="$(echo "$outlStat" |grep p6 |grep status |cut -d: -f2)"
+	# echo -e " Cut log status:\n"$outlStat
+	
+	if [ ! -z "$outlStat" ]; then
+		echo -e "\n\n Outlet status:"
+		echo "  1=$(echo $outlStat |awk '{print $4}')"
+		echo "  2=$(echo $outlStat |awk '{print $3}')"
+		echo "  3=$(echo $outlStat |awk '{print $2}')"
+		echo "  4=$(echo $outlStat |awk '{print $1}')"
+	fi
+}
+
+function sendIPPowerSerialCmd () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmd" "$*"
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+
+	expect -c "
+	set timeout $timeout
+	log_user 1
+	exp_internal 0
+	spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+	send \n\r
+	expect {
+		Connected { 
+			send \" a\n\r\"
+			send \" a\n\r\"
+			send \r\n 
+		}
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+	}
+	expect {
+		*CMD:* { 
+			send \"$cmd\r\"
+			send \r\n
+		}
+		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
+	*\$* { send \x14q\r }
+	*#* { send \x14q\r }
+	*0>* { send \x14q\r }
 	*login:* { send \x14q\r }
 	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
@@ -2476,7 +3119,7 @@ function sendSerialCmd () {
 
 function getIBSSerialState () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local ttyN baud timeout cmd
+	local ttyN baud timeout cmd serStateRes
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
@@ -2499,6 +3142,103 @@ function getIBSSerialState () {
 		expect {
 		*#* { send_user \"State: shell\r\" }
 		*\$* { send_user \"State: gui\r\" }
+		*ogin:* { send_user \"State: login\r\" }
+		*word:* { send_user \"State: password\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		** { send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		" 2>&1
+	)"
+	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'State:' |awk -F 'State:' '{print $2}' |cut -d ' ' -f2)
+	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
+	echo -n "$serStateRes"
+}
+
+function getIS40SerialState () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd serStateRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	serialCmdNlRes="$(
+		expect -c "
+		set timeout $timeout
+		log_user 1
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*:~#* { send_user \"State: shell\r\" }
+		*RU\$* { send_user \"State: gui\r\" }
+		*)\$* { send_user \"State: gui\r\" }
+		*ogin:* { send_user \"State: login\r\" }
+		*word:* { send_user \"State: password\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		** { send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		" 2>&1
+	)"
+	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'State:' |awk -F 'State:' '{print $2}' |cut -d ' ' -f2)
+	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
+	echo -n "$serStateRes"
+}
+
+function getIS100SerialState () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd serStateRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	serialCmdNlRes="$(
+		expect -c "
+		set timeout $timeout
+		log_user 1
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*\$* { send_user \"State: shell\r\" }
+		*0>* { send_user \"State: gui\r\" }
+		*0#* { send_user \"State: guiEn\r\" }
+		*g)#* { send_user \"State: guiConf\r\" }
 		*ogin:* { send_user \"State: login\r\" }
 		*word:* { send_user \"State: password\r\" }
 		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
@@ -2639,7 +3379,6 @@ installJQTools() {
 
 checkLxiPkg() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local whichCmd
 	echo " Checking LXI tools present.."
 	which lxi 2>&1 > /dev/null
 	if [ $? -eq 0 ]; then 
@@ -3062,6 +3801,244 @@ echoIfExists() {
 		shift
 		echo "$*"
 	}
+}
+
+checkUUTTransceivers() {
+	slcm_start &> /dev/null
+	selectSlot "  Select UUT:"
+	uutSlotNum=$?
+	publicVarAssign warn uutBus $(dmidecode -t slot |grep "Bus Address:" |cut -d: -f3 |head -n $uutSlotNum |tail -n 1)
+	publicVarAssign fatal uutSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$uutBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
+	publicVarAssign warn uutNets $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $uutSlotBus |awk -F/ '{print $NF}')
+	publicVarAssign warn uutBuses $(filterDevsOnBus $(echo -n ":$uutBus:") $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-))
+	checkTransceivers $uutBuses
+}
+
+readEEPROMMasterFile() {
+	local line eepromFile pageAddr byteAddr byteVal curLine pageNum byteNum
+	eepromFile=$1
+	while read line; 
+	do 		
+		if [[ ! -z "$line" ]]; then
+			pageAddr="$(echo $line |awk '{print $1}')"
+			if [[ "$pageAddr" = "0xa0" ]]; then pageNum=2; else pageNum=3; fi
+			byteAddr=$(echo -n $line |awk '{print $2}' | tr -dc '[:print:]')
+			byteVal=$(echo -n $line |awk '{print $3}' | tr -dc '[:print:]')
+			transData[$byteAddr,$pageNum]=$byteVal
+		fi
+	done <<< "$(cat $eepromFile)"	
+}
+
+checkTransceivers() {
+	local busesAddrs bus
+	privateVarAssign "${FUNCNAME[0]}" "busesAddrs" "$*"
+	for bus in $busesAddrs; do
+		checkTransceiver $bus
+	done
+}
+
+checkTransceiver() {
+	local transData busAddr byteNum totalStatus pageNum currPage byteAddr errMsg charCnt
+	privateVarAssign "${FUNCNAME[0]}" "busAddr" "$1"
+
+	let totalStatus=0
+	declare -A transData
+# 		transData arraingment		transData[byteAddr,pageAddr]
+# 	-------------------------------------
+#      	PAGE>>  0xa0		0xa2		0xa0_DMP		0xa2_DMP		checkRes
+#			0  	0x0			0x0			0x0				0x0				0 or 1
+# 			1	0x0			0x0			0x0				0x0				0 or 1
+# 			2	0x0			0x0			0x0				0x0				0 or 1
+# 			3	0x0			0x0			0x0				0x0				0 or 1
+# 			4	0x0			0x0			0x0				0x0				0 or 1
+# 			ETC..	ETC..	ETC..		ETC..			ETC..			ETC..
+# 	-------------------------------------
+	readTransceiver $busAddr
+	readEEPROMMasterFile /root/PE310G4BPI71/PE310G4BPI71-SR_TRANS_EEPROM.txt
+	# for ((byteNum=0;byteNum<=127;byteNum++))
+	# do
+	# 	echo "${transData[$byteNum,0]} ${transData[$byteNum,2]}  ${transData[$byteNum,1]} ${transData[$byteNum,3]}"
+	# 	#echo "$busAddr: Byte $byteNum:  "${transData[$byteNum,0]} ${transData[$byteNum,2]}  ${transData[$byteNum,1]} ${transData[$byteNum,3]}
+	# done
+	for ((byteNum=0;byteNum<=127;byteNum++))
+	do
+		let transData[$byteNum,4]=0
+		if [[ ! -z ${transData[$byteNum,2]} ]]; then 
+			if [[ ! "${transData[$byteNum,0]}" = "${transData[$byteNum,2]}" ]]; then
+				let charCnt=$(echo -n ${transData[$byteNum,0]} |wc -c)
+				if [ $charCnt -eq 3 ]; then addEl=" "; else unset addEl; fi #added "No-Break Space" U+00A0, or Alt+0160
+				transData[$byteNum,0]=$(echo -ne "\e[0;31m${transData[$byteNum,0]}$addEl\e[m")
+				let transData[$byteNum,4]++
+				errMsg+=" Value missmatch! Page: 0xa0, Addr: $byteNum, Expected value: ${transData[$byteNum,2]}, Actual value: ${transData[$byteNum,0]}\n"
+			fi
+		fi
+		if [[ ! -z ${transData[$byteNum,3]} ]]; then 
+			if [[ ! "${transData[$byteNum,1]}" = "${transData[$byteNum,3]}" ]]; then
+				let charCnt=$(echo -n ${transData[$byteNum,1]} |wc -c)
+				if [ $charCnt -eq 3 ]; then addEl=" "; else unset addEl; fi #added "No-Break Space" U+00A0, or Alt+0160
+				transData[$byteNum,1]=$(echo -ne "\e[0;31m${transData[$byteNum,1]}$addEl\e[m")
+				let transData[$byteNum,4]++
+				errMsg+=" Value missmatch! Page: 0xa2, Addr: $byteNum, Expected value: ${transData[$byteNum,3]}, Actual value: ${transData[$byteNum,1]}\n"
+			fi
+		fi
+		let totalStatus+=transData[$byteNum,4]
+		# dmsg echo -e "$busAddr: Byte $byteNum:  CPGa0:${transData[$byteNum,0]} DPGa0:${transData[$byteNum,2]}  CPGa2:${transData[$byteNum,1]} DPGa2:${transData[$byteNum,3]}  status=${transData[$byteNum,4]}"
+	done
+	dmsg echo "  totalStatus=$totalStatus"
+
+	echo -e "\n\n ╔═══════════════╦══════╦══════╦══════╦══════╦══════╦══════╦══════╦══════╦══════╦══════╗\n ║ BUS: $busAddr  ║   0  ║   1  ║   2  ║   3  ║   4  ║   5  ║   6  ║   7  ║   8  ║   9  ║"
+	for ((pageNum=0;pageNum<=1;pageNum++))
+	do 
+		if [ $pageNum -eq 0 ]; then currPage=0xa0; else currPage=0xa2; fi
+		for byteNum in {0..127..10}
+		do 
+			for ((byteVarCnt=0;byteVarCnt<=9;byteVarCnt++))
+			do
+				let byteAddr=$byteNum+$byteVarCnt
+				eval "vl$byteVarCnt"='${transData[$byteAddr,$pageNum]}'
+			done
+			printf " ╠═══════════════╬══════╬══════╬══════╬══════╬══════╬══════╬══════╬══════╬══════╬══════╣\n ║ %-5s %6s ║ %-4s ║ %-4s ║ %-4s ║ %-4s ║ %-4s ║ %-4s ║ %-4s ║ %-4s ║ %-4s ║ %-4s ║\n" "$currPage: " "$byteNum: " $vl0 $vl1 $vl2 $vl3 $vl4 $vl5 $vl6 $vl7 $vl8 $vl9 
+		done
+	done
+	echo -e " ╚═══════════════╩══════╩══════╩══════╩══════╩══════╩══════╩══════╩══════╩══════╩══════╝"
+
+	if [[ ! -z "$errMsg" ]]; then
+		echo -e "\n\n$errMsg"
+	fi
+}
+
+readTransceiver() {
+	local busAddr pageAddr byteAddr acqRes pageNum byteNum currPage slcmWC slcmRes
+	privateVarAssign "${FUNCNAME[0]}" "busAddr" "$1"
+
+	for ((pageNum=0;pageNum<=1;pageNum++))
+	do 
+		if [ $pageNum -eq 0 ]; then currPage=0xa0; else currPage=0xa2; fi
+		for ((byteNum=0;byteNum<=127 ;byteNum++))
+		do
+			slcmRes=$(slcm_util $busAddr read_sfp $byteNum $currPage)
+			slcmWC=$(echo $slcmRes |wc -w)
+			if [ "$slcmWC" = "1" ]; then
+				printf "%d\n" $slcmRes &>/dev/null
+				if [ $? -eq 0 ]; then 
+					#if [ "$slcmRes" = "0x0" ]; then 
+					#	transData[$byteNum,$pageNum]=$(echo -ne "\e[0;47;31m0x0\e[m")
+					#else
+						transData[$byteNum,$pageNum]=$slcmRes
+					#fi
+				else
+					transData[$byteNum,$pageNum]=$(echo -ne "\e[0;47;31m0xEE\e[m")
+				fi
+			else
+				transData[$byteNum,$pageNum]=$(echo -ne "\e[0;47;31m0xEE\e[m")
+			fi
+		done
+	done
+} 
+
+compareEEPROM() {
+	local busAddr line eepromFile addr byteAddr byteVal curVal totalLines curLine
+	busAddr=$1
+	eepromFile=$2
+	rm -f /tmp/eepromErrTmpLog.log
+	let lineEmpty=1
+	let curLine=0
+	let totalLines=$(cat ./$eepromFile | wc -l)
+	while read line; 
+	do 		
+		test -z "$line" || {
+			addr="$(echo $line |awk '{print $1}')"
+			byteAddr="$(echo $line |awk '{print $2}')"
+			byteVal="$(echo $line |awk '{print $3}' |cut -dx -f2- |tr '[:lower:]' '[:upper:]')"
+			curVal="$(read_sfp_addr "$busAddr" "$addr" "$byteAddr")"
+			let execPerc=$(echo $curLine |awk '{print int($1/'$totalLines'*100)}')
+			test "$lineEmpty" = "0" && {
+				clearLine "noOverwrite"
+			}
+			test "$curVal" = "$byteVal" && {
+				echo -e $(echo -e 'Verifying '"$busAddr"':'"$addr"':'"$byteAddr: OK  $execPerc%") > /dev/null 2>&1
+			} || {
+				echo -e $(echo -e 'Verifying '"$busAddr"':'"$addr"':'"$byteAddr: ERROR! CURVAL: $curVal  MASTDMP: $byteVal" |& tee -a /tmp/eepromErrTmpLog.log) > /dev/null 2>&1
+				warn "Vaules missmatch! Vaule: $curVal received! " "nnl" "sil"
+				#sleep 0.3
+				warn "Repetitive read $busAddr"':'"$addr"':'"$byteAddr: $(read_sfp_addr "$busAddr" "$addr" "$byteAddr")," "nnl" "sil"
+				#sleep 0.3
+				warn "$(read_sfp_addr "$busAddr" "$addr" "$byteAddr")," "nnl" "sil"
+				#sleep 0.3
+				warn "$(read_sfp_addr "$busAddr" "$addr" "$byteAddr")" "" "sil"
+			}
+			echo -e 'Verifying '"$busAddr"':'"$addr"':'"$byteAddr. $execPerc% done." 
+			let lineEmpty=0
+		}
+		let curLine=$curLine+1
+	done <<< "$(cat ./$eepromFile)"
+	if [ -e /tmp/eepromErrTmpLog.log ] 
+	then
+		let passedCount=$totalLines-$(cat /tmp/eepromErrTmpLog.log | wc -l) > /dev/null 2>&1
+		clearLine
+		critWarn "EEPROM verification failed! Register total, failed: $(cat /tmp/eepromErrTmpLog.log | wc -l) passed: $passedCount"
+		test "$showFailRegs" = "1" && cat /tmp/eepromErrTmpLog.log 			
+	else
+		clearLine
+		passMsg "EEPROM verification passed! Register total: $totalLines"
+	fi
+}
+
+
+printTransArr() {
+	for bus in 81:00.0 81:00.1 81:00.2 81:00.3
+	do
+		echo -e "\n\n ╔═══════════════╦══════╦══════╦══════╦══════╦══════╦══════╦══════╦══════╦══════╦══════╗\n ║ BUS: $bus  ║   0  ║   1  ║   2  ║   3  ║   4  ║   5  ║   6  ║   7  ║   8  ║   9  ║"
+		for page in 0xa0 0xa2
+		do 
+			for ((i=0;i<=26;i++))
+			do
+				printf " ╠═══════════════╬══════╬══════╬══════╬══════╬══════╬══════╬══════╬══════╬══════╬══════╣\n ║ %5s %6s ║ %4s ║ %4s ║ %4s ║ %4s ║ %4s ║ %4s ║ %4s ║ %4s ║ %4s ║ %4s ║\n" "$page: " "$(($i*10)): " $(slcm_util $bus read_sfp $i\0 $page) $(slcm_util $bus read_sfp $i\1 $page) $(slcm_util $bus read_sfp $i\2 $page) $(slcm_util $bus read_sfp $i\3 $page) $(slcm_util $bus read_sfp $i\4 $page) $(slcm_util $bus read_sfp $i\5 $page) $(slcm_util $bus read_sfp $i\6 $page) $(slcm_util $bus read_sfp $i\7 $page) $(slcm_util $bus read_sfp $i\8 $page) $(slcm_util $bus read_sfp $i\9 $page)
+			done
+		done
+		echo -e " ╚═══════════════╩══════╩══════╩══════╩══════╩══════╩══════╩══════╩══════╩══════╩══════╝"
+	done
+}
+
+slcm_read() {
+	#dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local busAddr pageAddr byteAddr acqRes
+	privateVarAssign "${FUNCNAME[0]}" "busAddr" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "pageAddr" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "byteAddr" "$3"
+
+	result='nullRead'
+	#echo "READ_SFP_ADDR   DEBUG: "'('"$busAddr"':'"$pageAddr"':'"$byteAddr"')'
+	acqRes=$(slcm_util $busAddr read_sfp $byteAddr $pageAddr |cut -dx -f2- |tr '[:lower:]' '[:upper:]')
+	for ((i=0;i<=$sfpReadCount;i++)); do   #try few times because sometimes the first acquiring fails returning "ERROR!"
+		test -z "$acqRes" || {
+			test -z "$(echo "$acqRes" |grep ERROR)" && {
+				echo "$acqRes"
+				break
+			} || {
+				acqRes=$(slcm_util $busAddr read_sfp $byteAddr $pageAddr |cut -dx -f2- |tr '[:lower:]' '[:upper:]')
+			}
+			#sleep 0.02  <- was added in hope that will elliminate faulty read, did not work
+		} && {
+			acqRes=$(slcm_util $busAddr read_sfp $byteAddr $pageAddr |cut -dx -f2- |tr '[:lower:]' '[:upper:]')
+			# first acquring after system reboot always is incorrect, so running read again 
+		}
+		#	Not used, because in case of an error re-read is done anyways
+		#test -z "$(echo "$acqRes" |grep ERROR)" || {
+		#	#acqRes='Error while reading ('"$busAddr"':'"$pageAddr"':'"$byteAddr"')'
+		#	acqRes='ERROR!'
+		#} 
+	done
+	test -z "$(echo "$acqRes" |grep ERROR)" || echo "$acqRes"	
+}
+
+stsTransData() {
+	# if [ -z "$bcmCmdRes" ]; then
+	# 	export bcmCmdRes="$(sendBCMGetQ-SFPInfo 250 2>&1)"
+	# fi
+	for phyId in 8 9 10 11 12; do 
+		echo "$bcmCmdRes" |grep -A10 "PHY id $phyId" |grep PNP |cut -d: -f2 |awk '{print $1=$1}'
+	done
 }
 
 libs() {
