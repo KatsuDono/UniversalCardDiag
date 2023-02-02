@@ -21,6 +21,22 @@ parseArgs() {
 			uut-pn) pnArg=${VALUE} ;;
 			silent) silentMode=1 ;;
 			skip-init) skipInit=1;;
+			test-sel) 
+				inform "Launch key: Selected test: ${VALUE}"
+				testSelArg=${VALUE}
+			;;
+			slDupSkp) 
+				inform "Launch key: Ignoring slot duplicate (compatability)"
+				ignoreSlotDuplicate=1
+			;;
+			noMasterMode) 
+				inform "Launch key: No master mode (compatability)"
+				noMasterMode=1
+			;;
+			minor-launch) 
+				inform "Launch key: Minor priority launch mode (compatability)"
+				minorLaunch=1
+			;;
 			debug) 
 				debugMode=1 
 				inform "Launch key: Debug mode"
@@ -148,6 +164,11 @@ PE316IS2LBTLB-CX-INIT() {
 	initQAT 17
 }
 
+P3IMB-M-P1-INIT() {
+	warn "  Init is not required for model $baseModel"
+	# initQAT 17
+}
+
 startupInit() {
 	local drvInstallRes
 	echo -e " StartupInit.."
@@ -158,8 +179,10 @@ startupInit() {
 			PE3ISLBEL-FN) PE3ISLBEL-FN-INIT;;
 			PE3ISLBTL-FU) PE3ISLBTL-FU-INIT;;
 			PE3ISLBTL-FN) PE3ISLBTL-FN-INIT;;
+			PE316ISLBTL-CX) PE3ISLBTL-FN-INIT;;
 			PE3ISLBLL) PE3ISLBLL-INIT;;
 			PE316IS2LBTLB-CX) PE316IS2LBTLB-CX-INIT;;
+			P3IMB-M-P1) P3IMB-M-P1-INIT;;
 			*) exitFail "Undefined startup init for baseModel: $baseModel" $PROC
 		esac
 	else
@@ -175,7 +198,6 @@ checkRequiredFiles() {
 	
 	declare -a filesArr=(
 		"/root/multiCard/arturLib.sh"
-		"/root/QAT17"
 		"/root/Scripts"
 		"/root/Scripts/qat_update.sh"
 	)
@@ -185,6 +207,7 @@ checkRequiredFiles() {
 			echo "  File list: PE3IS2CO3LS"
 			declare -a filesArr=(
 				${filesArr[@]}
+				"/root/QAT17"
 				"/root/PE3IS2CO3LS"
 				"/root/PE3IS2CO3LS/qat_update.sh"
 			)
@@ -201,6 +224,7 @@ checkRequiredFiles() {
 			echo "  File list: PE3ISLBTL"
 			declare -a filesArr=(
 				${filesArr[@]}
+				"/root/QAT17"
 				"/root/PE3ISLBTL"
 			)
 		;;
@@ -208,6 +232,7 @@ checkRequiredFiles() {
 			echo "  File list: PE3ISLBLL"
 			declare -a filesArr=(
 				${filesArr[@]}
+				"/root/QAT17"
 				"/root/PE3ISLBLL"
 			)
 		;;
@@ -215,6 +240,7 @@ checkRequiredFiles() {
 			echo "  File list: PE316IS2LBTLB-CX"
 			declare -a filesArr=(
 				${filesArr[@]}
+				"/root/QAT17"
 				"/root/PE316IS2LBTLB-CX"
 			)
 		;;
@@ -222,6 +248,7 @@ checkRequiredFiles() {
 			echo "  File list: PE3ISLBEL-FN"
 			declare -a filesArr=(
 				${filesArr[@]}
+				"/root/QAT17"
 				"/root/PE3ISLBEL-FN"
 				"/root/PE3ISLBEL-FN/qat_update.sh"
 			)
@@ -230,6 +257,7 @@ checkRequiredFiles() {
 			echo "  File list: PE3ISLBTL-FN"
 			declare -a filesArr=(
 				${filesArr[@]}
+				"/root/QAT17"
 				"/root/PE3ISLBTL-FN"
 				"/root/PE3ISLBTL-FN/qat_update.sh"
 			)
@@ -238,8 +266,25 @@ checkRequiredFiles() {
 			echo "  File list: PE3ISLBTL-FU"
 			declare -a filesArr=(
 				${filesArr[@]}
+				"/root/QAT17"
 				"/root/PE3ISLBTL-FU"
 				"/root/PE3ISLBTL-FU/qat_update.sh"
+			)
+		;;
+		PE316ISLBTL-CX) 
+			echo "  File list: $baseModel"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/QAT17"
+				"/root/PE316ISLBTL-CX"
+				"/root/PE316ISLBTL-CX/qat_update.sh"
+			)
+		;;
+		P3IMB-M-P1) 
+			echo "  File list: $baseModel"
+			declare -a filesArr=(
+				${filesArr[@]}
+				"/root/P3IMB-M-P1"
 			)
 		;;
 		*) exitFail "Undefined file list for baseModel: $baseModel" $PROC
@@ -274,7 +319,7 @@ listDevsQty() {
 defineRequirments() {
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn" $PROC
-	test ! -z $(echo -n $uutPn |grep -w 'PE3IS2CO3LS\|PE3IS2CO3LS-CX\|PE2ISCO3-CX\|PE3ISLBTL-FU\|PE3ISLBTL-FN\|PE3ISLBLL\|PE3ISLBTL\|P3IMB-M-P1\|PE3ISLBEL-FN\|PE316IS2LBTLB-CX') && {
+	test ! -z $(echo -n $uutPn |grep -w 'PE3IS2CO3LS\|PE3IS2CO3LS-CX\|PE2ISCO3-CX\|PE3ISLBTL-FU\|PE3ISLBTL-FN\|PE316ISLBTL-CX\|PE3ISLBLL\|PE3ISLBTL\|P3IMB-M-P1-VZ\|PE3ISLBEL-FN\|PE316IS2LBTLB-CX') && {
 		test ! -z $(echo -n $uutPn |grep "PE3IS2CO3LS" |grep -v '-';echo -n $uutPn |grep "PE3IS2CO3LS-CX") && {
 			assignBuses plx acc
 			accKern="qat_dh895xcc"
@@ -442,14 +487,27 @@ defineRequirments() {
 			let accDevSpeed=5
 			let accDevWidth=8
 		}
-		test ! -z $(echo -n $uutPn |grep "P3IMB-M-P1") && {
+		test ! -z $(echo -n $uutPn |grep "P3IMB-M-P1-VZ") && {
 			warn "REQUIRMENTS CAN DIFFER!!! NOT DEFINED FULLY!!!"
-			exitFail "UNSUPPORTED" $PROC
-			assignBuses spc eth plx acc
-			uutKern="NOT_DEFINED"
-			let uutDevQty=-1
+			# exitFail "UNSUPPORTED" $PROC
+			assignBuses acc
+			accKern="qat_c62x"
+			let accDevQty=1
 			baseModel="P3IMB-M-P1"
-			pciDevId="NOT_DEFINED"
+			accDevId="0d5c"
+			let accDevSpeed=8
+			let accDevWidth=16
+
+			pciArgs=(
+				"--target-bus=$uutBus"
+				"--acc-buses=$accBuses"
+				"--acc-dev-id=$accDevId"
+				"--acc-kernel=$accKern"
+				"--acc-dev-qty=$accDevQty"
+				"--acc-dev-speed=$accDevSpeed"
+				"--acc-dev-width=$accDevWidth"
+				"--no-kern"
+			)
 		}
 		test ! -z $(echo -n $uutPn |grep "PE3ISLBEL-FN") && {
 			assignBuses spc eth plx acc
@@ -591,6 +649,61 @@ defineRequirments() {
 				"--spc-dev-width=$spcDevWidth"
 			)
 		}
+		test ! -z $(echo -n $uutPn |grep "PE316ISLBTL-CX") && {
+			assignBuses eth plx acc
+			accKern="qat_c62x"
+			plxKern="pcieport"
+			
+			accDevQty=3
+			ethDevQty=2
+			let plxDevQty=1
+			let plxDevEmptyQty=5
+			
+			let plxDevSubQty=0
+
+			baseModel="PE316ISLBTL-CX"
+			accDevId="37c8"
+			plxDevId="37c0"
+			let accDevSpeed=5
+			let accDevWidth=16
+			let plxDevSpeed=8
+			let plxDevWidth=16
+			plxDevSubSpeed="2.5"
+			let plxDevSubWidth=1
+			plxDevEmptySpeed="2.5"
+			let plxDevEmptyWidth=1
+
+
+
+			pciArgs=(
+				"--target-bus=$uutBus"
+				"--acc-buses=$accBuses"
+				"--plx-buses=$plxBuses"
+
+
+				"--acc-dev-id=$accDevId"
+				"--plx-dev-id=$plxDevId"
+
+				"--acc-kernel=$accKern"
+				"--plx-kernel=$plxKern"
+
+				"--acc-dev-qty=$accDevQty"
+				"--plx-dev-qty=$plxDevQty"
+				"--plx-dev-sub-qty=$plxDevSubQty"
+				"--plx-dev-empty-qty=$plxDevEmptyQty"
+				
+				"--acc-dev-speed=$accDevSpeed"
+				"--acc-dev-width=$accDevWidth"
+				"--plx-dev-speed=$plxDevSpeed"
+				"--plx-dev-width=$plxDevWidth"
+				"--plx-dev-sub-speed=$plxDevSubSpeed"
+				"--plx-dev-sub-width=$plxDevSubWidth"
+				"--plx-dev-empty-speed=$plxDevEmptySpeed"
+				"--plx-dev-empty-width=$plxDevEmptyWidth"
+				"--plx-keyw=Physical Slot:"
+				"--plx-virt-keyw=ABWMgmt+"
+			)
+		}
 		
 		
 		
@@ -667,17 +780,151 @@ qatTestStart() {
 	}
 }
 
-mainTest() {
-	local options
-	echo -e "\n  Select test mode:"
-	options=("PCI Info" "QAT Test" "Full test")
-	dmsg inform "options=${options[@]}"
-	case `select_opt "${options[@]}"` in
-		0) pciInfoTest;;
-		1) qatTestStart;;
-		2) pciInfoTest; qatTestStart;;
-		*) exitFail "Unknown option selected" $PROC;;
+checkBbdevPassed() {
+	if [ ! -z "$(echo "$*"|grep 'Bbdev Test Passed')" ]; then 
+		echo -e "\e[0;32mPASSED\e[m"
+	else
+		echo -e "\e[0;31mFAILED\e[m"
+	fi
+}
+
+lisbonAccTest() {
+	local targSlot allSlots
+	targSlot=$1 ; shift
+	allSlots=$*
+	cd /root/P3IMB-M-P1
+	echo -n "    Starting ldpc_dec_HARQ_1627_1.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_1627_1.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_HARQ_1_0.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_1_0.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_HARQ_1_1.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_1_1.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_HARQ_1_2.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_1_2.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_HARQ_1_3.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_1_3.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_HARQ_26449_1.loopback_r test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_26449_1.loopback_r $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_HARQ_26449_1.loopback_w test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_26449_1.loopback_w $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_HARQ_2_1_llr_comp.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_2_1_llr_comp.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_HARQ_3_1_harq_comp.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_HARQ_3_1_harq_comp.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_qm2_k1944_e32400.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_qm2_k1944_e32400.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v11835.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v11835.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v14298.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v14298.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v2342_drop.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v2342_drop.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v6563.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v6563.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v7813.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v7813.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v8480.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v8480.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v8568.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v8568.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v8568_low.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v8568_low.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_v9503.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_v9503.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_dec_vcrc_fail.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_dec_vcrc_fail.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_c1_k1144_r0_e1380_rm.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_c1_k1144_r0_e1380_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_c1_k1144_r0_e1380_rm_crc24b.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_c1_k1144_r0_e1380_rm_crc24b.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_c1_k330_r0_e360_rm.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_c1_k330_r0_e360_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_c1_k720_r0_e832_rm.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_c1_k720_r0_e832_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_c1_k720_r0_e864_rm_crc24b.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_c1_k720_r0_e864_rm_crc24b.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_c1_k8148_r0_e9372_rm.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_c1_k8148_r0_e9372_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_v11835.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_v11835.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_v2342.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_v2342.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_v2570_lbrm.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_v2570_lbrm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_v3964_rv1.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_v3964_rv1.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_v7813.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_v7813.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_v8568.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_v8568.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting ldpc_enc_v9503.data test: "; cmdRes="$(./test_bbdev_once.sh ldpc_enc_v9503.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_dec_c1_k3136_r0_e4914_sbd_negllr.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_dec_c1_k3136_r0_e4914_sbd_negllr.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_dec_c1_k40_r0_e17280_sbd_negllr.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_dec_c1_k40_r0_e17280_sbd_negllr.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_dec_c1_k6144_r0_e10376_crc24b_sbd_negllr_high_snr.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_dec_c1_k6144_r0_e10376_crc24b_sbd_negllr_high_snr.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_dec_c1_k6144_r0_e10376_crc24b_sbd_negllr_high_snr_crc24bdrop.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_dec_c1_k6144_r0_e10376_crc24b_sbd_negllr_high_snr_crc24bdrop.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_dec_c1_k6144_r0_e10376_crc24b_sbd_negllr_low_snr.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_dec_c1_k6144_r0_e10376_crc24b_sbd_negllr_low_snr.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_dec_c1_k6144_r0_e34560_sbd_negllr.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_dec_c1_k6144_r0_e34560_sbd_negllr.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_enc_c1_k40_r0_e1190_rm.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_enc_c1_k40_r0_e1190_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_enc_c1_k40_r0_e1194_rm.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_enc_c1_k40_r0_e1194_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_enc_c1_k40_r0_e1196_rm.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_enc_c1_k40_r0_e1196_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_enc_c1_k40_r0_e272_rm.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_enc_c1_k40_r0_e272_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_enc_c1_k456_r0_e1380_scatter.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_enc_c1_k456_r0_e1380_scatter.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_enc_c1_k6144_r0_e120_rm_rvidx.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_enc_c1_k6144_r0_e120_rm_rvidx.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_enc_c1_k6144_r0_e18444.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_enc_c1_k6144_r0_e18444.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+	echo -n "    Starting turbo_enc_c1_k6144_r0_e32256_crc24b_rm.data test: "; cmdRes="$(./test_bbdev_once.sh turbo_enc_c1_k6144_r0_e32256_crc24b_rm.data $targSlot $allSlots 2>&1)"; checkBbdevPassed "$cmdRes"; cmdRes=""
+}
+
+lisbonAccTests() {
+	echoSection "Lisbon Acceleration Test"
+		lisbonAccTest $uutSlotNum $uutSlotNum |& tee /tmp/statusChk.log
+	# checkIfFailed "Lisbon Acceleration Test failed!"
+}
+
+getThermalLisbon() {
+	local slotTTY cmdRes targSlot localTemp
+	targSlot=$1
+	localTemp="null"
+	eastTemp="null"
+	westTemp="null"
+	vddCoreTemp="null"
+	unset thermalDataCsv; thermalDataCsv="null"
+
+	if [ -z "$targSlot" ]; then 
+		critWarn "target slot undefined"
+	else
+		cd /root/P3IMB-M-P1
+		echo -n "  Gathering serial name: "
+		cmdRes=$(./get_ttyusb.sh $targSlot 0 |grep -m1 '=ttyUSB')
+		if [ -z "$cmdRes" ]; then
+			critWarn "get_ttyusb result undefined"
+		else
+			slotTTY=$(echo $cmdRes |cut -d= -f2)
+			echo "$slotTTY"
+			localTemp=$(./usb_tio_lisbon.sh $slotTTY sensor 1 |grep Num |awk '{print $6}' 2>&1)
+			eastTemp=$(./usb_tio_lisbon.sh $slotTTY sensor 2 |grep Num |awk '{print $6}' 2>&1)
+			westTemp=$(./usb_tio_lisbon.sh $slotTTY sensor 3 |grep Num |awk '{print $6}' 2>&1)
+			vddCoreTemp=$(./usb_tio_lisbon.sh $slotTTY sensor 20 |grep Num |awk '{print $5}' 2>&1)
+			if [ -z "$localTemp" ]; then localTemp="ERR"; fi
+			if [ -z "$eastTemp" ]; then eastTemp="ERR"; fi
+			if [ -z "$westTemp" ]; then westTemp="ERR"; fi
+			if [ -z "$vddCoreTemp" ]; then vddCoreTemp="ERR"; fi
+			echo "  Thermal data: localTemp=$localTemp  eastTemp=$eastTemp  westTemp=$westTemp  vddCoreTemp=$vddCoreTemp"
+			echo "  "thermalDataCsv="$localTemp;$eastTemp;$westTemp;$vddCoreTemp"
+		fi
+	fi
+}
+
+thermalInfo() {
+	case "$baseModel" in
+		PE3IS2CO3LS) critWarn "Undefined for $baseModel";;
+		PE2ISCO3-CX) critWarn "Undefined for $baseModel";;
+		PE3ISLBEL-FN) critWarn "Undefined for $baseModel";;
+		PE3ISLBTL-FU) critWarn "Undefined for $baseModel";;
+		PE3ISLBTL-FN) critWarn "Undefined for $baseModel";;
+		PE316ISLBTL-CX) critWarn "Undefined for $baseModel";;
+		PE3ISLBLL) critWarn "Undefined for $baseModel";;
+		PE316IS2LBTLB-CX) critWarn "Undefined for $baseModel";;
+		P3IMB-M-P1) getThermalLisbon "$@" ;;
+		*) critWarn "Unable to gather thermal data for baseModel: $baseModel, undefined"
 	esac
+}
+
+mainTest() {
+	local options pciTest qatTest fullTest
+
+	if [ -z "$testSelArg" ]; then
+		echo -e "\n  Select test mode:"
+		options=("PCI Info" "QAT Test" "Full test")
+		dmsg inform "options=${options[@]}"
+		case `select_opt "${options[@]}"` in
+			0) pciInfoTest;;
+			1) qatTestStart;;
+			2) pciInfoTest; qatTestStart;;
+			*) exitFail "Unknown option selected" $PROC;;
+		esac
+	else
+		if [[ ! -z $(echo -n $testSelArg |grep "pciTest\|qatTest\|lisbonTest\|lisbonPciTest\|thermalData\|fullTest") ]]; then
+			case "$testSelArg" in
+				pciTest) 		pciInfoTest ;;
+				qatTest) 		qatTestStart ;;
+				lisbonTest)		lisbonAccTests ;;
+				lisbonPciTest)	pciInfoTest; lisbonAccTests; pciInfoTest;;
+				thermalData) 	thermalInfo $uutSlotNum ;;
+				fullTest) 		pciInfoTest; qatTestStart ;;
+				*) except "Unknown testSelArg: $testSelArg"
+			esac
+		else
+			except "testSelArg is not in allowed test names region"
+		fi
+	fi
 }
 
 initialSetup(){
@@ -709,7 +956,8 @@ assignBuses() {
 			spc) publicVarAssign critical spcBuses $(grep '1180' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;	
 			eth) publicVarAssign critical ethBuses $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
 			plx) publicVarAssign critical plxBuses $(grep '0604' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
-			acc) publicVarAssign critical accBuses $(grep '0b40' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
+			acc) publicVarAssign critical accBuses $(grep '0b40\|1200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-) ;;
+			gen) publicVarAssign critical allBuses $(ls -l /sys/bus/pci/devices/ |grep $uutSlotBus |awk -F/ '{print $(NF)}' |grep -v $uutSlotBus |cut -d: -f2-)	;;
 			*) echo "Unknown bus: $ARG"
 		esac
 	done
@@ -739,5 +987,5 @@ else
 	initialSetup
 	startupInit
 	main
-	echo -e "See $(inform "--help" "--nnl" "--sil") for available parameters\n"
+	if [ -z "$minorLaunch" ]; then echo -n " See "; echo -n $(inform --nnl --sil "--help"); echo -e " for available parameters\n"; fi
 fi
