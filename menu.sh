@@ -5,8 +5,9 @@ parseArgs() {
 	do
 		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
 		VALUE=$(echo $ARG |cut -f2 -d=)
+		dmsg inform "ARG: KEY-$KEY  VALUE-$VALUE"
 		case "$KEY" in
-			debug) debugMode=1 ;;
+			debug) debugMode=1; newArgs="$newArgs --$KEY=${VALUE}";;
 			help)
 				echoSection "ACC diagnostics"
 				${MC_SCRIPT_PATH}/acc_diag_lib.sh --help
@@ -15,9 +16,42 @@ parseArgs() {
 				exit
 			;;
 			menu-choice) menuChoice=${VALUE} ;;
-			*) dmsg echo "Unknown arg: $ARG"
+			PN-choice) pnChoice=${VALUE} ;;
+			*) 
+				if [ -z "$(echo -n ${VALUE}|grep -v "\-\-$KEY")" ]; then
+					newArgs="$newArgs --$KEY"
+				else
+					newArgs="$newArgs --$KEY=${VALUE}"
+				fi
+				dmsg echo "Unknown arg: $ARG"
 		esac
 	done
+	echo "  Rebuilding args"
+	dmsg echo "   Old args: $@"
+	set -- "${newArgs}"
+	dmsg echo "   New args: $@"
+}
+
+loadCfg() {
+	local cfgPath srcRes
+	echo -e "  Loading config file.."
+	cfgPath="$(readlink -f ${0} |cut -d. -f1).cfg"
+	if [[ -e "$cfgPath" ]]; then 
+		echo -e "   Config file $cfgPath found."
+		cfgSize=$(stat -c%s "$cfgPath")
+		echo -n "   Checking size.. "
+		if [ $cfgSize -gt 0 ]; then
+			echo "Validated."
+			echo -n "   Sourcing CFG: "
+			srcRes="$(source "$cfgPath" 3>&1 1>&2 2>&3 3>&- 1> /dev/null)"
+			if [ -z "$srcRes" ]; then echo "config loaded"; else critWarn "config file is corrupted"; fi
+		else
+			warn "Invalid, empty file, skipping"
+		fi
+	else
+		warn "  Config file not found by path: $cfgPath"
+	fi
+	echo -e "  Done."
 }
 
 declareVars() {
@@ -41,9 +75,10 @@ main() {
 		"acc4" 		"| PE3ISLBTL"
 		"acc4-1" 	"| PE3ISLBTL-FU"
 		"acc4-2" 	"| PE3ISLBTL-FN"
+		"acc4-3" 	"| PE316ISLBTL-CX"
 		"acc5" 		"| PE3ISLBLL"
 		"acc6" 		"| PE316IS2LBTLB-CX"
-		"acc7" 		"| P3IMB-M-P1"
+		"acc7" 		"| P3IMB-M-P1-VZ"
 		"delim" 	"========================================"
 		"delim" 	"|  SFP CARDS"
 		"sfpD1" 	"| PE210G2BPI9-SR"
@@ -64,12 +99,14 @@ main() {
 		"sfpD7" 	"| PE31625G4I71L-XR-CX"
 		"sfpD8" 	"| M4E310G4I71-XR-CP2"
 		"sfpD10" 	"| PE340G2DBIR-QS41"
-		"sfpD11" 	"| PE3100G2DBIR"
+		"sfpD11" 	"| PE3100G2DBIR"		
 		"delim" 	"========================================"
 		"delim" 	"|  RJ45 CARDS"
 		"rjD1" 		"| PE210G2BPI40-T* (universal)"
 		"rjD2" 		"| PE310G4BPI40-T"
 		"rjD3" 		"| PE310G4I40-T"
+		"rjD4" 		"| PE2G2I35"
+		"rjD5" 		"| PE2G4I35"
 		"delim" 	"========================================"
 		"delim" 	"|  IBS"
 		"ibsD1" 	"| IBSGP-T* (universal)"
@@ -78,11 +115,19 @@ main() {
 		"ibsD4" 	"| IBS10GP-* (universal)"
 		"ibsD5" 	"| IBS10GP-LR-RW"
 		"delim" 	"========================================"
+		"delim" 	"|  IS"
+		"isD1" 		"| IS100G-Q-RU"
+		"isD2" 		"| IS401U-RU (40G Modules ONLY!)"
+		"delim" 	"========================================"
 		"delim" 	"|  Etc.."
-		"transRep" 	"| PE310G4BPI71-SR (transceiver check)"
+		# "transRep" 	"| PE310G4BPI71-SR (transceiver check)"
 		# "transRep1" "| PE310G4BPI71-SR (transceiver clone)"
 		"transRep2" "| PE310G4BPI71-SR (transceiver check NEW)"
-		"erase1" 	"| PE2G4I35L (erase)".]
+		"erase1" 	"| PE2G2I35L (erase)"
+		"erase2" 	"| PE2G4I35L (erase)"
+		"erase3" 	"| PE2G2SFPI35L (erase)"
+		"erase4" 	"| PE2G4SFPI35L (erase)"
+		"sfpBI1" 	"| P410G8TS81-XR (BI run)"
 		"tsCy2" 	"| STS 4 - UBlox/TimeSync/Traffic Tests"
 		"delim" 	"========================================"
 		"delim" 	"|  Settings"
@@ -91,7 +136,23 @@ main() {
 		"Exit" 		"| Exit" 
 		"delim" 	"========================================"
 	)
-
+	if [ ! -z "$pnChoice" ]; then
+		echo -n "  Verbal evaluation"
+		for arg in ${cardArgs[@]}; do
+			echo -n "."
+			if [ ! -z "$(echo $arg |grep -w $pnChoice)" ]; then
+				menuChoice=$prevArg
+				# echo "  Verbal corresponding found to $menuChoice"
+				break
+			fi
+			prevArg=$arg
+		done
+		if [ ! -z "$menuChoice" ]; then
+			echo -e "\n  Verbal corresponding found to $menuChoice"
+		else
+			except "Unable to find verbal correspondance to $pnChoice"
+		fi
+	fi
 	# getTracking
 	# createLog
 	read -r conRows conCols < <(stty size)
@@ -105,9 +166,10 @@ main() {
 		acc4)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3ISLBTL" $@$addArgs;;
 		acc4-1)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3ISLBTL-FU" $@$addArgs;;
 		acc4-2)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3ISLBTL-FN" $@$addArgs;;
+		acc4-3)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE316ISLBTL-CX" $@$addArgs;;
 		acc5)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3ISLBLL" $@$addArgs;;
 		acc6)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE316IS2LBTLB-CX" $@$addArgs;;
-		acc7)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="P3IMB-M-P1" $@$addArgs;;
+		acc7)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="P3IMB-M-P1-VZ" $@$addArgs;;
 		sfpD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SR" $@$addArgs;;
 		sfpD1-1)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SRSD-BC8" $@$addArgs;;
 		sfpD1-2)	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI9-SR-SD" $@$addArgs;;
@@ -127,15 +189,25 @@ main() {
 		sfpD8) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@$addArgs;;
 		sfpD10) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE340G2DBIR-QS41" $@$addArgs;;
 		sfpD11) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE3100G2DBIR" $@$addArgs;;
+		sfpBI1) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="P410G8TS81-XR" --noMasterMode --slDupSkp --test-sel=pciTrfTest $@$addArgs;;
 		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI40-T" $@$addArgs;;
 		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@$addArgs;;
 		rjD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@$addArgs;;
+		rjD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE2G2I35" $@$addArgs;;
+		rjD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE2G4I35" $@$addArgs;;
 		ibsD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T*" --ibs-mode $@$addArgs;;
 		ibsD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T" --ibs-mode $@$addArgs;;
 		ibsD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T-MC-AM" --ibs-mode $@$addArgs;;
 		ibsD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-*" --ibs-mode $@$addArgs;;
 		ibsD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-LR-RW" --ibs-mode $@$addArgs;;
-
+		isD1)
+			testFileExist "${MC_SCRIPT_PATH}/isTest.sh"
+			${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS100G-Q-RU" $@$addArgs
+		;;
+		isD2)
+			testFileExist "${MC_SCRIPT_PATH}/isTest.sh"
+			${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS401U-RU" $@$addArgs
+		;;
 		sett1)		
 			if [ "$ignoreDumpFail" = "NO" ]; then
 				ignoreDumpFail="YES"
@@ -162,7 +234,10 @@ main() {
 			/root/PE310G4BPI71/sfpClone.sh
 		;;
 		transRep2)	checkUUTTransceivers;;
-		erase1)	${MC_SCRIPT_PATH}/progUtil.sh --uut-pn="PE2G4I35" $@$addArgs ;;
+		erase1)	${MC_SCRIPT_PATH}/progUtil.sh --uut-pn="PE2G2I35" $@$addArgs ;;
+		erase2)	${MC_SCRIPT_PATH}/progUtil.sh --uut-pn="PE2G4I35" $@$addArgs ;;
+		erase3)	${MC_SCRIPT_PATH}/progUtil.sh --uut-pn="PE2G2SFPI35L" $@$addArgs ;;
+		erase4)	${MC_SCRIPT_PATH}/progUtil.sh --uut-pn="PE2G4SFPI35L" $@$addArgs ;;
 		tsCy2)
 			testFileExist "${MC_SCRIPT_PATH}/tsTest.sh"
 			${MC_SCRIPT_PATH}/tsTest.sh --uut-pn="TS4" $@
@@ -186,9 +261,10 @@ if [[ -e "$libPath" ]]; then
 	source /root/multiCard/graphicsLib.sh
 	testFileExist "${MC_SCRIPT_PATH}/acc_diag_lib.sh"
 	testFileExist "${MC_SCRIPT_PATH}/sfpLinkTest.sh"
+	loadCfg
 	declareVars
 	parseArgs "$@"
-	main "$@"
+	main "${newArgs}"
 else
 	echo -e "  \e[0;31mLib not found by path: $libPath\e[m"
 fi

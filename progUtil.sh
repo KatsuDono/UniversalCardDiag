@@ -6,7 +6,7 @@ declareVars() {
 	title="$toolName $ver"
 	btitle="  arturd@silicom.co.il"	
 	let exitExec=0
-	let debugBrackets=1
+	let debugBrackets=0
 }
 
 parseArgs() {
@@ -85,11 +85,32 @@ checkRequiredFiles() {
 	)
 	
 	case "$baseModel" in
+		PE2G2I35) 
+			echo "  File list: PE2G2I35"
+			declare -a filesArr=(
+				${filesArr[@]}				
+				"/root/PE2G2I35/"	
+			)				
+		;;
 		PE2G4I35) 
 			echo "  File list: PE2G4I35"
 			declare -a filesArr=(
 				${filesArr[@]}				
 				"/root/PE2G4I35/"	
+			)				
+		;;
+		PE2G2SFPI35L) 
+			echo "  File list: $baseModel"
+			declare -a filesArr=(
+				${filesArr[@]}				
+				"/root/PE2G2SFPI35L/"	
+			)				
+		;;
+		PE2G4SFPI35L) 
+			echo "  File list: $baseModel"
+			declare -a filesArr=(
+				${filesArr[@]}				
+				"/root/PE2G4SFPI35L/"	
 			)				
 		;;
 		*) exitFail "checkRequiredFiles exception, unknown baseModel: $baseModel"
@@ -233,13 +254,35 @@ selectFwVer() {
 	fi
 
 	case "$fwSyncPn" in
+		PE2G2I35)
+			echo "  FW Files list: PE2G2I35"	
+			case "$fwVerLocal" in
+				1.00)	fwFileName="PE2G2i35.eep"	;;
+				erase)	fwFileName="i35blank.eep"	;;
+				*) except "unknown ver selected: $fwVerLocal"
+			esac
+		;;
 		PE2G4I35)
-			echo "  FW Files list: PE310G4BPI71-SR"	
+			echo "  FW Files list: PE2G4I35"	
 			case "$fwVerLocal" in
 				1.00)	fwFileName="PE2G4i35.eep"	;;
 				1.30)	fwFileName="PE2G4i35L-RB2.eep"	;;
 				1.40)	fwFileName="PE2G4i35L.eep"	;;
 				2.20)	fwFileName="PE2G4i35LE_2v00.eep"	;;
+				erase)	fwFileName="i35blank.eep"	;;
+				*) except "unknown ver selected: $fwVerLocal"
+			esac
+		;;
+		PE2G2SFPI35L)
+			echo "  FW Files list: $fwSyncPn"	
+			case "$fwVerLocal" in
+				erase)	fwFileName="i35blank.eep"	;;
+				*) except "unknown ver selected: $fwVerLocal"
+			esac
+		;;
+		PE2G4SFPI35L)
+			echo "  FW Files list: $fwSyncPn"	
+			case "$fwVerLocal" in
 				erase)	fwFileName="i35blank.eep"	;;
 				*) except "unknown ver selected: $fwVerLocal"
 			esac
@@ -251,7 +294,9 @@ selectFwVer() {
 	dmsg echo "Path selected: $fwPath"
 
 	if [[ ! -e "$fwPath" ]]; then
+		echo -e "\tFW not present, downloading.."
 		getFwFromServ "$baseModel" "$fwSyncPn"
+		fwPath="$baseModelPath/$fwFileName"
 	fi
 
 	# fwFolder=$(basename $fwPath)
@@ -261,7 +306,31 @@ defineRequirments() {
 	local ethToRemove
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && exitFail "Requirements cant be defined, empty uutPn"
-	if [[ ! -z $(echo -n $uutPn |grep "PE2G4I35\|nullDev") ]]; then
+	if [[ ! -z $(echo -n $uutPn |grep "PE2G4I35\|PE2G2I35\|PE2G2SFPI35L\|PE2G4SFPI35L") ]]; then
+
+		test ! -z $(echo -n $uutPn |grep "PE2G2I35") && {
+			uutFwVers=("1.00" "1.30" "1.40" "2.20")
+			uutEraseFwVer="erase"
+			let verDumpLen=5
+			pnDumpOffset="0x850"
+			let pnDumpLen=28
+			pnRevDumpOffset="0x86C"
+			let pnRevDumpLen=4
+			tnDumpOffset="0x880"
+			let tnDumpLen=13
+			tdDumpOffset="0x872"
+			let tdDumpLen=6
+			baseModel="PE2G2I35"
+			syncPn="PE2G2I35"
+			fwSyncPn="PE2G2I35"
+			baseModelPath="/root/PE2G2I35"
+			bpCtlMode="bpctl"
+			
+			let physEthDevSpeed=8
+			let physEthDevWidth=8
+			
+			assignBuses eth plx spc acc
+		} 
 
 		test ! -z $(echo -n $uutPn |grep "PE2G4I35") && {
 			uutFwVers=("1.00" "1.30" "1.40" "2.20")
@@ -286,6 +355,55 @@ defineRequirments() {
 			
 			assignBuses eth plx spc acc
 		} 
+
+		test ! -z $(echo -n $uutPn |grep "PE2G2SFPI35L") && {
+			uutFwVers=("1.00" "1.30" "1.40" "2.20")
+			uutEraseFwVer="erase"
+			let verDumpLen=5
+			pnDumpOffset="0x850"
+			let pnDumpLen=28
+			pnRevDumpOffset="0x86C"
+			let pnRevDumpLen=4
+			tnDumpOffset="0x880"
+			let tnDumpLen=13
+			tdDumpOffset="0x872"
+			let tdDumpLen=6
+			baseModel="PE2G2SFPI35L"
+			syncPn="PE2G2SFPI35L"
+			fwSyncPn="PE2G2SFPI35L"
+			baseModelPath="/root/PE2G2SFPI35L"
+			bpCtlMode="bpctl"
+			
+			let physEthDevSpeed=8
+			let physEthDevWidth=8
+			
+			assignBuses eth
+		} 
+
+		test ! -z $(echo -n $uutPn |grep "PE2G4SFPI35L") && {
+			uutFwVers=("1.00" "1.30" "1.40" "2.20")
+			uutEraseFwVer="erase"
+			let verDumpLen=5
+			pnDumpOffset="0x850"
+			let pnDumpLen=28
+			pnRevDumpOffset="0x86C"
+			let pnRevDumpLen=4
+			tnDumpOffset="0x880"
+			let tnDumpLen=13
+			tdDumpOffset="0x872"
+			let tdDumpLen=6
+			baseModel="PE2G4SFPI35L"
+			syncPn="PE2G4SFPI35L"
+			fwSyncPn="PE2G4SFPI35L"
+			baseModelPath="/root/PE2G4SFPI35L"
+			bpCtlMode="bpctl"
+			
+			let physEthDevSpeed=8
+			let physEthDevWidth=8
+			
+			assignBuses eth
+		} 
+
 
 		echoIfExists "  Port count:" "$uutDevQty"
 		echoIfExists "  Net count:" "$uutNetQty"
@@ -487,7 +605,19 @@ eraseUUT() {
 	local somestuff
 	echo "  Erasing UUT.."
 	case "$baseModel" in
+		PE2G2I35) 
+			selectFwVer "erase"
+			flashCard "$(echo $ethBuses |cut -d ' ' -f1 |cut -d: -f1)" "$fwPath"
+		;;
 		PE2G4I35) 
+			selectFwVer "erase"
+			flashCard "$(echo $ethBuses |cut -d ' ' -f1 |cut -d: -f1)" "$fwPath"
+		;;
+		PE2G2SFPI35L) 
+			selectFwVer "erase"
+			flashCard "$(echo $ethBuses |cut -d ' ' -f1 |cut -d: -f1)" "$fwPath"
+		;;
+		PE2G4SFPI35L) 
 			selectFwVer "erase"
 			flashCard "$(echo $ethBuses |cut -d ' ' -f1 |cut -d: -f1)" "$fwPath"
 		;;

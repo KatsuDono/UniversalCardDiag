@@ -138,6 +138,44 @@ connWarnMsgMgnt() {
 	read foo
 }
 
+connWarnMsgLoop12() {
+	inform "\tCONNECTION SCHEME\n"
+	inform --sil "\t  ----------------------------------------------"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |  U  |\tPort 1\t<-----\                 |"
+	inform --sil "\t |  U  |\t\t      |\t\t        |"
+	inform --sil "\t |  T  |\tPort 2\t<-----/                 |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t  ----------------------------------------------"
+	inform "\n\tPress enter to continue..\n\n"
+	read foo
+}
+
+connWarnMsgLoop1324() {
+	inform "\tCONNECTION SCHEME\n"
+	inform --sil "\t  ----------------------------------------------"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\tPort 1\t<----------\            |"
+	inform --sil "\t |     |\t\t\t   |\t        |"
+	inform --sil "\t |     |\tPort 2\t<-----\    |\t        |"
+	inform --sil "\t |     |\t\t      |    |\t\t|"
+	inform --sil "\t |  U  |\tPort 3\t<-----┼----/  \t        |"
+	inform --sil "\t |  U  |\t\t      |\t\t        |"
+	inform --sil "\t |  T  |\tPort 4\t<-----/  \t\t|"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t |     |\t\t\t\t        |"
+	inform --sil "\t  ----------------------------------------------"
+	inform "\n\tPress enter to continue..\n\n"
+	read foo
+}
+
 untestedPnWarn() {
 	critWarn "\t  ------------------------------------------------------ \n" --sil
 	critWarn "\t |     |\t    UNTESTED PART-NUMBER\t  |     |\n" --sil
