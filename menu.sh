@@ -104,9 +104,10 @@ main() {
 		"delim" 	"|  RJ45 CARDS"
 		"rjD1" 		"| PE210G2BPI40-T* (universal)"
 		"rjD2" 		"| PE310G4BPI40-T"
-		"rjD3" 		"| PE310G4I40-T"
-		"rjD4" 		"| PE2G2I35"
-		"rjD5" 		"| PE2G4I35"
+		"rjD3" 		"| PE310G4DBIR-T"
+		"rjD4" 		"| PE310G4I40-T"
+		"rjD5" 		"| PE2G2I35"
+		"rjD6" 		"| PE2G4I35"
 		"delim" 	"========================================"
 		"delim" 	"|  IBS"
 		"ibsD1" 	"| IBSGP-T* (universal)"
@@ -192,9 +193,10 @@ main() {
 		sfpBI1) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="P410G8TS81-XR" --noMasterMode --slDupSkp --test-sel=pciTrfTest $@$addArgs;;
 		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI40-T" $@$addArgs;;
 		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@$addArgs;;
-		rjD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@$addArgs;;
-		rjD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE2G2I35" $@$addArgs;;
-		rjD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE2G4I35" $@$addArgs;;
+		rjD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4DBIR-T" $@$addArgs;;
+		rjD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4I40-T" $@$addArgs;;
+		rjD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE2G2I35" $@$addArgs;;
+		rjD6) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE2G4I35" $@$addArgs;;
 		ibsD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T*" --ibs-mode $@$addArgs;;
 		ibsD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T" --ibs-mode $@$addArgs;;
 		ibsD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T-MC-AM" --ibs-mode $@$addArgs;;

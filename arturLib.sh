@@ -1119,7 +1119,7 @@ function testLinks () {
 	privateVarAssign "${FUNCNAME[0]}" "linkReq" "$2"
 	privateVarAssign "${FUNCNAME[0]}" "uutModel" "$3"
 	case "$uutModel" in
-		PE340G2DBIR|PE3100G2DBIR|PE310G4DBIR)
+		PE340G2DBIR|PE3100G2DBIR|PE310G4DBIR|PE310G4DBIR-T)
 			privateVarAssign "${FUNCNAME[0]}" "devNumRDIF" "$4"
 			privateVarAssign "${FUNCNAME[0]}" "retryCount" "$globLnkAcqRetr"
 		;;
@@ -1142,7 +1142,7 @@ function testLinks () {
 				PE210G2BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
-				PE310G4DBIR) 
+				PE310G4DBIR|PE310G4DBIR-T) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
 					dmsg "netId=$netId"
 					if [ "$netId" = "0" ]; then 
@@ -1154,7 +1154,7 @@ function testLinks () {
 						if [[ ! -z "$(echo $linkAcqRes |grep UP)" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
 					fi
 				;;
-				PE340G2DBIR|PE3100G2DBIR|PE310G4DBIR) 
+				PE340G2DBIR|PE3100G2DBIR|PE310G4DBIR|PE310G4DBIR-T) 
 					linkAcqRes=$(rdifctl dev $devNumRDIF get_port_link $netTarg |grep UP)
 					if [[ ! -z "$(echo $linkAcqRes |grep UP)" ]]; then linkAcqRes="yes"; else linkAcqRes="no"; fi
 				;;
@@ -1244,7 +1244,7 @@ getEthRates() {
 				PE210G2BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4I40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
-				PE310G4DBIR) 
+				PE310G4DBIR|PE310G4DBIR-T) 
 					netId=$(net2bus "$netTarg" |cut -d. -f2)
 					test "$netId" = "0" && speedReq="Fail"
 					linkAcqRes="Speed: $(rdifctl dev 0 get_port_speed $netId)Mb/s"
@@ -2699,55 +2699,7 @@ function sendBCMShellCmd () {
 	return $?
 }
 
-# function sendBCMGetQ-SFPInfo () {
-# 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-# 	local timeout cmd cmdR
-# 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
-
-# 	which expect > /dev/null || except "expect not found by which!"
-# 	which tio > /dev/null || except "tio not found by which!"
-
-# 	expect -c "
-# 	set timeout $timeout
-# 	log_user 1
-# 	exp_internal 0
-# 	spawn /home/BCM_PHY/20220801_Quadra_1_8/Q28_1_8/quadra28_reference_app/bin/bcm82780_phy_init
-# 	expect {
-# 		*Q28:)* { 
-# 			send_user \"\nSending cmd: get_sfp_info\n\"
-# 			send \"get_sfp_info\r\" 
-# 			send_user \"\nCmd: get_sfp_info - Sent.\n\"
-# 		}
-
-# 		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
-# 		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
-# 		exp_continue
-# 	}
-# 	sleep 1
-# 	expect {
-# 	*Q28:)* { 
-# 		send_user \"\nSending cmd: get_qsfp_info\n\"
-# 		send \"get_qsfp_info\r\n\" 
-# 		send_user \"\nCmd: get_qsfp_info - Sent.\n\"
-# 	}
-# 	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
-# 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
-# 	}
-# 	sleep 1
-# 	expect {
-# 	*Q28:)* { 
-# 		send_user \"\nExiting..\n\"
-# 		send \"exit\r\n\" 
-# 		send_user \"\nCmd: exit - Sent.\n\"
-# 	}
-# 	timeout { send_user \"\nTimeout4\n\"; send \x14q\r ; exit 1 }
-# 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
-# 	}
-# 	" 
-# 	return $?
-# }
-
-function sendBCMGetQ-SFPInfo () {
+function sendBCMGetQSFPInfo () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local timeout cmd cmdR
 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
@@ -4034,7 +3986,7 @@ slcm_read() {
 
 stsTransData() {
 	# if [ -z "$bcmCmdRes" ]; then
-	# 	export bcmCmdRes="$(sendBCMGetQ-SFPInfo 250 2>&1)"
+	# 	export bcmCmdRes="$(sendBCMGetQSFPInfo 250 2>&1)"
 	# fi
 	for phyId in 8 9 10 11 12; do 
 		echo "$bcmCmdRes" |grep -A10 "PHY id $phyId" |grep PNP |cut -d: -f2 |awk '{print $1=$1}'
