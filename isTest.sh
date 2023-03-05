@@ -214,7 +214,7 @@ defineRequirments() {
 }
 
 is100sshSendTraffic() { 
-	local jenaExecName packetAmnt portMask sshCommand testResVar
+	local jenaExecName packetAmnt portMask sshCommand testResVar onlyTrfCounterRes
 	privateVarAssign "${FUNCNAME[0]}" "jenaExecName" "$1"
 	privateVarAssign "${FUNCNAME[0]}" "packetAmnt" "$2"
 	privateVarAssign "${FUNCNAME[0]}" "portMask" "$3"
@@ -222,9 +222,18 @@ is100sshSendTraffic() {
 	pathAdd='export PATH=$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/sbin:/root/bin'
 	
 	sshCommand="sw 100; stdbuf -oL -eL $jenaExecName $packetAmnt 60 $portMask 1500 silent dealloc"
-	testResVar=$(ssh -oStrictHostKeyChecking=no root@$trafficGenIP "$pathAdd; $sshCommand" |& tail -n 1)
-	test -z "$(echo $testResVar |grep "configurecard failed")" && {
+	fullResult=$(ssh -oStrictHostKeyChecking=no root@$trafficGenIP "$pathAdd; $sshCommand" 2>&1)
+	testResVar=$(echo "$fullResult" |& tail -n 1)
+	test -z "$(echo $fullResult |grep "configurecard failed")" && {
 		echo "$testResVar"
+		if [[ ! -z "$(echo $testResVar |grep Failed)" ]]; then
+			onlyTrfCounterRes="$(echo "$fullResult" |grep -B1 -A99 'tx-port 0')"
+			if [ -z "$onlyTrfCounterRes" ]; then
+				echo "$fullResult"
+			else
+				echo "$onlyTrfCounterRes"
+			fi
+		fi
 	} || {
 		echo -e "\n\n\n\e[0;31m\tTRAFFIC GENERATOR FPGA CONFIGURATION FAILED!\e[m"
 		echo -e "\e[0;31m\t\tUNABLE TO SEND TRAFFIC,\e[m"
@@ -235,7 +244,7 @@ is100sshSendTraffic() {
 
 
 is100sshSendTrafficAndPoweroff() { 
-	local jenaExecName packetAmnt portMask sshCommand testResVar fullResult
+	local jenaExecName packetAmnt portMask sshCommand testResVar fullResult onlyTrfCounterRes
 
 	pathAdd='export PATH=$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/sbin:/root/bin'
 	
@@ -248,10 +257,16 @@ is100sshSendTrafficAndPoweroff() {
 	echo -e -n "\tSending traffic and switching modules to Passive BP: "
 	fullResult=$(ssh -oStrictHostKeyChecking=no root@$trafficGenIP "$pathAdd; $sshCommand" 2>&1)
 	testResVar=$(echo "$fullResult" |& tail -n 1)
-	test -z "$(echo $testResVar |grep "configurecard failed")" && {
+	test -z "$(echo $fullResult |grep "configurecard failed")" && {
 		echo "$testResVar"
+		
 		if [[ ! -z "$(echo $testResVar |grep Failed)" ]]; then
-			echo "$fullResult"
+			onlyTrfCounterRes="$(echo "$fullResult" |grep -B1 -A99 'tx-port 0')"
+			if [ -z "$onlyTrfCounterRes" ]; then
+				echo "$fullResult"
+			else
+				echo "$onlyTrfCounterRes"
+			fi
 		fi
 	} || {
 		echo -e "\n\n\n\e[0;31m\tTRAFFIC GENERATOR FPGA CONFIGURATION FAILED!\e[m"
@@ -293,12 +308,18 @@ is100CheckLinkState() {
 }
 
 is100CheckAllLinkState() {
-	local reqState
+	local reqState targMod
 	privateVarAssign "${FUNCNAME[0]}" "reqState" "$1"
-	is100CheckLinkState 1 0 $reqState
-	is100CheckLinkState 1 1 $reqState
-	is100CheckLinkState 2 0 $reqState
-	is100CheckLinkState 2 1 $reqState
+	targMod=$2
+	if [ -z "$targMod" ]; then
+		is100CheckLinkState 1 0 $reqState
+		is100CheckLinkState 1 1 $reqState
+		is100CheckLinkState 2 0 $reqState
+		is100CheckLinkState 2 1 $reqState
+	else
+		is100CheckLinkState $targMod 0 $reqState
+		is100CheckLinkState $targMod 1 $reqState
+	fi
 }
 
 
@@ -323,7 +344,10 @@ is40printBPState(){
 }
 
 is100printBPState(){
-	local mod1Info mod2Info mod1ActSt mod1PasSt mod2ActSt mod2PasSt
+	local mod1Info mod2Info mod1ActSt mod1PasSt mod2ActSt mod2PasSt targMod
+	targMod=$1
+
+	
 	mod1Info=$(sendIS100 $uutSerDev "show bypass state")
 	mod1Info=$(echo "$mod1Info" |grep -A38 "Module 1 Status")
 	mod1ActSt=$(echo "$mod1Info" |grep "ActiveState" |cut -d: -f2| sed 's/[^a-zA-Z0-9]//g')
@@ -334,13 +358,27 @@ is100printBPState(){
 	mod2ActSt=$(echo "$mod2Info" |grep "ActiveState" |cut -d: -f2| sed 's/[^a-zA-Z0-9]//g')
 	mod2PasSt=$(echo "$mod2Info" |grep "PassiveState" |cut -d: -f2| sed 's/[^a-zA-Z0-9]//g')
 
-	echo -ne "\t==============================================\n"
-	echo -ne "\t== Module 1\n"
-	echo -ne "\t==  Virtual BP: $mod1ActSt    Physical BP: $mod1PasSt\n"
-	echo -ne "\t==== \n"
-	echo -ne "\t== Module 2\n"
-	echo -ne "\t==  Virtual BP: $mod2ActSt    Physical BP: $mod2PasSt\n"
-	echo -ne "\t==============================================\n"
+	if [ -z "$targMod" ]; then
+		echo -ne "\t==============================================\n"
+		echo -ne "\t== Module 1\n"
+		echo -ne "\t==  Virtual BP: $mod1ActSt    Physical BP: $mod1PasSt\n"
+		echo -ne "\t==== \n"
+		echo -ne "\t== Module 2\n"
+		echo -ne "\t==  Virtual BP: $mod2ActSt    Physical BP: $mod2PasSt\n"
+		echo -ne "\t==============================================\n"
+	else
+		if [ $targMod -eq 1 ]; then
+			echo -ne "\t==============================================\n"
+			echo -ne "\t== Module 1\n"
+			echo -ne "\t==  Virtual BP: $mod1ActSt    Physical BP: $mod1PasSt\n"
+			echo -ne "\t==============================================\n"
+		else
+			echo -ne "\t==============================================\n"
+			echo -ne "\t== Module 2\n"
+			echo -ne "\t==  Virtual BP: $mod2ActSt    Physical BP: $mod2PasSt\n"
+			echo -ne "\t==============================================\n"
+		fi
+	fi
 }
 
 is100HardReset() {
@@ -664,54 +702,92 @@ isBpTests() {
 
 	case $baseModel in
 		"IS100G-Q-RU") 
-			sleep 1
-			is100CPLDsetBP inline 1
-			is100CPLDsetBP inline 2
-			is100SwitchHB off 1
-			is100SwitchHB off 2
-			is100SetBP inline 1
-			is100SetBP inline 2
-			is100SwitchHB on 1
-			is100SwitchHB on 2
-			is100CheckAllLinkState up
-			echo -ne "\n"
-			is100printBPState
-			is100SendTraffic
+			if [ -z "$modSelect" ]; then
+				sleep 1
+				is100CPLDsetBP inline 1
+				is100CPLDsetBP inline 2
+				is100SwitchHB off 1
+				is100SwitchHB off 2
+				is100SetBP inline 1
+				is100SetBP inline 2
+				is100SwitchHB on 1
+				is100SwitchHB on 2
+				is100CheckAllLinkState up
+				echo -ne "\n"
+				is100printBPState
+				is100SendTraffic
 
-			echo -ne "\n"
-			is100SwitchHB off 1
-			is100SwitchHB off 2
-			is100SetBP bypass 1
-			is100SetBP bypass 2
-			is100CPLDsetBP inline 1
-			is100CPLDsetBP inline 2
-			is100CheckAllLinkState up
-			echo -ne "\n"
-			is100printBPState
-			is100SendTraffic
+				echo -ne "\n"
+				is100SwitchHB off 1
+				is100SwitchHB off 2
+				is100SetBP bypass 1
+				is100SetBP bypass 2
+				is100CPLDsetBP inline 1
+				is100CPLDsetBP inline 2
+				is100CheckAllLinkState up
+				echo -ne "\n"
+				is100printBPState
+				is100SendTraffic
 
-			echo -ne "\n"
-			is100SetBP bypass 1
-			is100SetBP bypass 2
-			is100CPLDsetBP bypass 1
-			is100CPLDsetBP bypass 2
-			is100CheckAllLinkState down
-			echo -ne "\n"
-			is100printBPState
-			is100SendTraffic
+				echo -ne "\n"
+				is100SetBP bypass 1
+				is100SetBP bypass 2
+				is100CPLDsetBP bypass 1
+				is100CPLDsetBP bypass 2
+				is100CheckAllLinkState down
+				echo -ne "\n"
+				is100printBPState
+				is100SendTraffic
 
-			echo -ne "\n"
-			is100CPLDsetBP inline 1
-			is100CPLDsetBP inline 2
-			is100SetBP inline 1
-			is100SetBP inline 2
+				echo -ne "\n"
+				is100CPLDsetBP inline 1
+				is100CPLDsetBP inline 2
+				is100SetBP inline 1
+				is100SetBP inline 2
 
 
-			is100sshSendTrafficAndPoweroff
-			is100CPLDsetBP inline 1
-			is100CPLDsetBP inline 2
-			is100SetBP inline 1
-			is100SetBP inline 2
+				is100sshSendTrafficAndPoweroff
+				is100CPLDsetBP inline 1
+				is100CPLDsetBP inline 2
+				is100SetBP inline 1
+				is100SetBP inline 2
+			else
+				sleep 1
+				is100CPLDsetBP inline $modSelect
+				is100SwitchHB off $modSelect
+				is100SetBP inline $modSelect
+				is100SwitchHB on $modSelect
+				is100CheckAllLinkState up $modSelect
+				echo -ne "\n"
+				is100printBPState $modSelect
+				is100SendTraffic
+
+				echo -ne "\n"
+				is100SwitchHB off $modSelect
+				is100SetBP bypass $modSelect
+				is100CPLDsetBP inline $modSelect
+				is100CheckAllLinkState up $modSelect
+				echo -ne "\n"
+				is100printBPState $modSelect
+				is100SendTraffic
+
+				echo -ne "\n"
+				is100SetBP bypass $modSelect
+				is100CPLDsetBP bypass $modSelect
+				is100CheckAllLinkState down $modSelect
+				echo -ne "\n"
+				is100printBPState $modSelect
+				is100SendTraffic
+
+				echo -ne "\n"
+				is100CPLDsetBP inline $modSelect
+				is100SetBP inline $modSelect
+
+
+				is100sshSendTrafficAndPoweroff
+				is100CPLDsetBP inline $modSelect
+				is100SetBP inline $modSelect
+			fi
 		;;
 		"IS401U-RU") 
 			sleep 1
@@ -946,23 +1022,39 @@ initialSetup(){
 
 selectMod() {
 	local modulues segments
-	modulues=("Module 1" "Module 2" "Module 3")
-	select_option "${modulues[@]}"
-	case ${modulues[$?]} in 
-		"Module 1") let modSelect=1;;
-		"Module 2")	let modSelect=2;;
-		"Module 3")	let modSelect=3;;
+	modeArg=$1
+	case $modeArg in 
+		"is40") 
+			modulues=("Module 1" "Module 2" "Module 3")
+			select_option "${modulues[@]}"
+			case ${modulues[$?]} in 
+				"Module 1") let modSelect=1;;
+				"Module 2")	let modSelect=2;;
+				"Module 3")	let modSelect=3;;
+				*) except "invalid option: ${modulues[$?]}";;
+			esac
+		;;
+		"is100")
+			modulues=("Module 1" "Module 2" "All modules")
+			select_option "${modulues[@]}"
+			case ${modulues[$?]} in 
+				"Module 1") let modSelect=1;;
+				"Module 2")	let modSelect=2;;
+				"All modules")	unset modSelect;;
+				*) except "invalid option: ${modulues[$?]}";;
+			esac
+		;;
 		*) 
-			echo "Invalid option, try again"
-			modSelect="-1"
+			except "invalid modeArg: $modeArg"
 		;;
 	esac
 }
 
 main() {
 	case $baseModel in
-		"IS100G-Q-RU") ;;
-		"IS401U-RU") selectMod
+		"IS100G-Q-RU") selectMod "is100";;
+		"IS401U-RU") selectMod "is40";;
+		*) except "invalid baseModel: $baseModel";;
 	esac
 	
 	mainTest
