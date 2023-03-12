@@ -96,6 +96,7 @@ startupInit() {
 		case "$baseModel" in
 			IS100G-Q-RU) sshCheckServer;;
 			IS401U-RU) sshCheckServer;;
+			IS-UNIV) ;;
 			*) except "unknown baseModel: $baseModel"
 		esac
 	}
@@ -116,14 +117,21 @@ checkRequiredFiles() {
 	
 	case "$baseModel" in
 		IS100G-Q-RU) 
-			echo "  File list: PE310G4BPI71"
+			echo "  File list: $baseModel"
 			declare -a filesArr=(
 				${filesArr[@]}				
 				"/root/multiCard/arturLib.sh"	
 			)				
 		;;
 		IS401U-RU) 
-			echo "  File list: PE310G4BPI71"
+			echo "  File list: $baseModel"
+			declare -a filesArr=(
+				${filesArr[@]}				
+				"/root/multiCard/arturLib.sh"	
+			)				
+		;;
+		IS-UNIV) 
+			echo "  File list: $baseModel"
 			declare -a filesArr=(
 				${filesArr[@]}				
 				"/root/multiCard/arturLib.sh"	
@@ -151,7 +159,7 @@ defineRequirments() {
 	local ethToRemove secBusAddr secBusArg
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && except "requirements cant be defined, empty uutPn"
-	if [[ ! -z $(echo -n $uutPn |grep "IS100G-Q-RU\|IS401U-RU") ]]; then
+	if [[ ! -z $(echo -n $uutPn |grep "IS100G-Q-RU\|IS401U-RU\|IS-UNIV") ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 
 		test ! -z $(echo -n $uutPn |grep "IS100G-Q-RU") && {
@@ -182,6 +190,21 @@ defineRequirments() {
 			isDevType="3.0.34-sl"
 		}
 
+		test ! -z $(echo -n $uutPn |grep "IS-UNIV") && {
+			baseModel="IS-UNIV"
+			uutBdsUser="null"
+			uutBdsPass="null"
+			uutRootUser="null"
+			uutRootPass="null"
+			uutBaudRate=115200
+
+			isUbootVer="2011.12-sl:00.01"
+			isSwVer="0.2.2.0"
+			isFwVer="22.2.0.40"
+			isDevType="3.0.34-sl"
+		}
+
+		
 		echoIfExists "  Base model:" "$baseModel"
 	else
 		except "$uutPn cannot be processed, requirements not defined"
@@ -637,6 +660,57 @@ is100TrfAndPwOff() {
 	is100SetBP inline 2
 }
 
+isPowerCycle() {
+	local internalTTY
+	internalTTY=$(find /sys/bus/usb/devices/usb3/ -name dev |grep '3-7:1.0' |cut -d/ -f9)
+	delayList=( 1 5 10 15 60 )
+	cycleCntList=( 10 50 100 200 )
+	cycleTypeList=( "Power off" "Reset" )
+	echo -e " Select cycle type:"
+	cycleTypeSelRes=$(select_opt "${cycleTypeList[@]}")
+	echo -e " Select cycle count:"
+	cycleCntSelRes=$(select_opt "${cycleCntList[@]}")
+	let cycleTrg=${cycleCntList[$cycleCntSelRes]}
+	if [ $cycleTypeSelRes -eq 0 ]; then
+		echo -e "\n Select delay in seconds:"
+		delaySelRes=$(select_opt "${delayList[@]}")
+		let delayTrg=${delayList[$delaySelRes]}
+	fi
+	
+	if [ ! -z "$(echo $internalTTY |grep ttyUSB)" ]; then
+		IPPowerCheckSerial $internalTTY
+		IPPowerSwPowerAll $internalTTY 0
+		for ((t=0;t<=$cycleTrg;t++)); do
+			if [ $cycleTypeSelRes -eq 0 ]; then
+				IPPowerSwPower $internalTTY 1 1
+				echo -ne "\tBoot ($t out of $cycleTrg): "
+				bootOk="$(getISBootMsg $uutSerDev 115200 10)"
+				if [ ! -z "$(echo $bootOk|grep BOOT_OK_CNF)" ]; then
+					echo -e "\e[0;32mOK\e[m"
+				else
+					echo -e "\e[0;31mFAILED\e[m"
+					except "Boot failed"
+				fi
+				IPPowerSwPower $internalTTY 1 0
+				countDownDelay $delayTrg "  Waiting for set delay"
+			else
+				if [ $t -eq 0 ]; then IPPowerSwPower $internalTTY 1 1; fi
+				echo -ne "\tReset ($t out of $cycleTrg): "
+				bootOk="$(getISRstMsg $uutSerDev 115200 15)"
+				if [ ! -z "$(echo $bootOk|grep RST_SEND_CNF)" ]; then
+					echo -e "\e[0;32mOK\e[m"
+				else
+					echo -e "\e[0;31mFAILED\e[m"
+					except "Boot after reset failed"
+				fi
+			fi
+		done
+		IPPowerSwPowerAll $internalTTY 0
+	else
+		except "internal COM cable is not connected to MB header. Check internal cable and try again"
+	fi
+}
+
 isPasBpTests() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 
@@ -938,28 +1012,33 @@ mainTest() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	local pciTest dumpTest bpTest drateTest trfTest isInfoTest
 	
-	if [[ ! -z "$untestedPn" ]]; then untestedPnWarn; fi
+	if [ -z "$testSelArg" ]; then
+		if [[ ! -z "$untestedPn" ]]; then untestedPnWarn; fi
 
-	checkDefined uutBdsUser
-	checkDefined uutBdsPass
-	checkDefined uutRootUser
-	checkDefined uutRootPass
+		checkDefined uutBdsUser
+		checkDefined uutBdsPass
+		checkDefined uutRootUser
+		checkDefined uutRootPass
 
-	echo -e "\n  Select tests:"
-	options=("Full test" "Info test" "BP test" "Passive BP test" "FT test" "Hard reset" "Send traffic and power off")
-	case `select_opt "${options[@]}"` in
-		0) 
-			isInfoTest=1
-			bpTest=1
-		;;
-		1) isInfoTest=1;;
-		2) bpTest=1;;
-		3) pasBpTest=1;;
-		4) FTTest=1;;
-		5) hardReset=1;;
-		6) trfPwOff=1;;
-		*) except "unknown option";;
-	esac
+		echo -e "\n  Select tests:"
+		options=("Full test" "Info test" "BP test" "Passive BP test" "FT test" "Hard reset" "Send traffic and power off" "Power Cycles")
+		case `select_opt "${options[@]}"` in
+			0) 
+				isInfoTest=1
+				bpTest=1
+			;;
+			1) isInfoTest=1;;
+			2) bpTest=1;;
+			3) pasBpTest=1;;
+			4) FTTest=1;;
+			5) hardReset=1;;
+			6) trfPwOff=1;;
+			7) pwCycle=1;;
+			*) except "unknown option";;
+		esac
+	else
+		privateVarAssign "${FUNCNAME[0]}" "$testSelArg" "1"
+	fi
 
 	if [ ! -z "$isInfoTest" ]; then
 		echoSection "IS Info test"
@@ -1003,6 +1082,13 @@ mainTest() {
 		echoSection "Send traffic and power off"
 		is100TrfAndPwOff |& tee /tmp/statusChk.log
 	fi
+
+
+	if [ ! -z "$pwCycle" ]; then
+		echoSection "Power Cycles"
+		isPowerCycle |& tee /tmp/statusChk.log
+	fi
+	
 }
 
 
@@ -1010,8 +1096,10 @@ initialSetup(){
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 
 	selectSerial "  Select UUT serial device"
-	uutSerDev=ttyUSB$?
+	publicVarAssign silent uutSerDev ttyUSB$?
+	
 	testFileExist "/dev/$uutSerDev"
+
 
 	acquireVal "Part Number" pnArg uutPn
 	
@@ -1054,6 +1142,15 @@ main() {
 	case $baseModel in
 		"IS100G-Q-RU") selectMod "is100";;
 		"IS401U-RU") selectMod "is40";;
+		"IS-UNIV") 
+			let modSelect=-1
+			publicVarAssign silent internalTTY $(find /sys/bus/usb/devices/usb3/ -name dev |grep '3-7:1.0' |cut -d/ -f9)
+			if [ -z "$(echo $internalTTY |grep ttyUSB)" ]; then
+				except "internal COM cable is not connected to MB header. Check internal cable and try again"
+			else
+				if [ "$uutSerDev" = "$internalTTY" ]; then except "invalid COM selected"; fi 
+			fi
+		;;
 		*) except "invalid baseModel: $baseModel";;
 	esac
 	

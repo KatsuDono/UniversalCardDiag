@@ -738,10 +738,24 @@ function selectSerial () {
 	echo -e "$selDesc"
 
 	serialDevs+=( $(ls /dev |grep ttyUSB) )
-	
+	serialDevsPorts+=( $(find /sys/bus/usb/devices/usb3/ -name dev |grep tty |cut -d/ -f7) )
+	if [ ${#serialDevs[@]} -eq ${#serialDevsPorts[@]} ]; then
+		for ((cnt=0;cnt<${#serialDevs[@]};cnt++)); 
+		do
+			serialDevsList+=("${serialDevs[$cnt]} (port: ${serialDevsPorts[$cnt]})")
+		done
+	else
+		warn "Port count and serial device count does not correspond, skipping verbalization"
+	fi
+
 	if [[ ! -z "${serialDevs[@]}" ]]; then
-		slotSelRes=$(select_opt "${serialDevs[@]}")
-		return $slotSelRes
+		if [ -z "$serialDevsList" ]; then
+			slotSelRes=$(select_opt "${serialDevs[@]}")
+		else
+			slotSelRes=$(select_opt "${serialDevsList[@]}")
+		fi
+		serDevRet=$(echo ${serialDevs[$slotSelRes]} |cut -dB -f2-)
+		return $serDevRet
 	else
 		except "no serial devs found!"
 	fi
@@ -2910,8 +2924,9 @@ function IPPowerCheckSerial () {
 	local i ttyN outlet swRes
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
 
-	echo -n " Checking serial connections to IPPower, "
-	swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.1 read p6)"
+	echo -n " Checking serial connections to IPPower on $ttyN, "
+	swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.5 read p6)"
+	dmsg "swRes=$swRes"
 	if [ ! -z "$(echo "$swRes" |grep "1=")" ]; then
 		echo -e "\e[0;32mok.\e[m"
 	else
@@ -2926,7 +2941,18 @@ function IPPowerSwPowerAll () {
 	privateNumAssign "targState" "$2"
 
 	for (( i=1; i<5; i++ )); do
-		IPPowerSwPower ttyUSB0 $i $targState
+		IPPowerSwPower $ttyN $i $targState
+	done
+}
+
+function IPPowerSwPowerAllNoDelay () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local i
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
+	privateNumAssign "targState" "$2"
+
+	for (( i=1; i<5; i++ )); do
+		IPPowerSwPowerNoDelay $ttyN $i $targState
 	done
 }
 
@@ -2938,13 +2964,47 @@ function IPPowerSwPower () {
 	privateNumAssign "targState" "$3"
 	if [ "$outlet" -ge 0 ] && [ "$outlet" -le 5 ]; then
 		echo -n " Switching $outlet outlet to $targState, "
-		swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.05 set p6$outlet $targState)"
+		swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.04 set p6$outlet $targState)"
+		dmsg echo "$swRes"
+		if [ "$targState" = "$(echo "$swRes" |grep "$outlet=" |cut -d= -f2)" ]; then
+			echo -e "\e[0;32mok.\e[m"
+		else
+			echo -e "\e[0;31mfail.\e[m"
+			for (( c=0; c<6; c++ )); do 
+				echo -n " Retrying to switch $outlet outlet to $targState, "
+				swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.04 set p6$outlet $targState)"
+				dmsg echo "$swRes"
+				if [ "$targState" = "$(echo "$swRes" |grep "$outlet=" |cut -d= -f2)" ]; then
+					echo -e "\e[0;32mok.\e[m"
+					break;
+				else
+					echo -e "\e[0;31mfail.\e[m"
+					if [ $c -gt 4 ]; then except "Outlet could not be switched"; fi
+				fi
+			done
+		fi
+	else
+		except "Outlet nuber is not in range: $outlet"
+	fi
+}
+
+function IPPowerSwPowerNoDelay () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN outlet swRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
+	privateNumAssign "outlet" "$2"
+	privateNumAssign "targState" "$3"
+	if [ "$outlet" -ge 0 ] && [ "$outlet" -le 5 ]; then
+		echo -n " Switching $outlet outlet to $targState, "
+		swRes="$(sendIPPowerSerialCmd $ttyN 19200 0.04 set p6$outlet $targState)"
+		dmsg echo "$swRes"
 		if [ "$targState" = "$(echo "$swRes" |grep "$outlet=" |cut -d= -f2)" ]; then
 			echo -e "\e[0;32mok.\e[m"
 		else
 			echo -e "\e[0;31mfail.\e[m"
 			echo -n " Retrying to switch $outlet outlet to $targState, "
-			swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.04 set p6$outlet $targState)"
+			swRes="$(sendIPPowerSerialCmd $ttyN 19200 0.04 set p6$outlet $targState)"
+			dmsg echo "$swRes"
 			if [ "$targState" = "$(echo "$swRes" |grep "$outlet=" |cut -d= -f2)" ]; then
 				echo -e "\e[0;32mok.\e[m"
 			else
@@ -2966,6 +3026,7 @@ function sendIPPowerSerialCmdDelayed () {
 
 	logFilePath="/tmp/IPPowerSerialCMD.log"
 
+	dmsg "using dev /dev/$ttyN"
 	if ! [[ -e "/dev/$ttyN" ]]; then
 		except "Serial dev does not exist"
 	fi
@@ -2973,21 +3034,24 @@ function sendIPPowerSerialCmdDelayed () {
 	echo " Owning $ttyN"
 	chmod o+rw /dev/$ttyN
 	echo " Setting baud $baud"
+	dmsg "setting baud and reverse on dev /dev/$ttyN"
 	stty $baud < /dev/$ttyN
 	stty $baud -F /dev/$ttyN
 
 	killLogWriters $logFilePath
 	rm -f $logFilePath
 	
+	dmsg "starting log"
 	echo " Started log file"
 	cat -v < /dev/$ttyN |& tee $logFilePath >/dev/null &
 
+	dmsg "sending cmd to /dev/$ttyN: $cmd"
 	echo " Sending cmd: $cmd"
 	echo -ne "\r" > /dev/$ttyN
 	sleep $delay
 	echo -ne "\r" > /dev/$ttyN
 	sleep $delay
-	for (( i=0; i<${#cmd}; i++ )); do echo -ne "${cmd:$i:1}" > /dev/$ttyN; sleep $delay; done
+	for (( i=0; i<${#cmd}; i++ )); do echo -ne "${cmd:$i:1}" > /dev/$ttyN; sleep 0.05; done
 	echo -e "\r" > /dev/$ttyN
 	echo -e "\r" > /dev/$ttyN
 	echo -e "\r" > /dev/$ttyN
@@ -2998,15 +3062,17 @@ function sendIPPowerSerialCmdDelayed () {
 	echo -e "\r" > /dev/$ttyN
 	echo -e "\r" > /dev/$ttyN
 	sleep $delay
+	sleep $delay
+	sleep $delay
 
 	killLogWriters $logFilePath
-
+	dmsg "reading log"
 	echo " Reading log file"
 	outlStat="$(cat "$logFilePath" )"
-	# echo " FULL LOG: $outlStat"
+	dmsg "full log: $outlStat"
 
 	outlStat="$(echo "$outlStat" |grep p6 |grep status |cut -d: -f2)"
-	# echo -e " Cut log status:\n"$outlStat
+	dmsg "after cut log status:\n"$outlStat
 	
 	if [ ! -z "$outlStat" ]; then
 		echo -e "\n\n Outlet status:"
@@ -3014,6 +3080,8 @@ function sendIPPowerSerialCmdDelayed () {
 		echo "  2=$(echo $outlStat |awk '{print $3}')"
 		echo "  3=$(echo $outlStat |awk '{print $2}')"
 		echo "  4=$(echo $outlStat |awk '{print $1}')"
+	else
+		echo -e " Outlet status returned empty!\n Full log:\n $(cat "$logFilePath" )"
 	fi
 }
 
@@ -3037,9 +3105,11 @@ function sendIPPowerSerialCmd () {
 	send \n\r
 	expect {
 		Connected { 
-			send \" a\n\r\"
-			send \" a\n\r\"
-			send \r\n 
+			send \r\n
+			send \r\n
+			send \n
+			send \"\r\ndir\r\n\"
+			send \"\r\ndir\r\n\"
 		}
 		timeout { send_user \"\nTimeout1\n\"; exit 1 }
 		eof { send_user \"\nEOF\n\"; exit 1 }
@@ -3056,7 +3126,7 @@ function sendIPPowerSerialCmd () {
 	*\$* { send \x14q\r }
 	*#* { send \x14q\r }
 	*0>* { send \x14q\r }
-	*login:* { send \x14q\r }
+	*status :* { send \x14q\r }
 	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
 	}
@@ -3209,6 +3279,94 @@ function getIS100SerialState () {
 		" 2>&1
 	)"
 	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'State:' |awk -F 'State:' '{print $2}' |cut -d ' ' -f2)
+	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
+	echo -n "$serStateRes"
+}
+
+function getISBootMsg () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd serStateRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	serialCmdNlRes="$(
+		expect -c "
+		set timeout $timeout
+		log_user 1
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*BOOT_OK* { send_user \"State: BOOT_OK_CNF\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		** { send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		" 2>&1
+	)"
+	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'BOOT_OK_CNF')
+	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
+	echo -n "$serStateRes"
+}
+
+function getISRstMsg () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd serStateRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	serialCmdNlRes="$(
+		expect -c "
+		set timeout $timeout
+		log_user 1
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*RST_SEND* { send_user \"State: RST_SEND_CNF\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		** { send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		" 2>&1
+	)"
+	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'RST_SEND_CNF')
 	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
 	echo -n "$serStateRes"
 }

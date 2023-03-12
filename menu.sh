@@ -68,7 +68,6 @@ main() {
 		"showSlM"	"| Show PCI Slots (minimal)"
 		"delim" 	"========================================"
 		"delim" 	"|  ACCELERATION CARDS"
-		#"acc" 		" Acceleration Tool"
 		"acc1" 		"| PE3IS2CO3LS"
 		"acc2" 		"| PE3IS2CO3LS-CX"
 		"acc3" 		"| PE2ISCO3-CX"
@@ -119,6 +118,7 @@ main() {
 		"delim" 	"|  IS"
 		"isD1" 		"| IS100G-Q-RU"
 		"isD2" 		"| IS401U-RU (40G Modules ONLY!)"
+		"isD3" 		"| IS Power Tests"
 		"delim" 	"========================================"
 		"delim" 	"|  Etc.."
 		# "transRep" 	"| PE310G4BPI71-SR (transceiver check)"
@@ -209,6 +209,10 @@ main() {
 		isD2)
 			testFileExist "${MC_SCRIPT_PATH}/isTest.sh"
 			${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS401U-RU" $@$addArgs
+		;;
+		isD3)
+			testFileExist "${MC_SCRIPT_PATH}/isTest.sh"
+			${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS-UNIV" --test-sel="pwCycle" $@$addArgs
 		;;
 		sett1)		
 			if [ "$ignoreDumpFail" = "NO" ]; then
