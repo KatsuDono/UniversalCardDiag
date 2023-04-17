@@ -98,7 +98,8 @@ main() {
 		"sfpD7" 	"| PE31625G4I71L-XR-CX"
 		"sfpD8" 	"| M4E310G4I71-XR-CP2"
 		"sfpD10" 	"| PE340G2DBIR-QS41"
-		"sfpD11" 	"| PE3100G2DBIR"		
+		"sfpD11" 	"| PE3100G2DBIR"
+		"sfpD12"	"| PE425G4I71L"
 		"delim" 	"========================================"
 		"delim" 	"|  RJ45 CARDS"
 		"rjD1" 		"| PE210G2BPI40-T* (universal)"
@@ -190,6 +191,7 @@ main() {
 		sfpD8) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="M4E310G4I71-XR-CP2" $@$addArgs;;
 		sfpD10) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE340G2DBIR-QS41" $@$addArgs;;
 		sfpD11) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE3100G2DBIR" $@$addArgs;;
+		sfpD12)		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE425G4I71L" $@$addArgs;;
 		sfpBI1) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="P410G8TS81-XR" --noMasterMode --slDupSkp --test-sel=pciTrfTest $@$addArgs;;
 		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI40-T" $@$addArgs;;
 		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@$addArgs;;

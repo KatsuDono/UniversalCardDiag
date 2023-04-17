@@ -939,7 +939,7 @@ initialSetup(){
 	acquireVal "Part Number" pnArg uutPn
 	test ! -z "echo $uutPn |grep '#'" && uutPn=$(echo $uutPn |cut -d '#' -f2-)
 	
-	publicVarAssign fatal uutBus $(dmidecode -t slot |grep "Bus Address:" |cut -d: -f3 |head -n $uutSlotNum |tail -n 1)
+	publicVarAssign fatal uutBus $(getDmiSlotBuses |head -n $uutSlotNum |tail -n 1)
 	publicVarAssign fatal uutSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$uutBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
 	
 	
