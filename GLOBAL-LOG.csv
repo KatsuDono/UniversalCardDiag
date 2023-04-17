@@ -1,0 +1,2 @@
+sep=;
+JobID;PN;TN;Slot;CurrentRun;TestResult;PassedRuns;FailedRuns;RunsLeft;Temp1;Temp2;Temp3;Temp4;DBID
