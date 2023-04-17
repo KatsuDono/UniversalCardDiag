@@ -251,11 +251,17 @@ function createLog () {
 
 function getTracking () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	echo -e -n "\n\tEnter tracking: "
+	unset trackNum
+	echo -e -n "  Enter tracking: "
 	read -r trackNum
 	if [[ "${#trackNum}" = "13" ]]; then
+		# echo "DEBUG: track symb count: ${#trackNum} val: $trackNum  returning 0"
 		return 0
 	else 
+		# echo "DEBUG: track symb count: ${#trackNum} val: $trackNum  returning 1"
+		if [[ "${#trackNum}" = "0" ]]; then
+			return 2
+		fi
 		return 1
 	fi
 }
@@ -536,6 +542,7 @@ drawPciSlot() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"		
 	local addEl addElDash addElSpace excessSymb cutText color slotWidthInfo pciInfoRes curLine curLineCut widthLocal cutAddExp addElDashSp
 	if [[ ! -z "$globDrawWidthAdj" ]]; then let widthLocal=$globDrawWidthAdj; else let widthLocal=15; fi
+	dmsg inform "args=$*"
 	slotNum=$1
 	shift
 	test ! -z "$(echo $* |grep '\-\- Empty ')" || {
@@ -574,18 +581,20 @@ drawPciSlot() {
 	echo -e -n "\t-------------------------------------------------------------------------$addElDash"
 }
 
+
 showPciSlots() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local slotBuses slotNum slotBusRoot bpBusesTotal 
 	local pciBridges pciBr slotBrPhysNum pciBrInfo rootBus slotArr dmiSlotInfo minimalMode
 	local secBusArg secBusAddr firstDevInfo secDevInfo secDevSlotInfo
+	local mbType slotList
 
 	if [[ "$1" = "--minimalMode" ]]; then minimalMode=1; else unset minimalMode; fi
 
 	echoSection "PCI Slots"
-	slotBuses=$(dmidecode -t slot |grep Bus |cut -d: -f3)
+	slotBuses=$(getDmiSlotBuses)
 	let slotNum=0
-	let maxSlots=$(dmidecode -t slot |grep Handle |wc -l)
+	let maxSlots=$(getMaxSlots)
 	declare -A slotArr
 	assignBusesInfo spc eth plx acc bp 2>&1 > /dev/null	
 	bpBusesTotal=$bpBuses
@@ -596,25 +605,83 @@ showPciSlots() {
 	for slotBus in $slotBuses; do
 		if [[ ! "$slotBus" = "ff" ]]; then 
 			falseDetect=$(ls /sys/bus/pci/devices/ |grep -w "0000:$slotBus")
-			if [[ -z "$falseDetect" ]]; then
+			rootBus=$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' |grep -v pci )
+			dmsg inform rootBus=$rootBus
+			if [ -z "$falseDetect" -o -z "$rootBus" ]; then
 				dmsg inform "populatedRootBuses false deteted slotbus $slotBus, skipping"
+				emptySlotBuses+=( "$slotBus" )
 			else
-				populatedRootBuses+=( "$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' )" )
-				dmsg inform "Added $(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' ) to populatedRootBuses"
+				populatedRootBuses+=( "$rootBus" )
+				dmsg inform "Added $rootBus (on slotBus=$slotBus) to populatedRootBuses"
 			fi
 		fi	
 	done
 
 	pciBridges=$( echo -n "${populatedRootBuses[@]}" |tr ' ' '\n' |sort |uniq)
 	dmsg inform "pciBridges="$pciBridges
-	for pciBr in $pciBridges; do
-		pciBrInfo="$(lspci -vvvs $pciBr)"
-		
-		slotBrPhysNum=$(echo "$pciBrInfo" |grep SltCap -A1 |tail -n 1 |cut -d# -f2 |cut -c1)
-		slotWidthCap=$(echo "$pciBrInfo" |grep -m1 LnkCap: |awk '{print $7}' |cut -d, -f1 |cut -c2-)
+	dmsg inform "emptySlotBuses="$( echo -n "${emptySlotBuses[@]}" |tr ' ' '\n' |sort |uniq)
+	privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+	case "$mbType" in
+		X10DRi) 
+			for pciBr in $pciBridges; do
+				pciBrInfo="$(lspci -vvvs $pciBr)"
+				
+				slotBrPhysNum=$(echo "$pciBrInfo" |grep SltCap -A1 |tail -n 1 |cut -d# -f2 |cut -c1)
+				if [ -z "$slotBrPhysNum" ]; then
+					dmsg inform "slotBrPhysNum is empty, retrying to get slot num by root portion of bridge address"
+					pciBrInfo="$(lspci -vvvs $(echo -n $pciBr |cut -d. -f1).0)"
+					slotBrPhysNum=$(echo "$pciBrInfo" |grep SltCap -A1 |tail -n 1 |cut -d# -f2 |cut -c1)
+					if [ -z "$slotBrPhysNum" ]; then except "unable to get slot number on pci bridge: $pciBr"; fi
+				fi
+				slotWidthCap=$(echo "$pciBrInfo" |grep -m1 LnkCap: |awk '{print $7}' |cut -d, -f1 |cut -c2-)
 
-		slotArr[0,$slotBrPhysNum]=$slotWidthCap
-	done
+				slotArr[0,$slotBrPhysNum]=$slotWidthCap
+				dmsg inform "parsing info for bridge: $pciBr"
+				dmsg inform "slotBrPhysNum=$slotBrPhysNum slotWidthCap=$slotWidthCap "
+			done
+		;;
+		X12DAi-N6) 
+			slotList=$(getDmiSlotBuses --slotNumList)
+			if [ -z "$(echo -n $slotList |awk '{print $6}')" ]; then except "bad slotList: $slotList"; fi
+			for pciBr in $pciBridges; do
+				pciBrInfo="$(lspci -vvvs $pciBr)"
+				
+				slotBrPhysNum=$(echo "$pciBrInfo" |grep SltCap -A1 |tail -n 1 |cut -d# -f2 |cut -d, -f1)
+				case $slotBrPhysNum in
+					$(echo -n $slotList |awk '{print $1}')) slotBrPhysNum=1;;
+					$(echo -n $slotList |awk '{print $2}')) slotBrPhysNum=2;;
+					$(echo -n $slotList |awk '{print $3}')) slotBrPhysNum=3;;
+					$(echo -n $slotList |awk '{print $4}')) slotBrPhysNum=4;;
+					$(echo -n $slotList |awk '{print $5}')) slotBrPhysNum=5;;
+					$(echo -n $slotList |awk '{print $6}')) slotBrPhysNum=6;;
+					*) except "unknown slotBrPhysNum: $slotBrPhysNum"
+				esac
+				slotWidthCap=$(echo "$pciBrInfo" |grep -m1 LnkCap: |awk '{print $7}' |cut -d, -f1 |cut -c2-)
+
+				slotArr[0,$slotBrPhysNum]=$slotWidthCap
+			done
+		;;
+		X12SPA-TF) 
+			for pciBr in $pciBridges; do
+				pciBrInfo="$(lspci -vvvs $pciBr)"
+				slotBrPhysNum=$(getPciSlotRootBusSlotNum $pciBr)
+				slotWidthCap=$(echo "$pciBrInfo" |grep -m1 LnkCap: |awk '{print $7}' |cut -d, -f1 |cut -c2-)
+				slotArr[0,$slotBrPhysNum]=$slotWidthCap
+			done
+		;;
+		*) 
+			critWarn "Unknown mbType: $mbType, fallback do default data gathering method"
+			for pciBr in $pciBridges; do
+				pciBrInfo="$(lspci -vvvs $pciBr)"
+				
+				slotBrPhysNum=$(echo "$pciBrInfo" |grep SltCap -A1 |tail -n 1 |cut -d# -f2 |cut -c1)
+				slotWidthCap=$(echo "$pciBrInfo" |grep -m1 LnkCap: |awk '{print $7}' |cut -d, -f1 |cut -c2-)
+
+				slotArr[0,$slotBrPhysNum]=$slotWidthCap
+			done
+		;;
+	esac
+
 
 	dmiSlotInfo="$(dmidecode -t slot)"
 	for ((i=1;i<=$maxSlots;i++)) do 
@@ -647,49 +714,487 @@ showPciSlots() {
 		if [[ "$slotBus" = "ff" ]]; then 
 			drawPciSlot $slotNum "-- Empty --" 
 		else
-			falseDetect=$(ls /sys/bus/pci/devices/ |grep -w "0000:$slotBus")
-			#slotBusRoot=$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
-			#test -z "$slotBusRoot" && drawPciSlot $slotNum "-- Empty --" || {
-			if [[ -z "$falseDetect" ]]; then
-				drawPciSlot $slotNum "-- Empty (dmi failure slotBus:$slotBus) --"
+			if [[ " ${emptySlotBuses[@]} " =~ " ${slotBus} " ]]; then
+				dmsg inform "slotBus=$slotBus correlates to emptySlotBuses"
+				drawPciSlot $slotNum "-- Empty --" 
 			else
-				test -z "$slotBus" && drawPciSlot $slotNum "-- Empty --" || {
-					secBusAddr=$(printf '%#X' "$((0x$slotBus + 0x01))" |cut -dX -f2)
-					# gatherPciInfo $slotBus
-					# dmsg debugPciVars
-					unset secBusArg
-					if [[ ! -z $(ls /sys/bus/pci/devices/ |grep -w "0000:$secBusAddr") ]]; then 
-						firstDevInfo=$(lspci -nns $slotBus:00.0 |cut -d ' ' -f2-)
-						secDevInfo=$(lspci -nns $secBusAddr:00.0 |cut -d ' ' -f2-)
-						secDevSlotInfo=$(lspci -vvnns $secBusAddr:00.0 |grep 'Physical Slot: 0')
-						if [ "$firstDevInfo" = "$secDevInfo" -a ! -z "$secDevSlotInfo" ]; then
-							secBusArg="--sec-target-bus=$secBusAddr"
-						else
-							dmsg critWarn "second bus check failed: secBusAddr=$secBusAddr"
+				dmsg inform "slotBus=$slotBus does not correlate to emptySlotBuses"
+				falseDetect=$(ls /sys/bus/pci/devices/ |grep -w "0000:$slotBus")
+				#slotBusRoot=$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
+				#test -z "$slotBusRoot" && drawPciSlot $slotNum "-- Empty --" || {
+				if [[ -z "$falseDetect" ]]; then
+					drawPciSlot $slotNum "-- Empty (dmi failure slotBus:$slotBus) --"
+				else
+					test -z "$slotBus" && drawPciSlot $slotNum "-- Empty --" || {
+						secBusAddr=$(printf '%#X' "$((0x$slotBus + 0x01))" |cut -dX -f2)
+						# gatherPciInfo $slotBus
+						# dmsg debugPciVars
+						unset secBusArg
+						if [[ ! -z $(ls /sys/bus/pci/devices/ |grep -w "0000:$secBusAddr") ]]; then 
+							firstDevInfo=$(lspci -nns $slotBus:00.0 |cut -d ' ' -f2-)
+							secDevInfo=$(lspci -nns $secBusAddr:00.0 |cut -d ' ' -f2-)
+							secDevSlotInfo=$(lspci -vvnns $secBusAddr:00.0 |grep 'Physical Slot: 0')
+							if [ "$firstDevInfo" = "$secDevInfo" -a ! -z "$secDevSlotInfo" ]; then
+								secBusArg="--sec-target-bus=$secBusAddr"
+							else
+								dmsg critWarn "second bus check failed: secBusAddr=$secBusAddr"
+							fi
 						fi
-					fi
-					if [[ -z "$minimalMode" ]]; then
-						declare -a pciArgs=(
-							"--plx-keyw=Physical Slot:"
-							"--plx-virt-keyw=ABWMgmt+"
-							"--spc-buses=$spcBuses"
-							"--eth-buses=$ethBuses"
-							"--plx-buses=$plxBuses"
-							"--acc-buses=$accBuses"
-							"--bp-buses=$bpBusesTotal"
-							"--info-mode"
-							"--target-bus=$slotBus"
-							$secBusArg
-							"--slot-width-max=${slotArr[0,$slotNum]}"
-							"--slot-width-cap=${slotArr[2,$slotNum]}"
-						)
-					fi
-					drawPciSlot $slotNum ${slotArr[0,$slotNum]} $(lspci -s $slotBus:)
-				}
+						if [[ -z "$minimalMode" ]]; then
+							declare -a pciArgs=(
+								"--plx-keyw=Physical Slot:"
+								"--plx-virt-keyw=ABWMgmt+"
+								"--plx-upst-keyw=BwNot-"
+								"--spc-buses=$spcBuses"
+								"--eth-buses=$ethBuses"
+								"--plx-buses=$plxBuses"
+								"--acc-buses=$accBuses"
+								"--bp-buses=$bpBusesTotal"
+								"--info-mode"
+								"--target-bus=$slotBus"
+								$secBusArg
+								"--slot-width-max=${slotArr[0,$slotNum]}"
+								"--slot-width-cap=${slotArr[2,$slotNum]}"
+							)
+						fi
+						drawPciSlot $slotNum ${slotArr[0,$slotNum]} $(lspci -s $slotBus:)
+					}
+				fi
 			fi
 		fi
 	done
 	echo -e "\n\n"
+}
+
+
+getMaxSlots() {
+	local mbType resSltNum
+	privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+	let resSltNum=-1
+	case "$mbType" in
+		X10DRi) privateNumAssign "resSltNum" "$(dmidecode -t slot |grep Handle |wc -l)";;
+		X12DAi-N6) privateNumAssign "resSltNum" "$(dmidecode -t slot |grep Handle |wc -l)";;
+		X12SPA-TF) privateNumAssign "resSltNum" "$(dmidecode -t slot  |grep Type: |grep "PCI" |wc -l)";;
+		*)
+			except "Unknown mbType: $mbType"
+		;;
+	esac
+	echo -n "$resSltNum"
+}
+
+getPciSlotRootBusSlotNum() {
+	local mbType slotRootBusAddr slotRootBusSlotNum slotRootBusAddrUpd checkAddr
+	privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+	privateVarAssign critical "slotRootBusAddr" "$1"
+	dmsg inform "processing slotRootBusAddr: $slotRootBusAddr"
+	case "$mbType" in
+		X10DRi) 
+			slotRootBusSlotNum=$(lspci -vvvs $slotRootBusAddr |grep -A1 SltCap: |grep Slot |cut -d# -f2 |cut -d, -f1)
+		;;
+		X12DAi-N6) 
+			slotRootBusSlotNum=$(lspci -vvvs $slotRootBusAddr |grep -A1 SltCap: |grep Slot |cut -d# -f2 |cut -d, -f1)
+		;;
+		X12SPA-TF) 
+			checkAddr=$(ls -l /sys/bus/pci/devices/ |grep $slotRootBusAddr)
+			if [ -z "$checkAddr" ]; then slotRootBusAddr=ff; fi
+			if ! [ "$slotRootBusAddr" = "ff" ]; then 
+				slotRootBusSlotNum=$(lspci -vvvs $slotRootBusAddr |grep -A1 SltCap: |grep Slot |cut -d# -f2 |cut -d, -f1)
+				if [ -z "$slotRootBusSlotNum" ]; then
+					dmsg inform "slotRootBusSlotNum is empty"
+					slotRootBusAddr=$(echo -n "$slotRootBusAddr"|rev |cut -d: -f1-2|rev)
+					case "$slotRootBusAddr" in
+					"89:02.0") echo -n "1";;
+					"50:04.0") echo -n "3";;
+					"50:02.0") echo -n "3";;
+					"17:04.0") echo -n "5";;
+					"17:02.0") echo -n "5";;
+					"c2:04.0") echo -n "7";;
+					"c2:02.0") echo -n "7";;
+					*) except "unknown slotRootBusAddr: $slotRootBusAddr"
+					esac
+				fi
+			fi
+		;;
+		*)
+			except "Unknown mbType: $mbType"
+		;;
+	esac
+	echo -n $slotRootBusSlotNum
+	dmsg inform "slotRootBusSlotNum=$slotRootBusSlotNum"
+	
+}
+
+getDmiSlotBuses() {
+	local mbType slotBusAddrList slotBuses bus rootBusList slotNum slotNumList busN dId rootBus rootBuses rootBusVal slotNumVal
+	local slotCheckRes pciDevInfo slotStatus slotBusAddrArr
+	local slotDevs launchKey
+	privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+	launchKey=$1
+	case "$mbType" in
+		X10DRi) 
+			dmsg inform "mbType=$mbType"
+			# echo "$(dmidecode -t slot |grep "Bus Address" |cut -d: -f3)"
+			for dId in 2 4 6 8; do
+				rootBus=$(lspci -d 8086:2f0$dId |grep -m1 00: |awk '{print $1}')
+				if [ -z "$rootBus" ]; then rootBusVal="ff"; else rootBusVal="$rootBus"; fi
+				if [ -z "$rootBuses" ]; then 
+					rootBuses="$rootBusVal"
+				else
+					rootBuses+=" $rootBusVal"
+				fi
+			done
+			for dId in 2 4 6 8; do
+				rootBus=$(lspci -d 8086:2f0$dId |grep -m1 80: |awk '{print $1}')
+				if [ -z "$rootBus" ]; then rootBusVal="ff"; else rootBusVal="$rootBus"; fi
+				rootBuses+=" $rootBusVal"
+			done
+			for bus in ${rootBuses[*]}; do 
+				if ! [ "$bus" = "ff" ]; then slotNum=$(getPciSlotRootBusSlotNum $bus); else unset slotNum; fi
+				if [ -z "$slotNum" ]; then slotNumVal="ff"; else slotNumVal="$slotNum"; fi
+				dmsg inform "processing bus: $bus slotNum=$slotNumVal"
+				if [ -z "$slotNumList" ]; then 
+					slotNumList="$slotNumVal"
+				else
+					slotNumList+=" $slotNumVal"
+				fi
+			done
+			slotBusAddrList="$(grep ':' /sys/bus/pci/slots/*/address)"
+			for slotNum in $slotNumList; do
+				slotBusAddr=$(echo "$slotBusAddrList" |grep -m1 "/$slotNum/" |cut -d: -f3)
+				if [ ! -z "$slotBusAddr" ]; then 
+					slotBusAddrArr[$slotNum]="$slotBusAddr"
+				fi
+				dmsg inform "processing slotNum: $slotNum slotBusAddr=$slotBusAddr"
+			done
+			if ! [ "${slotBusAddrArr[2]}" = "ff" -o -z "${slotBusAddrArr[2]}" ]; then
+				dmsg inform "checking slot 2 status"
+				slotCheckRes=$(getPciSlotRootBus 0000:${slotBusAddrArr[2]}:00.0)
+				if [ -z "$slotCheckRes" ]; then
+					dmsg inform "slot 2 was false address (0000:${slotBusAddrArr[2]}:00.0)"
+					slotCheckRes=$(grep ':' /sys/bus/pci/slots/*/address |grep -m1 "/0/" |cut -d: -f2-4)
+					if [ ! -z "$slotCheckRes" ]; then
+						dmsg inform "slotCheckRes passed, address: $slotCheckRes.0"
+						pciDevInfo="$(lspci -vvvs $slotCheckRes.0 |grep -m1 "Physical Slot: 0")"
+						if [ ! -z "$pciDevInfo" ]; then
+							slotBusAddrArr[2]=$(echo -n $slotCheckRes |cut -d: -f2)
+							dmsg inform "reassigned slot root bus for slot 2 to ${slotBusAddrArr[2]}"
+							
+						fi
+					fi
+				fi
+			fi
+			for ((slN=1;slN<=6;slN++)); do 
+				if [ -z "${slotBusAddrArr[$slN]}" ]; then
+					echo "ff"
+				else
+					echo "${slotBusAddrArr[$slN]}"
+				fi
+			done
+		;;
+		X12DAi-N6) 
+			dmsg inform "mbType=$mbType"
+			rootBusList=(0000:16:02.0 0000:c9:02.0 0000:4a:02.0 0000:b0:02.0 0000:30:02.0 0000:e2:02.0)
+			for bus in ${rootBusList[*]}; do 
+				dmsg inform "processing bus: $bus"
+				checkBus=$(ls -l /sys/bus/pci/devices/ |grep $bus)
+				if [ -z "$checkBus" ]; then
+					simBus=0000:$(lspci -nn |grep 8086:347 |awk '{print $1}' |grep $(echo -n $bus |cut -c6-9))
+					dmsg inform "bus: $bus is nonexistent, found alternative: $simBus"
+					if ! [ "$simBus" = "0000:" ]; then
+						bus=$simBus
+						dmsg inform "updated current bus to: $bus"
+					fi
+				fi
+				slotNum=$(getPciSlotRootBusSlotNum $bus)
+				if [ -z "$slotNum" ]; then 
+					if [ -z "$slotNumList" ]; then 
+						slotNumList="ff"
+					else
+						slotNumList+=" ff"
+					fi
+				else
+					if [ -z "$slotNumList" ]; then 
+						slotNumList="$slotNum"
+					else
+						slotNumList+=" $slotNum"
+					fi
+				fi
+			done
+			checkDefined slotNumList
+			slotBusAddrList="$(grep ':' /sys/bus/pci/slots/*/address |grep -v '/0/\|/1/\|/2/\|/3/\|/4/')"
+			dmsg inform "slotNumList=$slotNumList"
+			for slotNum in $slotNumList; do
+				slotBusAddr=$(echo "$slotBusAddrList" |grep -m1 "/$slotNum/" |cut -d: -f3)
+				if [ -z "$slotBusAddr" ]; then 
+					if [ -z "$slotBuses" ]; then 
+						slotBuses="ff"
+					else
+						slotBuses+=" ff"
+					fi
+				else
+					if [ -z "$slotBuses" ]; then 
+						slotBuses="$slotBusAddr"
+					else
+						slotBuses+=" $slotBusAddr"
+					fi
+				fi
+			done
+			if [ "$launchKey" = "--slotNumList" ]; then
+				for slotNum in $slotNumList; do
+					echo "$slotNum"
+				done
+			else
+				for bus in $slotBuses; do
+					echo "$bus"
+				done
+			fi
+		;;
+		X12SPA-TF)
+			local bus rootBus rootBusList fullRootBusList dmiHandle dmiHandleList dmiSlotBuses sltCap dmiRootBuses
+			dmiHandleList=(0x000D 0x000E 0x000F 0x0010 0x0011 0x0012 0x0013)
+			dmiBuses=$(for dmiHandle in ${dmiHandleList[*]}; do dmidecode -H$dmiHandle; done |grep Bus |cut -d: -f3)
+			for bus in $dmiBuses; do
+				dmsg inform "processing $bus"
+				checkBus=$(ls -l /sys/bus/pci/devices/ |grep $bus)
+				if ! [ "$bus" = "ff" -o -z "$checkBus" ]; then
+					rootBus=$(getPciSlotRootBus $bus |cut -d: -f2-)
+					if [ ! -z "$rootBus" ]; then
+						dmsg inform "adding $rootBus to dmiRootBuses"
+						dmiRootBuses+=($rootBus)
+						sltCap=$(lspci -vs $rootBus |grep "Capabilities: \[40\]" |grep "Slot+")
+						if [ ! -z "$sltCap" ]; then
+							dmsg inform "adding $rootBus to dmiSlotBuses"
+							dmiSlotBuses+=($rootBus)
+						else
+							dmsg inform "$rootBus does not have slot capabilities, checking"
+							sltCap=$(echo -n "$rootBus" |grep "89:02.0\|50:02.0\|17:02.0\|c2:02.0")
+							if [ ! -z "$sltCap" ]; then
+								dmsg inform "$rootBus actually have slot capabilities, adding $rootBus to dmiSlotBuses"
+								dmiSlotBuses+=($rootBus)
+							else
+								dmiSlotBuses+=("ff")
+								dmsg inform "$rootBus actually does not have slot capabilities"
+							fi
+						fi
+					else
+						dmsg inform "rootBus is empty"
+					fi
+				else
+					dmsg inform "bus is empty"
+					dmiSlotBuses+=("ff")
+				fi
+			done
+
+			dmsg inform "dmiRootBuses=${dmiRootBuses[*]}"
+			dmsg inform "dmiSlotBuses=${dmiSlotBuses[*]}"
+
+			# fullRootBusList=(0000:89:02.0 0000:50:04.0 0000:50:02.0 0000:17:04.0 0000:17:02.0 0000:c2:04.0 0000:c2:02.0)
+
+			for bus in ${dmiSlotBuses[*]}; do 
+				dmsg inform "processing bus: $bus"
+				checkBus=$(ls -l /sys/bus/pci/devices/ |grep $bus)
+				if [ -z "$checkBus" ]; then
+					simBus=0000:$(lspci -nn |grep 8086:347 |awk '{print $1}' |grep $(echo -n $bus |cut -c6-9))
+					dmsg inform "bus: $bus is nonexistent, found alternative: $simBus"
+					if ! [ "$simBus" = "0000:" ]; then
+						bus=$simBus
+						dmsg inform "updated current bus to: $bus"
+					fi
+				fi
+				slotNum=$(getPciSlotRootBusSlotNum $bus)
+				if [ -z "$slotNum" ]; then slotNumList+=("ff"); else slotNumList+=("$slotNum"); fi
+			done
+			checkDefined slotNumList
+			slotBusAddrList="$(grep ':' /sys/bus/pci/slots/*/address)"
+			dmsg inform "slotNumList=${slotNumList[*]}"
+			for slotNum in ${slotNumList[*]}; do
+				slotBusAddr=$(echo "$slotBusAddrList" |grep -m1 "/$slotNum/" |cut -d: -f3)
+				if [ -z "$slotBusAddr" ]; then slotBuses+=("ff"); else slotBuses+=("$slotBusAddr"); fi
+			done
+			if [ "$launchKey" = "--slotNumList" ]; then
+				for slotNum in $slotNumList; do
+					echo "$slotNum"
+				done
+			else
+				for bus in ${slotBuses[*]}; do
+					echo "$bus"
+				done
+			fi
+		;;
+		*) 
+			dmsg critWarn "Unknown mbType: $mbType"
+			echo "$(dmidecode -t slot |grep "Bus Address" |cut -d: -f3)"
+		;;
+	esac
+}
+
+getPciSlotRootBuses() {
+	local mbType slotBusAddrList slotBusRootAddr slotBusRootAddrs slotBus
+	privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+	case "$mbType" in
+		X10DRi) 
+			slotBusAddrList="$(getDmiSlotBuses)"
+			for slotBus in $slotBusAddrList; do
+				if ! [ "$slotBus" = "ff" ]; then
+					slotBusRootAddr=$(ls -l /sys/bus/pci/devices/ |grep :$slotBus: |cut -d/ -f6 |head -n1)
+					if [ ! -z "$slotBusRootAddr" ]; then 
+						if [ -z "$slotBusRootAddrs" ]; then 
+							slotBusRootAddrs="$slotBusRootAddr"
+						else
+							slotBusRootAddrs+=" $slotBusRootAddr"
+						fi
+					fi
+				fi
+			done
+			for bus in $slotBusRootAddrs; do
+				echo "$bus"
+			done
+		;;
+		X12DAi-N6) 
+			slotBusAddrList="$(getDmiSlotBuses)"
+			for slotBus in $slotBusAddrList; do
+				if ! [ "$slotBus" = "ff" ]; then
+					slotBusRootAddr=$(ls -l /sys/bus/pci/devices/ |grep :$slotBus: |cut -d/ -f5 |head -n1)
+					if [ ! -z "$slotBusRootAddr" ]; then 
+						if [ -z "$slotBusRootAddrs" ]; then 
+							slotBusRootAddrs="$slotBusRootAddr"
+						else
+							slotBusRootAddrs+=" $slotBusRootAddr"
+						fi
+					fi
+				fi
+			done
+			for bus in $slotBusRootAddrs; do
+				echo "$bus"
+			done
+		;;
+		X12SPA-TF) 
+			slotBusAddrList="$(getDmiSlotBuses)"
+			for slotBus in $slotBusAddrList; do
+				if ! [ "$slotBus" = "ff" ]; then
+					slotBusRootAddr=$(ls -l /sys/bus/pci/devices/ |grep :$slotBus: |cut -d/ -f6 |head -n1)
+					if [ ! -z "$slotBusRootAddr" ]; then 
+						if [ -z "$slotBusRootAddrs" ]; then 
+							slotBusRootAddrs="$slotBusRootAddr"
+						else
+							slotBusRootAddrs+=" $slotBusRootAddr"
+						fi
+					fi
+				fi
+			done
+			for bus in $slotBusRootAddrs; do
+				echo "$bus"
+			done
+		;;
+		*) 
+			dmsg critWarn "Unknown mbType: $mbType"
+			# echo "$(dmidecode -t slot |grep "Bus Address" |cut -d: -f3)"
+		;;
+	esac	
+}
+
+getPciSlotRootBus() {
+	local mbType slotBus
+	privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+	privateVarAssign critical "slotBus" "$1"
+	case "$mbType" in
+		X10DRi) 
+			if [ -z "$(echo -n "$slotBus" |grep 0000:)" ]; then
+				ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |cut -d/ -f6 | awk '$1=$1'
+			else
+				ls -l /sys/bus/pci/devices/ |grep -m1 $slotBus |cut -d/ -f6 | awk '$1=$1'
+			fi
+		;;
+		X12DAi-N6) 
+			ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |cut -d/ -f5 | awk '$1=$1'
+		;;
+		X12SPA-TF)
+			if [ -z "$(echo -n "$slotBus" |grep 0000:)" ]; then
+				ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |cut -d/ -f6 | awk '$1=$1'
+			else
+				ls -l /sys/bus/pci/devices/ |grep -m1 $slotBus |cut -d/ -f6 | awk '$1=$1'
+			fi
+			
+		;;
+		*) 
+			dmsg critWarn "Unknown mbType: $mbType"
+			# echo "$(dmidecode -t slot |grep "Bus Address" |cut -d: -f3)"
+		;;
+	esac	
+}
+
+getDevsOnPciRootBus() {
+	local mbType pciRootBusAddrList devsOnRootBus pciRootBus devIdList irqList devId extendedNotEqual irqN
+	privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+	privateVarAssign critical "pciRootBus" "$1"
+	case "$mbType" in
+		X10DRi) 
+			# pciRootBus=$(echo -n $pciRootBus |cut -d. -f1)
+			dmsg inform "rebuilding pciRootBus=$pciRootBus (greping '/$pciRootBus')"
+			devsOnRootBus="$(ls -l /sys/bus/pci/devices/ |grep /$pciRootBus |cut -d/ -f7- |awk -F/ '{print $(NF)}' | awk '$1=$1')"
+			extendedDevsList="$(ls -l /sys/bus/pci/devices/ |grep /$(echo -n $pciRootBus |cut -d. -f1). |cut -d/ -f7- |awk -F/ '{print $(NF)}' | awk '$1=$1')"
+			for dev in $extendedDevsList; do
+				devIdList+=($(cat /sys/bus/pci/devices/$dev/uevent |grep PCI_ID |cut -d= -f2))
+				irqList+=($(lspci -vvvs $dev 2>&1 |grep "Interrupt:" |awk '{print $7}'))
+				dmsg inform "added dev: $dev ID:${devIdList[$((${#devIdList[*]}-1))]} IRQ: ${irqList[$((${#irqList[*]}-1))]}"
+			done
+			dmsg inform "devIdList=${devIdList[*]}"
+			dmsg inform "irqList=${irqList[*]}"
+			for devId in "${devIdList[@]}"; do
+				if [[ "${devIdList[0]}" != "$devId" ]]; then
+					extendedNotEqual=true
+				fi
+			done
+			for irqN in "${irqList[@]}"; do
+				if [[ "${irqList[0]}" != "$irqN" ]]; then
+					extendedNotEqual=true
+				fi
+			done
+
+			if [[ -z "$extendedNotEqual" ]]; then
+				for dev in $extendedDevsList; do
+					echo "$dev"
+				done
+			else
+				for dev in $devsOnRootBus; do
+					echo "$dev"
+				done
+			fi
+		;;
+		X12DAi-N6) 
+			if [ -z "$(echo $pciRootBus |grep pci0000)" ]; then except "bad pciRootBus: $pciRootBus"; else
+				devsOnRootBus="$(ls -l /sys/bus/pci/devices/ |grep $pciRootBus |cut -d/ -f7- |awk -F/ '{print $(NF)}' | awk '$1=$1')"
+				for dev in $devsOnRootBus; do
+					echo "$dev"
+				done
+			fi
+		;;
+		X12SPA-TF) 
+			if [ ! -z "$(echo $pciRootBus |grep pci0000)" ]; then except "bad pciRootBus: $pciRootBus"; else
+				devsOnRootBus="$(ls -l /sys/bus/pci/devices/ |grep $pciRootBus |cut -d/ -f7- |awk '$1=$1')"
+				for dev in $devsOnRootBus; do
+					echo "$dev"
+				done
+			fi
+		;;
+		*) 
+			dmsg critWarn "Unknown mbType: $mbType"
+			# echo "$(dmidecode -t slot |grep "Bus Address" |cut -d: -f3)"
+		;;
+	esac
+}
+
+getPciBridgeMemParams() {
+	local pciAddr memBehind memBehindStart memBehindEnd prefMemBehind prefMemBehindStart prefMemBehindEnd
+	privateVarAssign critical "pciAddr" "$1"
+	memBehind=$(lspci -vvvs $pciAddr |grep -m1 'Memory behind' |awk '{print $4}')
+	memBehindStart=$(echo -n "$memBehind"|cut -d- -f1)
+	memBehindEnd=$(echo -n "$memBehind"|cut -d- -f2)
+	prefMemBehind=$(lspci -vvvs $pciAddr |grep -m1 'Prefetchable memory behind' |awk '{print $5}')
+	prefMemBehindStart=$(echo -n "$prefMemBehind"|cut -d- -f1)
+	prefMemBehindEnd=$(echo -n "$prefMemBehind"|cut -d- -f2)
+	echo "memRange=$((16#$memBehindEnd-16#$memBehindStart))"
+	echo "prefMemRange=$((16#$prefMemBehindEnd-16#$prefMemBehindStart))"
 }
 
 function selectSlot () {
@@ -700,16 +1205,26 @@ function selectSlot () {
 	busMode=$2
 	if [[ -z "$busMode" ]]; then echo -e "$selDesc";fi
 
-	slotBuses=$(dmidecode -t slot |grep Bus |cut -d: -f3)
+	slotBuses=$(getDmiSlotBuses)
 	let slotNum=1
+
 	for slotBus in $slotBuses; do
-		if [[ ! "$slotBus" = "ff" ]]; then
-			busesOnSlots+=( "$slotBus" )
-			devsOnSlots+=( "$(lspci -s $slotBus: |cut -c1-70 |head -n 1)" )
-			populatedSlots+=( "$slotNum" )
-		fi
+		if [[ ! "$slotBus" = "ff" ]]; then 
+			falseDetect=$(ls /sys/bus/pci/devices/ |grep -w "0000:$slotBus")
+			rootBus=$(ls -l /sys/bus/pci/devices/ |grep -m1 :$slotBus: |awk -F/ '{print $(NF-1)}' |grep -v pci )
+			dmsg inform rootBus=$rootBus
+			if [ -z "$falseDetect" -o -z "$rootBus" ]; then
+				dmsg inform "busesOnSlots false deteted slotbus $slotBus, skipping"
+			else
+				busesOnSlots+=( "$slotBus" )
+				devsOnSlots+=( "$(lspci -s $slotBus: |cut -c1-70 |head -n 1)" )
+				populatedSlots+=( "$slotNum" )
+				dmsg inform "Added $slotBus (on slotNum=$slotNum) to busesOnSlots"
+			fi
+		fi	
 		let slotNum+=1
 	done
+
 	if [[ ! -z "${devsOnSlots[@]}" ]]; then
 		for ((e=0;e<=${#busesOnSlots[@]};e++)); 
 		do 
@@ -839,6 +1354,190 @@ syncFilesFromServ() {
 		test "$seqPn" = "Scripts" || let syncExecuted=1
 		type checkRequiredFiles >/dev/null 2>&1 && checkRequiredFiles
 	} || exitFail "Repetative sync requested. Seems that declared files requirments cant be met. Call for help"
+}
+
+
+
+checkOnedrivePkg() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	echo " Checking Onedrive pkg.."
+	which onedrive 2>&1 > /dev/null
+	if [ $? -eq 0 ]; then 
+		echo "  Onedrive pkg present, ok"	
+		echo -n "  Checking Onedrive service status: "
+		serviceStatus="$(systemctl status onedrive |grep 'inactive (dead)')"
+		if [ -z "$serviceStatus" ]; then
+			echo "  running." 
+			echo -n "  Stopping Onedrive service."
+			systemctl stop onedrive
+		else
+			echo "  Onedrive service stopped, ok"
+		fi
+	else 
+		except "  Onedrive pkg is not installed! Reffer to https://github.com/abraunegg/onedrive"
+	fi
+	echo " Done."
+}
+
+sharePathOnedrive() {
+	local filePath srvIp msg logPath cmdRes lnkPath
+	checkOnedrivePkg
+	privateVarAssign "${FUNCNAME[0]}" "targetPath" "$1"
+
+	dmsg inform "in case of sync issues 'onedrive --resync --single-directory LogStorage' may have be used"
+
+	if ! ping -c 1 google.com &> /dev/null; then
+		warn "  google.com is unreachable, skipping OneDrive path share"
+	else
+		echo -e " Creating share on Onedrive path.."
+		syncPath="/$(onedrive --display-config |grep "'sync_dir'" |cut -d/ -f2-)"
+		if [ "$syncPath" = "/" ]; then
+			critWarn "unable to get sync directory"
+		else
+			echo "  Starting sync on LogStorage."
+			onedrive --synchronize --upload-only --no-remote-delete --verbose --single-directory "LogStorage"
+			echo "  Creating shared permissions."
+			cmdRes="$(onedrive --create-share-link "$targetPath" 2>&1)"
+			lnkPath="$(echo -n "$cmdRes" |grep 'File Shareable Link:' |cut -d: -f2- | cut -c2-)"
+			lnkValid="$(echo -n "$lnkPath" |grep 'sharepoint')"
+			if [ ! -z "$lnkValid" ]; then
+				echo "  Created link: $lnkPath"
+			else
+				critWarn "unable to create shared link"
+				echo -e "Full log: \n$cmdRes"
+			fi
+		fi
+		echo -e " Done."
+	fi
+}
+
+uploadLogOnedrive() {
+	local filePath srvIp msg logPath cmdRes lnkPath
+	checkOnedrivePkg
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "targetPath" "$2"
+	noSync="$3"
+
+	dmsg inform "in case of sync issues 'onedrive --resync --single-directory LogStorage' may have be used"
+
+	if ! ping -c 1 google.com &> /dev/null; then
+		warn "  google.com is unreachable, skipping OneDrive upload"
+	else
+		echo -e " Uploading log to Onedrive.."
+		echo "  Log file: $filePath"
+		syncPath="/$(onedrive --display-config |grep "'sync_dir'" |cut -d/ -f2-)"
+		if [ "$syncPath" = "/" ]; then
+			critWarn "unable to get sync directory"
+		else
+			echo -e -n "  Creating log folder $syncPath/LogStorage: "; echoRes "mkdir -p $syncPath/LogStorage"
+			echo -e -n "  Creating log folder $syncPath/LogStorage/$targetPath: "; echoRes "mkdir -p $syncPath/LogStorage/$targetPath"
+			echo -e -n "  Copying log to sync folder: "; echoRes "cp -f "$filePath" "$syncPath/LogStorage/$targetPath/$(basename $filePath)""
+			echo -n "  Checking file exists: "
+			if [ ! -e "$syncPath/LogStorage/$targetPath/$(basename $filePath)" ]; then
+				critWarn "unable to copy file to target directory: $syncPath/LogStorage/$targetPath/$(basename $filePath)"
+			else
+				echo "exists."
+				if [ "$noSync" = "--no-sync" ]; then
+					echo "  Skipping sync, '--no-sync' key is used."
+				else
+					echo -e -n "  Starting sync on LogStorage: "; echoRes "onedrive --synchronize --upload-only --no-remote-delete --verbose --single-directory "LogStorage""
+					echo "  Creating shared permissions."
+					cmdRes="$(onedrive --create-share-link "/LogStorage/$targetPath/$(basename $filePath)" 2>&1)"
+					lnkPath="$(echo -n "$cmdRes" |grep 'File Shareable Link:' |cut -d: -f2- | cut -c2-)"
+					lnkValid="$(echo -n "$lnkPath" |grep 'sharepoint')"
+					if [ ! -z "$lnkValid" ]; then
+						echo "  Created link: $lnkPath"
+					else
+						critWarn "unable to create shared link"
+					fi
+				fi
+			fi
+		fi
+		echo -e " Done."
+	fi
+}
+
+syncLogsOnedrive() {
+	local filePath srvIp msg logPath cmdRes lnkPath
+	checkOnedrivePkg
+
+	if ! ping -c 1 google.com &> /dev/null; then
+		warn "  google.com is unreachable, skipping OneDrive upload"
+	else
+		echo -e " Syncing logs to Onedrive.."
+		echo "  Starting sync on LogStorage."
+		onedrive --synchronize --upload-only --no-remote-delete --verbose --single-directory LogStorage
+		echo -e " Done."
+	fi
+}
+
+uploadLogSmb() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local filePath srvIp msg logPath
+	privateVarAssign "${FUNCNAME[0]}" "srvIp" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$2"
+
+	verifyIp "${FUNCNAME[0]}" $srvIp
+	echo -e "   Uploading log to server.."
+	echo "    Log file: $filePath"
+	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"	
+	echo -e -n "    Creating log folder /mnt/LogSync: "; echoRes "mkdir -p /mnt/LogSync"	
+	if [ -z "$(echo -n "$filePath |grep '_Slot-'")" ]; then unset logPath; else logPath="\\SlotLogs"; msg=" slot"; fi
+	echo -e -n "    Mounting$msg log folder to /mnt/LogSync: "; echoRes "mount.cifs \\\\$srvIp\\LOGS$logPath /mnt/LogSync"' -o user=Logs,pass=12345'
+	echo -e -n "    Copying$msg log to /mnt/LogSync: "; echoRes "cp -f "$filePath" "/mnt/LogSync/$(basename $filePath)""
+	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"
+	echo -e "   Done."
+}
+
+blinkAllEth() {
+	local ethList eth
+	ethList=$(printNetsTree |grep 00E0 |awk '{print $4}')
+	while true; do blinkEth $ethList; done
+}
+
+blinkEth() {
+	local ethList eth
+	ethList=$*
+	for eth in $ethList; do
+		echo -n "Blinking $eth: "
+		ethtool -p $eth 1
+		echo "done."
+	done
+}
+
+printNetsTree() {
+	local netDevs netDev netDevsMacs devPath ethDev net mac line
+	netDevs="$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep -v "virtual\|total" |cut -d/ -f5-)"
+	for netDev in $netDevs; do
+		dmsg inform "processing $netDev"
+		devPath=$(echo -n "$netDev" |rev |cut -d/ -f3- |rev)
+		ethDev=$(echo -n "$devPath" |awk -F/ '{print $(NF)}')
+		net=$(echo -n "$netDev" |awk -F/ '{print $(NF)}')
+		mac=$(ip a |grep -A1 $net: |tail -n1 |awk '{print $2}' |sed 's/://g' | tr '[:lower:]' '[:upper:]')
+		netDevsMacs+=("  Device: $ethDev\tNet: $net\tMAC: $mac\tPci path: $devPath")
+	done
+	for line in "${netDevsMacs[@]}"; do
+		echo -e "$line"
+	done
+}
+
+getDebugInfo() {
+	echoSection "PCI List"
+	lspci -nn
+	echoSection "PCI Ethernet list"
+	lspci -nn |grep Eth
+	echoSection "PCI Tree"
+	lspci -vnnt
+	echoSection "Net devices info"
+	printNetsTree
+	echoSection "Ethernet info"
+	ip a
+	echoSection "Kernel messages"
+	dmesg
+	echoSection "Modules"
+	lsmod
+	echoSection "Full PCI devices info"
+	lspci -vvv
 }
 
 function selectProgVer () {
@@ -1151,7 +1850,7 @@ function testLinks () {
 			case "$uutModel" in
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
-				PE310G4I71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
+				PE310G4I71|PE425G4I71L) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE340G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE210G2BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Link |cut -d: -f2 |cut -d ' ' -f2);;
@@ -1253,7 +1952,7 @@ getEthRates() {
 			case "$uutModel" in
 				PE310G4BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
-				PE310G4I71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
+				PE310G4I71|PE425G4I71L) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE340G2BPI71) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE210G2BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
 				PE310G4BPI40) linkAcqRes=$(ethtool $netTarg |grep Speed:);;
@@ -1536,6 +2235,7 @@ listDevsPciLib() {
 			spc-dev-qty)		spcDevQtyReq=${VALUE} ;;
 			plx-dev-qty)		plxDevQtyReq=${VALUE} ;;
 			plx-dev-sub-qty)	plxDevSubQtyReq=${VALUE} ;;
+			plx-dev-upst-qty)	plxDevUpstQtyReq=${VALUE} ;;
 			plx-dev-empty-qty)	plxDevEmptyQtyReq=${VALUE} ;;
 			bp-dev-qty)			bpDevQtyReq=${VALUE} ;;
 			
@@ -1557,6 +2257,8 @@ listDevsPciLib() {
 			plx-dev-width)			plxDevWidth=${VALUE} ;;
 			plx-dev-sub-speed)		plxDevSubSpeed=${VALUE} ;;
 			plx-dev-sub-width)		plxDevSubWidth=${VALUE} ;;
+			plx-dev-upst-speed)		plxDevUpstSpeed=${VALUE} ;;
+			plx-dev-upst-width)		plxDevUpstWidth=${VALUE} ;;
 			plx-dev-empty-speed)	plxDevEmptySpeed=${VALUE} ;;
 			plx-dev-empty-width)	plxDevEmptyWidth=${VALUE} ;;
 			acc-dev-speed)			accDevSpeed=${VALUE} ;;
@@ -1570,6 +2272,7 @@ listDevsPciLib() {
 			plx-keyw)				plxKeyw=${VALUE} ;;
 			plx-virt-keyw)			plxVirtKeyw=${VALUE} ;;
 			plx-empty-keyw)			plxEmptyKeyw=${VALUE} ;;
+			plx-upst-keyw)			plxUpstKeyw=${VALUE} ;;
 			
 			info-mode)				infoMode="true" ;;
 			no-kern)				noKernelMode="true" ;;
@@ -1603,6 +2306,7 @@ listDevsPciLib() {
 		dmsg inform "spcDevQtyReq=$spcDevQtyReq"
 		dmsg inform "plxDevQtyReq=$plxDevQtyReq"
 		dmsg inform "plxDevSubQtyReq=$plxDevSubQtyReq"
+		dmsg inform "plxDevUpstQtyReq=$plxDevUpstQtyReq"
 		dmsg inform "plxDevEmptyQtyReq=$plxDevEmptyQtyReq"
 		dmsg inform "bpDevQtyReq=$bpDevQtyReq"
 				
@@ -1636,6 +2340,7 @@ listDevsPciLib() {
 		dmsg inform "plxKeyw=$plxKeyw"
 		dmsg inform "plxVirtKeyw=$plxVirtKeyw"
 		dmsg inform "plxEmptyKeyw=$plxEmptyKeyw"
+		dmsg inform "plxUpstKeyw=$plxUpstKeyw"
 		
 		dmsg inform "infoMode=$infoMode"
 		dmsg inform "noKernelMode=$noKernelMode"
@@ -1682,42 +2387,45 @@ listDevsPciLib() {
 
 	test ! -z "$plxBuses" && {
 		for bus in $plxBuses ; do
-			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
-			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# [ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			exist=$(getDevsOnPciRootBus $(getPciSlotRootBus $targBus) |grep -w $bus)
 			test -z "$exist" || plxOnDevBus=$(echo $plxOnDevBus $bus)
 		done
 		dmsg inform "plxOnDevBus=$plxOnDevBus"
 	}
 	test ! -z "$accBuses" && {
 		for bus in $accBuses ; do
-			#exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -w $bus)
-			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
-			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# [ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			exist=$(getDevsOnPciRootBus $(getPciSlotRootBus $targBus) |grep -w $bus)
 			test -z "$exist" || accOnDevBus=$(echo $accOnDevBus $bus)
 		done
 		dmsg inform "accOnDevBus=$accOnDevBus"
 	}
 	test ! -z "$spcBuses" && {
 		for bus in $spcBuses ; do
-			exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -w $bus)
-			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -w $bus)
+			# [ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			exist=$(getDevsOnPciRootBus $(getPciSlotRootBus $targBus) |grep -w $bus)
 			test -z "$exist" || spcOnDevBus=$(echo $spcOnDevBus $bus)
 		done
 		dmsg inform "spcOnDevBus=$spcOnDevBus"
 	}
 	test ! -z "$ethBuses" && {
 		for bus in $ethBuses ; do
-			#exist=$(ls -l /sys/bus/pci/devices/ |grep $slotBus |awk -F/ '{print $NF}' |grep -w $bus)
-			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
-			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# [ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			exist=$(getDevsOnPciRootBus $(getPciSlotRootBus $targBus) |grep -w $bus)
 			test -z "$exist" || ethOnDevBus=$(echo $ethOnDevBus $bus)
 		done
 		dmsg inform "ethOnDevBus=$ethOnDevBus"
 	}
 	test ! -z "$bpBuses" && {
 		for bus in $bpBuses ; do
-			exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
-			[ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# exist=$(ls -l /sys/bus/pci/devices/ |grep :$targBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			# [ -z "$exist" ] && exist=$(ls -l /sys/bus/pci/devices/ |grep :$secBus: |awk -F/ '{print $NF}' |grep -w $bus)
+			exist=$(getDevsOnPciRootBus $(getPciSlotRootBus $targBus) |grep -w $bus)
 			test -z "$exist" || bpOnDevBus=$(echo $bpOnDevBus $bus)
 		done
 		dmsg inform "bpOnDevBus=$bpOnDevBus"
@@ -1752,6 +2460,12 @@ listDevsPciLib() {
 				checkDefinedVal "${FUNCNAME[0]}" "plxDevSubSpeed" "$plxDevSubSpeed"
 				checkDefinedVal "${FUNCNAME[0]}" "plxDevSubWidth" "$plxDevSubWidth"
 			fi
+			if [[ -z "$plxDevUpstQtyReq" ]]; then 
+				except "plxDevUpstQtyReq undefined, but devices found"
+			else
+				checkDefinedVal "${FUNCNAME[0]}" "plxDevUpstSpeed" "$plxDevUpstSpeed"
+				checkDefinedVal "${FUNCNAME[0]}" "plxDevUpstWidth" "$plxDevUpstWidth"
+			fi			
 			if [[ -z "$plxDevEmptyQtyReq" ]]; then 
 				except "plxDevEmptyQtyReq undefined, but devices found"
 			else
@@ -1769,8 +2483,8 @@ listDevsPciLib() {
 		fi
 		dmsg inform "plxOnDevBus=$plxOnDevBus"
 		for plxBus in $plxOnDevBus ; do
-			gatherPciInfo $plxBus
 			dmsg inform "Processing plxBus=$plxBus"
+			gatherPciInfo $plxBus
 			# dmsg debugPciVars
 			checkDefinedVal "${FUNCNAME[0]}" "plxKeyw" "$plxKeyw"
 			dmsg inform " keyw:$plxKeyw fullPciInfo: $(echo "$fullPciInfo" |grep -w "$plxKeyw")"
@@ -1787,6 +2501,7 @@ listDevsPciLib() {
 					echo -e -n "\t  $pciInfoDevLnkSta"
 				fi
 			else
+				dmsg inform ">> $plxBus is NOT a physical device"
 				checkDefinedVal "${FUNCNAME[0]}" "plxVirtKeyw" "$plxVirtKeyw"
 				if [ ! -z "$(echo "$fullPciInfo" |grep -w "$plxVirtKeyw")" ]; then
 					plxDevSubArr="$plxBus $plxDevSubArr"
@@ -1800,16 +2515,43 @@ listDevsPciLib() {
 					fi
 					dmsg inform ">> $plxBus have subordinate"
 				else
-					plxDevEmptyArr="$plxBus $plxDevEmptyArr"
-					dmsg inform "Added plxBus=$plxBus to plxDevEmptyArr=$plxDevEmptyArr"
-					if [[ -z $infoMode ]]; then
-						echo -e "\t "'|'" $plxBus:$cy PLX Virtual Device $ec\e[0;33m(empty)\e[m: $pciInfoDevDesc"
-						echo -e -n "\t "'|'" $(speedWidthComp $plxDevEmptySpeed $pciInfoDevSpeed $plxDevEmptyWidth $pciInfoDevWidth)"
+					if [ ! -z "$plxUpstKeyw" ]; then
+						dmsg inform "upstream keyword present"
+						if [ ! -z "$(echo "$fullPciInfo" |grep -w "$plxUpstKeyw")" ]; then
+							plxDevUpstArr="$plxBus $plxDevUpstArr"
+							dmsg inform "Added plxBus=$plxBus to plxDevUpstArr=$plxDevUpstArr"
+							if [[ -z $infoMode ]]; then
+								echo -e "\t "'|'" $plxBus:$cy PLX Upstream Device$ec: $pciInfoDevDesc"
+								echo -e -n "\t "'|'" $(speedWidthComp $plxDevUpstSpeed $pciInfoDevSpeed $plxDevUpstWidth $pciInfoDevWidth)"
+							else
+								echo -e "$plxBus:$cy PLX Upst$ec: $pciInfoDevDesc"
+								echo -e -n "\t  $pciInfoDevLnkSta"
+							fi
+							dmsg inform ">> $plxBus is upstream port"
+						else
+							plxDevEmptyArr="$plxBus $plxDevEmptyArr"
+							dmsg inform "Added plxBus=$plxBus to plxDevEmptyArr=$plxDevEmptyArr"
+							if [[ -z $infoMode ]]; then
+								echo -e "\t "'|'" $plxBus:$cy PLX Virtual Device $ec\e[0;33m(empty)\e[m: $pciInfoDevDesc"
+								echo -e -n "\t "'|'" $(speedWidthComp $plxDevEmptySpeed $pciInfoDevSpeed $plxDevEmptyWidth $pciInfoDevWidth)"
+							else
+								echo -e "$plxBus:$cy PLX Virt Empty$ec: $pciInfoDevDesc"
+								echo -e -n "\t  $pciInfoDevLnkSta"
+							fi
+							dmsg inform ">> $plxBus is empty"
+						fi
 					else
-						echo -e "$plxBus:$cy PLX Virt Empty$ec: $pciInfoDevDesc"
-						echo -e -n "\t  $pciInfoDevLnkSta"
+						plxDevEmptyArr="$plxBus $plxDevEmptyArr"
+						dmsg inform "Added plxBus=$plxBus to plxDevEmptyArr=$plxDevEmptyArr"
+						if [[ -z $infoMode ]]; then
+							echo -e "\t "'|'" $plxBus:$cy PLX Virtual Device $ec\e[0;33m(empty)\e[m: $pciInfoDevDesc"
+							echo -e -n "\t "'|'" $(speedWidthComp $plxDevEmptySpeed $pciInfoDevSpeed $plxDevEmptyWidth $pciInfoDevWidth)"
+						else
+							echo -e "$plxBus:$cy PLX Virt Empty$ec: $pciInfoDevDesc"
+							echo -e -n "\t  $pciInfoDevLnkSta"
+						fi
+						dmsg inform ">> $plxBus is empty"
 					fi
-					dmsg inform ">> $plxBus is empty"
 				fi
 			fi
 			if [[ -z $infoMode ]]; then
@@ -1824,6 +2566,7 @@ listDevsPciLib() {
 			echo -e "\n\n\tPLX Device count" 
 			testArrQty "  Physical" "$plxDevArr" "$plxDevQtyReq" "No PLX physical devices found on UUT" "warn"
 			testArrQty "  Virtual" "$plxDevSubArr" "$plxDevSubQtyReq" "No PLX virtual devices found on UUT" "warn"
+			testArrQty "  Upstream" "$plxDevUpstArr" "$plxDevUpstQtyReq" "No PLX Upstream devices found on UUT" "warn"
 			testArrQty "  Virtual (empty)" "$plxDevEmptyArr" "$plxDevEmptyQtyReq" "No PLX virtual devices (empty) found on UUT" "warn"
 		fi
 	fi
@@ -2902,6 +3645,23 @@ function sendSerialCmd () {
 	return $?
 }
 
+function killSerialWriters () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local logFilePath lsofPids pid 
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	echo " Killing serial writers on $ttyN"
+	if [ -e /dev/$ttyN ];	then
+		echo " Checking activity on serial device: /dev/$ttyN"
+		lsofPids=$(lsof |grep $ttyN |awk '{print $2}')
+
+		if [ ! -z "$lsofPids" ]; then
+			echo " Killing active writers on serial device"
+			for pid in $lsofPids; do kill -9 $pid; echo "  Killing PID $pid"; done
+		fi
+		echo " Done."
+	fi
+}
+
 function killLogWriters () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local logFilePath lsofPids pid 
@@ -2924,14 +3684,44 @@ function IPPowerCheckSerial () {
 	local i ttyN outlet swRes
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
 
+	dmsg "startup port setup"
+	
 	echo -n " Checking serial connections to IPPower on $ttyN, "
-	swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.5 read p6)"
+	swRes="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.5 "read p6")"
 	dmsg "swRes=$swRes"
 	if [ ! -z "$(echo "$swRes" |grep "1=")" ]; then
 		echo -e "\e[0;32mok.\e[m"
 	else
-		except "IPPower serial connection failure"
+		echo -e "\e[0;31mfail.\e[m"
+		echo -ne " Retrying..\n Warmup."
+		for (( i=1; i<6; i++ )); do
+			if [ $i -eq 3 ]; then countDownDelay 15 "  Waiting for setup delay"; fi
+			echo -n "."
+			warmupCmd="$(sendIPPowerSerialCmd $ttyN 19200 2 read p6)"; dmsg "$warmupCmd"
+			echo -n "."
+			warmupCmd="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.5 read p6)"; dmsg "$warmupCmd"
+			echo -n "."
+			if [ ! -z "$(echo "$warmupCmd" |grep "1=")" ]; then break; else echo -n "_"; fi
+			sleep 0.5
+		done
+		
+		# echo -ne " Warmup."
+		# for (( i=1; i<6; i++ )); do
+		# 	echo -n "."
+		# 	warmupCmd="$(sendIPPowerSerialCmd $ttyN 19200 2 read p6)"; dmsg "$warmupCmd"
+		# 	echo -n "."
+		# 	warmupCmd="$(sendIPPowerSerialCmdDelayed $ttyN 19200 0.5 read p6)"; dmsg "$warmupCmd"
+		# 	echo -n "."
+		# 	if [ ! -z "$(echo "$warmupCmd" |grep "1=")" ]; then break; else echo -n "_"; fi
+		# 	sleep 0.5
+		# done
+		dmsg "pids of ttyUSB: $(lsof |grep ttyUSB)"
+		# lsofPids=$(lsof |grep $ttyN |awk '{print $2}')
+		# for pid in $lsofPids; do kill -9 $pid; echo "  Killing PID $pid"; done
+		if [ -z "$(echo "$warmupCmd" |grep "1=")" ]; then except "IPPower serial connection failure"; else echo -e " Serial \e[0;32mconnected.\e[m"; fi
+		
 	fi
+
 }
 
 function IPPowerSwPowerAll () {
@@ -3055,17 +3845,18 @@ function sendIPPowerSerialCmdDelayed () {
 	echo -e "\r" > /dev/$ttyN
 	echo -e "\r" > /dev/$ttyN
 	echo -e "\r" > /dev/$ttyN
-	echo -e "\r" > /dev/$ttyN
-	echo -e "\r" > /dev/$ttyN
-	echo -e "\r" > /dev/$ttyN
-	echo -e "\r" > /dev/$ttyN
-	echo -e "\r" > /dev/$ttyN
-	echo -e "\r" > /dev/$ttyN
+	# echo -e "\r" > /dev/$ttyN
+	# echo -e "\r" > /dev/$ttyN
+	# echo -e "\r" > /dev/$ttyN
+	# echo -e "\r" > /dev/$ttyN
+	# echo -e "\r" > /dev/$ttyN
+	# echo -e "\r" > /dev/$ttyN
 	sleep $delay
 	sleep $delay
 	sleep $delay
 
 	killLogWriters $logFilePath
+	killSerialWriters /dev/$ttyN
 	dmsg "reading log"
 	echo " Reading log file"
 	outlStat="$(cat "$logFilePath" )"
@@ -3114,6 +3905,7 @@ function sendIPPowerSerialCmd () {
 		timeout { send_user \"\nTimeout1\n\"; exit 1 }
 		eof { send_user \"\nEOF\n\"; exit 1 }
 	}
+	send \n\r
 	expect {
 		*CMD:* { 
 			send \"$cmd\r\"
@@ -3123,9 +3915,6 @@ function sendIPPowerSerialCmd () {
 		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
 	}
 	expect {
-	*\$* { send \x14q\r }
-	*#* { send \x14q\r }
-	*0>* { send \x14q\r }
 	*status :* { send \x14q\r }
 	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
@@ -3323,6 +4112,50 @@ function getISBootMsg () {
 		" 2>&1
 	)"
 	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'BOOT_OK_CNF')
+	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
+	echo -n "$serStateRes"
+}
+
+function getISCPUMsg () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd serStateRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	serialCmdNlRes="$(
+		expect -c "
+		set timeout $timeout
+		log_user 1
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*CPU0:* { send_user \"State: CPU0_MSG\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		** { send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		" 2>&1
+	)"
+	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'CPU0_MSG')
 	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
 	echo -n "$serStateRes"
 }
@@ -3572,6 +4405,42 @@ ipPowerSetPowerTelnet() {
 	eval "{ echo admin=12345678; sleep 0.1; echo setpower=0000; sleep 0.1; echo setpower=1111; }" | telnet 172.30.4.207
 }
 
+ipmiCheckChassis() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local cmdRes cutRes
+	privateVarAssign "${FUNCNAME[0]}" "ipmiIP" "$1"
+	verifyIp "${FUNCNAME[0]}" $ipmiIP
+	privateVarAssign "${FUNCNAME[0]}" "ipmiUser" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "ipmiPass" "$3"
+	cmdRes="$(ipmitool -H $ipmiIP -U $ipmiUser -P $ipmiPass chassis status)"
+	dmsg inform "cmdRes=$cmdRes"
+	cutRes=$(echo "$cmdRes" |grep 'Chassis Power\|System Power' |cut -d: -f2)
+	dmsg inform "cutRes=$cutRes"
+	if [ ! -z "$cutRes" ]; then
+		echo -e "  Chassis status on $ipmiIP:$yl$cutRes$ec"
+	else
+		except "Unable to connect to $ipmiUser@$ipmiIP"
+	fi
+}
+
+ipmiPowerUP() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local cmdRes cutRes
+	privateVarAssign "${FUNCNAME[0]}" "ipmiIP" "$1"
+	verifyIp "${FUNCNAME[0]}" $ipmiIP
+	privateVarAssign "${FUNCNAME[0]}" "ipmiUser" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "ipmiPass" "$3"
+	cmdRes="$(ipmitool -H $ipmiIP -U $ipmiUser -P $ipmiPass power on)"
+	dmsg inform "cmdRes=$cmdRes"
+	cutRes=$(echo "$cmdRes" |grep 'Chassis Power' |cut -d: -f2)
+	dmsg inform "cutRes=$cutRes"
+	if [ ! -z "$cutRes" ]; then
+		echo "  Sent power ON command to $ipmiIP"
+	else
+		except "Unable to connect to $ipmiUser@$ipmiIP"
+	fi
+}
+
 sshCheckPing() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local retryCount targIp
@@ -3721,14 +4590,26 @@ stopServer() {
 
 setupInternet() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	if [ -z "$internetAcq" ]; then 
+		warn "internetAcq status was not set, setting to 0"
+		let internetAcq=0
+	fi
 	if [ $internetAcq -eq 0 ]; then
+		echo "  Setting up routing GW"
 		route add default gw 172.30.0.9 &> /dev/null
+		echo -n "  Checking resolver: "
+		if [ -z "$(cat /etc/resolv.conf |grep nameserver)" ]; then
+			echo "not set, appending /etc/resolv.conf"
+			echo "nameserver 8.8.8.8" | tee -a /etc/resolv.conf &> /dev/null
+		else
+			echo "checked, is set."
+		fi
 		sleep 1
 		if ! ping -c 1 google.com &> /dev/null; then
 			warn "  Internet setup failed, routing setup failed"
 		else
 			let internetAcq=1
-			echo "  Internet setup was succesfull"
+			echo "  Internet setup was succesfull, ping ok"
 		fi
 	else
 		if ! ping -c 1 google.com &> /dev/null; then
@@ -3917,7 +4798,7 @@ checkUUTTransceivers() {
 	slcm_start &> /dev/null
 	selectSlot "  Select UUT:"
 	uutSlotNum=$?
-	publicVarAssign warn uutBus $(dmidecode -t slot |grep "Bus Address:" |cut -d: -f3 |head -n $uutSlotNum |tail -n 1)
+	publicVarAssign warn uutBus $(getDmiSlotBuses |head -n $uutSlotNum |tail -n 1)
 	publicVarAssign fatal uutSlotBus $(ls -l /sys/bus/pci/devices/ |grep -m1 :$uutBus: |awk -F/ '{print $(NF-1)}' |awk -F. '{print $1}')
 	publicVarAssign warn uutNets $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $uutSlotBus |awk -F/ '{print $NF}')
 	publicVarAssign warn uutBuses $(filterDevsOnBus $(echo -n ":$uutBus:") $(grep '0200' /sys/bus/pci/devices/*/class |awk -F/ '{print $(NF-1)}' |cut -d: -f2-))
@@ -4161,7 +5042,25 @@ libs() {
 	source /root/multiCard/sfpLinkTest.sh
 	echo -e "\nSourcing TS.."
 	source /root/multiCard/tsTest.sh
+	echo -e "\nSourcing IS.."
+	source /root/multiCard/isTest.sh
 	echo -e "\n"
+}
+
+unsetDebug() {
+	unset debugMode
+	unset globalMute
+	unset debugBrackets
+	unset debugShowAssignations
+	unset noExit
+}
+
+setDebug() {
+	export debugMode=1
+	export globalMute=1
+	export let debugBrackets=0
+	export let debugShowAssignations=0
+	export noExit=1
 }
 
 if (return 0 2>/dev/null) ; then
