@@ -133,7 +133,7 @@ inform() {	#nnl = no new line  #sil = silent mode
 	if [ -z "$nnlEn" ]; then
 		echo -n -e "\n" 1>&2
 	fi
-	if [ -z "$silEn" ]; then
+	if [ -z "$silEn" -a -z "$silentMode" ]; then
 		beepSpk info
 	fi
 }
@@ -151,26 +151,66 @@ passMsg() { #nnl = no new line  #sil = silent mode
 	beepSpk pass
 }
 
-dmsg() {
-	local addArg callerFunc
-	if [[ -z "${FUNCNAME[1]}" ]]; then callerFunc="  undefinedCallerFunc> "; else callerFunc="  ${FUNCNAME[1]}> "; fi
-	if [ "$(type -t $(echo "$@"|awk '{print $1}') 2>&1)" == "function" ]; then 
-		addArg="inform "
-	else
-		if [ "$(type -t $(echo "$@"|awk '{print $1}') 2>&1)" == "" ]; then 
-			addArg="inform "
+printDmsgStack() {
+	local idxOrder idx dmsgStackIdx stackMsgId
+	if [ "$dmsgStack" == "1" ]; then
+		let stackMsgId=0
+		if [ ! -z "${dmsgStackArr[*]}" ]; then
+			let dmsgStackIdx=${dmsgStackArr[99]}
+			
+			warn "\tPRINTING DMSG MESSAGE STACK>>>" 1>&2
+			idxOrder=$(seq $(($dmsgStackIdx+1)) 1 30;seq 0 1 $dmsgStackIdx)
+			for idx in $idxOrder; do
+				let stackMsgId++
+				echo "DMSG $stackMsgId> ${dmsgStackArr[$idx]}" 1>&2
+			done
+			warn "\t<<<DMSG MESSAGE STACK END\n" 1>&2
 		else
-			unset addArg
+			critWarn "\tDMSG stack is empty or no index: \n stack: ${dmsgStackArr[*]}\n counter:${dmsgStackArr[99]}" 1>&2
 		fi
 	fi
+	unset dmsgStackArr
+	
+}
+
+dmsg() {
+	local addArg callerFunc dmsgStackIdx
 	if [[ ! -z "$@" ]]; then
-		if [ "$debugMode" == "1" ]; then
-			if [ "$debugBrackets" == "0" ]; then
-				echo -e -n "dbg>$callerFunc" 1>&2; $addArg"$@" 1>&2
+		if [ "$debugMode" == "1" -o "$dmsgStack" == "1" ]; then
+			if [[ -z "${FUNCNAME[1]}" ]]; then callerFunc="  undefinedCallerFunc> "; else callerFunc="  ${FUNCNAME[1]}> "; fi
+			if [ "$(type -t $(echo "$@"|awk '{print $1}') 2>&1)" == "function" ]; then 
+				addArg="inform "
 			else
-				inform "DEBUG>$callerFunc" --nnl 1>&2
-				$addArg"$addArg$@" 1>&2
-				inform "< DEBUG END" 1>&2
+				if [ "$(type -t $(echo "$@"|awk '{print $1}') 2>&1)" == "" ]; then 
+					addArg="inform "
+				else
+					unset addArg
+				fi
+			fi
+			if [ "$debugMode" == "1" ]; then
+				if [ "$debugBrackets" == "0" ]; then
+					echo -e -n "dbg>$callerFunc" 1>&2; $addArg"$@" 1>&2
+				else
+					inform "DEBUG>$callerFunc" --nnl 1>&2
+					$addArg"$addArg$@" 1>&2
+					inform "< DEBUG END" 1>&2
+				fi
+			else
+				if [ ! -z "$dmsgStack" ]; then
+					if [ ! -z "${dmsgStackArr[*]}" ]; then
+						let dmsgStackIdx=${dmsgStackArr[99]}
+						if [ $dmsgStackIdx -eq 30 ]; then 
+							let dmsgStackArr[99]=0
+							let dmsgStackIdx=0
+						else 
+							let dmsgStackIdx++
+							let dmsgStackArr[99]=$dmsgStackIdx
+						fi
+						dmsgStackArr[$dmsgStackIdx]="$(echo -e -n "dbg>$callerFunc"  2>&1; $addArg"$@"  2>&1)"
+					else
+						echo -e "DMSG> DMSG stack is empty or no index: \n stack: ${dmsgStackArr[*]}\n counter:$dmsgStackIdx" 1>&2
+					fi
+				fi
 			fi
 		fi
 	else
@@ -337,9 +377,33 @@ beepSpk() {
 				beep -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6 -n -f 783 -l 6 -n -f 830 -l 6
 			};;
 			crit) test "$beepInstalled" = "0" && beepNoExec 3 || beep -f 783 -l 20 -n -f 830 -l 20 -n -f 783 -l 20 -n -f 830 -l 20 -n -f 783 -l 20 -n -f 830 -l 20;;
-			warn) test "$beepInstalled" = "0" && beepNoExec 2 || beep -f 783 -l 20 -n -f 830 -l 20;;
-			info) test "$beepInstalled" = "0" && beepNoExec 1 || beep -f 783 -l 20;;
-			pass) test "$beepInstalled" = "0" && beepNoExec 2 || beep -f 523 -l 90 -n -f 659 -l 90 -n -f 783 -l 90 -n -f 1046 -l 90;;
+			warn)
+				if [ -z "$silentMode" ]; then
+					if [ "$beepInstalled" = "0" ]; then 
+						beepNoExec 2
+					else
+						beep -f 783 -l 20 -n -f 830 -l 20
+					fi
+				fi
+			;;
+			info)
+				if [ -z "$silentMode" ]; then
+					if [ "$beepInstalled" = "0" ]; then 
+						beepNoExec 1
+					else
+						beep -f 783 -l 20
+					fi
+				fi
+			;;
+			pass) 
+				if [ -z "$silentMode" ]; then
+					if [ "$beepInstalled" = "0" ]; then 
+						beepNoExec 2
+					else
+						beep -f 523 -l 90 -n -f 659 -l 90 -n -f 783 -l 90 -n -f 1046 -l 90
+					fi
+				fi
+			;;
 			headsUp) test "$beepInstalled" = "0" && beepNoExec 1 || {
 				beep -f 523 -l 1000
 				sleep 0.05
@@ -350,6 +414,15 @@ beepSpk() {
 				beep -f 1046 -l 15 -n -f 1046 -l 10
 				sleep 0.05
 				beep -f 1046 -l 140 -n -f 1046 -l 140
+			};;
+			warnHeadsUp) test "$beepInstalled" = "0" && beepNoExec 1 || {
+				local lN mN hN dl rpt
+				let lN=196;let mN=415;let hN=880;let dl=20
+				for ((rpt=1; rpt<=4; rpt++)) ; do 
+					beep -f $lN -l $dl -n -f $mN -l $dl -n -f $hN -l $dl -n -f $lN -l $dl -n -f $mN -l $dl -n -f $hN -l $dl
+					sleep 0.02
+					beep -f $(($lN*2)) -l $dl -n -f $(($mN*2)) -l $dl -n -f $(($hN*2)) -l $dl -n -f $(($lN*2)) -l $dl -n -f $(($mN*2)) -l $dl -n -f $(($hN*2)) -l $dl
+				done
 			};;
 			*) exitFail "beepSpk exception, unknown beepMode: $beepMode"
 		esac
@@ -775,6 +848,7 @@ getMaxSlots() {
 		X10DRi) privateNumAssign "resSltNum" "$(dmidecode -t slot |grep Handle |wc -l)";;
 		X12DAi-N6) privateNumAssign "resSltNum" "$(dmidecode -t slot |grep Handle |wc -l)";;
 		X12SPA-TF) privateNumAssign "resSltNum" "$(dmidecode -t slot  |grep Type: |grep "PCI" |wc -l)";;
+		90500-0151-G71) privateNumAssign "resSltNum" "1";;
 		*)
 			except "Unknown mbType: $mbType"
 		;;
@@ -826,7 +900,7 @@ getPciSlotRootBusSlotNum() {
 
 getDmiSlotBuses() {
 	local mbType slotBusAddrList slotBuses bus rootBusList slotNum slotNumList busN dId rootBus rootBuses rootBusVal slotNumVal
-	local slotCheckRes pciDevInfo slotStatus slotBusAddrArr
+	local slotCheckRes pciDevInfo slotStatus slotBusAddrArr rNum
 	local slotDevs launchKey
 	privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
 	launchKey=$1
@@ -834,8 +908,9 @@ getDmiSlotBuses() {
 		X10DRi) 
 			dmsg inform "mbType=$mbType"
 			# echo "$(dmidecode -t slot |grep "Bus Address" |cut -d: -f3)"
+			privateVarAssign critical rNum $(lspci -nnd ::0604 |grep -m1 Xeon |cut -d'[' -f3 |cut -d: -f2 |cut -c1)
 			for dId in 2 4 6 8; do
-				rootBus=$(lspci -d 8086:2f0$dId |grep -m1 00: |awk '{print $1}')
+				rootBus=$(lspci -d 8086:${rNum}f0$dId |grep -m1 00: |awk '{print $1}')
 				if [ -z "$rootBus" ]; then rootBusVal="ff"; else rootBusVal="$rootBus"; fi
 				if [ -z "$rootBuses" ]; then 
 					rootBuses="$rootBusVal"
@@ -844,7 +919,7 @@ getDmiSlotBuses() {
 				fi
 			done
 			for dId in 2 4 6 8; do
-				rootBus=$(lspci -d 8086:2f0$dId |grep -m1 80: |awk '{print $1}')
+				rootBus=$(lspci -d 8086:${rNum}f0$dId |grep -m1 80: |awk '{print $1}')
 				if [ -z "$rootBus" ]; then rootBusVal="ff"; else rootBusVal="$rootBus"; fi
 				rootBuses+=" $rootBusVal"
 			done
@@ -950,29 +1025,43 @@ getDmiSlotBuses() {
 			fi
 		;;
 		X12SPA-TF)
-			local bus rootBus rootBusList fullRootBusList dmiHandle dmiHandleList dmiSlotBuses sltCap dmiRootBuses
+			local bus rootBus rootBusList fullRootBusList dmiHandle dmiHandleList dmiSlotBuses sltCap dmiRootBuses busData busIdx
+			declare -A busData
+
+			#	busData description
+			#
+			#	rootBus	slotBus	slotNum	busAddrInSlot 	dmiBus
+			#	0		1		2		3				4
+			#
+
+			let busIdx=0
 			dmiHandleList=(0x000D 0x000E 0x000F 0x0010 0x0011 0x0012 0x0013)
 			dmiBuses=$(for dmiHandle in ${dmiHandleList[*]}; do dmidecode -H$dmiHandle; done |grep Bus |cut -d: -f3)
 			for bus in $dmiBuses; do
-				dmsg inform "processing $bus"
+				dmsg inform "processing $bus (busIdx: $busIdx)"
 				checkBus=$(ls -l /sys/bus/pci/devices/ |grep $bus)
 				if ! [ "$bus" = "ff" -o -z "$checkBus" ]; then
 					rootBus=$(getPciSlotRootBus $bus |cut -d: -f2-)
 					if [ ! -z "$rootBus" ]; then
 						dmsg inform "adding $rootBus to dmiRootBuses"
 						dmiRootBuses+=($rootBus)
+						busData[$busIdx,0]=$rootBus
+						busData[$busIdx,4]=$bus
 						sltCap=$(lspci -vs $rootBus |grep "Capabilities: \[40\]" |grep "Slot+")
 						if [ ! -z "$sltCap" ]; then
 							dmsg inform "adding $rootBus to dmiSlotBuses"
 							dmiSlotBuses+=($rootBus)
+							busData[$busIdx,1]=$rootBus
 						else
 							dmsg inform "$rootBus does not have slot capabilities, checking"
 							sltCap=$(echo -n "$rootBus" |grep "89:02.0\|50:02.0\|17:02.0\|c2:02.0")
 							if [ ! -z "$sltCap" ]; then
 								dmsg inform "$rootBus actually have slot capabilities, adding $rootBus to dmiSlotBuses"
 								dmiSlotBuses+=($rootBus)
+								busData[$busIdx,1]=$rootBus
 							else
 								dmiSlotBuses+=("ff")
+								busData[$busIdx,1]="ff"
 								dmsg inform "$rootBus actually does not have slot capabilities"
 							fi
 						fi
@@ -981,15 +1070,31 @@ getDmiSlotBuses() {
 					fi
 				else
 					dmsg inform "bus is empty"
-					dmiSlotBuses+=("ff")
+					let prevIdx=$busIdx-1
+					if [ $prevIdx -gt 0 ]; then
+						dmsg inform "prevIdx > 0"
+						if [ "${busData[$prevIdx,1]}" = "ff" ]; then
+							dmsg inform "previous bus does not have slot capabilities, moving to current"
+							rootBus=$(getPciSlotRootBus ${busData[$prevIdx,4]} |cut -d: -f2-)
+							busData[$busIdx,0]=${busData[$prevIdx,0]}
+							busData[$busIdx,1]=$rootBus
+							dmiSlotBuses+=("$rootBus")
+						fi
+					fi
+					if [ -z "${busData[$busIdx,1]}" ]; then 
+						dmsg inform "busData for current index is empty, setting to ff"
+						dmiSlotBuses+=("ff")
+						busData[$busIdx,1]="ff"
+					fi
 				fi
+				let busIdx++
 			done
 
 			dmsg inform "dmiRootBuses=${dmiRootBuses[*]}"
 			dmsg inform "dmiSlotBuses=${dmiSlotBuses[*]}"
 
 			# fullRootBusList=(0000:89:02.0 0000:50:04.0 0000:50:02.0 0000:17:04.0 0000:17:02.0 0000:c2:04.0 0000:c2:02.0)
-
+			let busIdx=0
 			for bus in ${dmiSlotBuses[*]}; do 
 				dmsg inform "processing bus: $bus"
 				checkBus=$(ls -l /sys/bus/pci/devices/ |grep $bus)
@@ -1002,15 +1107,50 @@ getDmiSlotBuses() {
 					fi
 				fi
 				slotNum=$(getPciSlotRootBusSlotNum $bus)
-				if [ -z "$slotNum" ]; then slotNumList+=("ff"); else slotNumList+=("$slotNum"); fi
+				if [ -z "$slotNum" ]; then 
+					slotNumList+=("ff")
+					busData[$busIdx,2]="ff"
+				else 
+					slotNumList+=("$slotNum")
+					busData[$busIdx,2]=$slotNum
+				fi
+				let busIdx++
 			done
+			for ((bIdx=0;bIdx<=6;bIdx++)); do dmsg inform "Bus $bIDX: 0:${busData[$bIdx,0]} 1:${busData[$bIdx,1]} 2:${busData[$bIdx,2]} 3:${busData[$bIdx,3]}";	done
 			checkDefined slotNumList
 			slotBusAddrList="$(grep ':' /sys/bus/pci/slots/*/address)"
 			dmsg inform "slotNumList=${slotNumList[*]}"
+			let busIdx=0
 			for slotNum in ${slotNumList[*]}; do
-				slotBusAddr=$(echo "$slotBusAddrList" |grep -m1 "/$slotNum/" |cut -d: -f3)
-				if [ -z "$slotBusAddr" ]; then slotBuses+=("ff"); else slotBuses+=("$slotBusAddr"); fi
+				dmsg inform "processing slotNum: $slotNum"
+				if [ "$slotNum" = "ff" ]; then 
+					slotBuses+=("ff")
+					busData[$busIdx,3]="ff"
+				else
+					slotBusAddr=$(echo "$slotBusAddrList" |grep -m1 "/$slotNum/" |cut -d: -f3)
+					if [ -z "$slotBusAddr" ]; then 
+						dmsg inform "unable to get slotBusAddr for slotNum: $slotNum"
+						if ! [ "${busData[$busIdx,1]}" = "ff" ]; then
+							case "${busData[$busIdx,1]}" in
+								"89:02.0"|"50:02.0"|"17:02.0"|"c2:02.0") 
+									dmsg inform "processing root slot: ${busData[$busIdx,1]}"
+									busData[$busIdx,1]=$(ls -l /sys/bus/pci/devices/ |grep ${busData[$busIdx,1]} |cut -d/ -f5 |grep -m1 pci)
+								;;
+								"50:04.0"|"17:04.0"|"c2:04.0") 
+									dmsg inform "processing non root slot: ${busData[$busIdx,1]}"
+									busData[$busIdx,1]=$(ls -l /sys/bus/pci/devices/ |grep ${busData[$busIdx,1]} |cut -d/ -f5 |grep -m1 pci)
+								;;
+								*) except "unknown busData[$busIdx,1] value: ${busData[$busIdx,1]}"
+							esac
+							slotBusAddr=$(ls -l /sys/bus/pci/devices/ |grep ${busData[$busIdx,1]} |cut -d/ -f7 |awk '$1=$1' |head -n1 |cut -d: -f2)
+						fi
+					fi
+					slotBuses+=("$slotBusAddr")
+					busData[$busIdx,3]=$slotBusAddr
+				fi
+				let busIdx++
 			done
+			for ((bIdx=0;bIdx<=6;bIdx++)); do dmsg inform "Bus $bIDX: 0:${busData[$bIdx,0]} 1:${busData[$bIdx,1]} 2:${busData[$bIdx,2]} 3:${busData[$bIdx,3]}";	done
 			if [ "$launchKey" = "--slotNumList" ]; then
 				for slotNum in $slotNumList; do
 					echo "$slotNum"
@@ -1170,18 +1310,51 @@ getDevsOnPciRootBus() {
 			fi
 		;;
 		X12SPA-TF) 
-			if [ ! -z "$(echo $pciRootBus |grep pci0000)" ]; then except "bad pciRootBus: $pciRootBus"; else
+			if [ ! -z "$(echo $pciRootBus |grep pci0000)" ]; then
 				devsOnRootBus="$(ls -l /sys/bus/pci/devices/ |grep $pciRootBus |cut -d/ -f7- |awk '$1=$1')"
-				for dev in $devsOnRootBus; do
-					echo "$dev"
-				done
+			else
+				sltCap=$(lspci -vs $pciRootBus |grep "Capabilities: \[40\]" |grep "Slot+")
+				if [ -z "$sltCap" ]; then
+					pciRootBus=$(ls -l /sys/bus/pci/devices/ |grep -m1 "$pciRootBus" |cut -d/ -f5)
+				fi
+				devsOnRootBus="$(ls -l /sys/bus/pci/devices/ |grep $pciRootBus |cut -d/ -f7- |awk '$1=$1')"
 			fi
+			for dev in $devsOnRootBus; do
+				echo "$dev"
+			done
 		;;
 		*) 
 			dmsg critWarn "Unknown mbType: $mbType"
 			# echo "$(dmidecode -t slot |grep "Bus Address" |cut -d: -f3)"
 		;;
 	esac
+}
+
+getIfacesOnSlot() {
+	local slotBus bus slotNum
+	privateNumAssign slotNum $1
+	bus=$(getDmiSlotBuses |head -n $slotNum |tail -n 1)
+	if ! [ "$bus" = "ff" -o -z "$bus" ]; then
+		privateVarAssign fatal slotBus $(getPciSlotRootBus $bus)
+		getIfacesOnSlotBus $slotBus
+	fi
+}
+
+getIfacesOnSlotBus() {
+	local netDevs devsOnBus pciRootBus netOnDev dev
+	privateVarAssign critical "pciRootBus" "$1"
+	devCheck="$(ls -l /sys/bus/pci/devices/ |grep $pciRootBus)"
+	if [ -z "$devCheck" ]; then
+		except "device: $pciRootBus does not exist"
+	else
+		if [ -z "$(echo -n "$pciRootBus"|grep '0000:')" ]; then pciRootBus="0000:$pciRootBus"; fi
+		netDevs="$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep -v "virtual\|total" |cut -d/ -f5-)"
+		devsOnBus=$(getDevsOnPciRootBus $pciRootBus)
+		for dev in $devsOnBus; do
+			netOnDev=$(echo -n "$netDevs"|grep -m1 "$dev")
+			if [ ! -z "$netOnDev" ]; then echo "$netOnDev"|awk -F/ '{print $NF}'; fi
+		done
+	fi
 }
 
 getPciBridgeMemParams() {
@@ -1394,8 +1567,8 @@ sharePathOnedrive() {
 		if [ "$syncPath" = "/" ]; then
 			critWarn "unable to get sync directory"
 		else
-			echo "  Starting sync on LogStorage."
-			onedrive --synchronize --upload-only --no-remote-delete --verbose --single-directory "LogStorage"
+			# echo "  Starting sync on LogStorage."
+			# onedrive --synchronize --upload-only --no-remote-delete --verbose --single-directory "LogStorage"
 			echo "  Creating shared permissions."
 			cmdRes="$(onedrive --create-share-link "$targetPath" 2>&1)"
 			lnkPath="$(echo -n "$cmdRes" |grep 'File Shareable Link:' |cut -d: -f2- | cut -c2-)"
@@ -1403,7 +1576,7 @@ sharePathOnedrive() {
 			if [ ! -z "$lnkValid" ]; then
 				echo "  Created link: $lnkPath"
 			else
-				critWarn "unable to create shared link"
+				critWarn "${FUNCNAME[2]}> ${FUNCNAME[1]}> ${FUNCNAME[0]}> unable to create shared link on target path: $targetPath"
 				echo -e "Full log: \n$cmdRes"
 			fi
 		fi
@@ -1448,7 +1621,7 @@ uploadLogOnedrive() {
 					if [ ! -z "$lnkValid" ]; then
 						echo "  Created link: $lnkPath"
 					else
-						critWarn "unable to create shared link"
+						critWarn "${FUNCNAME[2]}> ${FUNCNAME[1]}> ${FUNCNAME[0]}> unable to create shared link on target path: $targetPath"
 					fi
 				fi
 			fi
@@ -1471,6 +1644,160 @@ syncLogsOnedrive() {
 	fi
 }
 
+function sendTgMsg() {
+	# local mount_point="/tmp/tg_tmp"
+	local sendRes remoteIP remotePath localPath msgSend smbShare mntOk
+	privateVarAssign "${FUNCNAME[0]}" "remoteIP" "$1" ;shift
+	privateVarAssign "${FUNCNAME[0]}" "remotePath" "$1" ;shift
+	privateVarAssign "${FUNCNAME[0]}" "localPath" "$1" ;shift
+	privateVarAssign "${FUNCNAME[0]}" "msgSend" "$*"
+	let mntOk=0
+
+	smbShare="//$remoteIP/$remotePath/"
+	dmsg inform "smbShare=$smbShare"
+	dmsg inform "localPath=$localPath"
+	msgSend="$(echo -ne "$msgSend")"
+
+	if [ ! -e "${localPath}/tokenGen.sh" ]; then
+		if [ ! -d "${localPath}" ]; then
+			mkdir -p "${localPath}"
+		fi
+		umount "${localPath}" &>/dev/null
+		mount.cifs "${smbShare}" "${localPath}" -o "user=smbLogs,password=smbLogs"
+		let mntOk+=$?
+	fi
+	if [ $mntOk -eq 0 ]; then
+		source "${localPath}/tokenGen.sh"
+		if [ $? -eq 0 ]; then
+			sendRes="$(curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+				-d "chat_id=${TG_CHAT_ID}" \
+				--data-urlencode "text=$msgSend" \
+			)"
+			dmsg inform "RESP: $sendRes"
+		else
+			dmsg inform "env variable not set"
+		fi
+	else
+		dmsg inform "mount failed."
+	fi
+	umount "${localPath}" &>/dev/null
+}
+
+createPathForFile() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local filePath folderArr fileExt dirList dir curPath
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$1"
+	echo -e "    Creating path for file: $filePath"
+	fileExt=$(echo -n $filePath|awk -F/ '{print $NF}' |cut -d. -f2)
+	echo -e "     Extension: $fileExt"
+	if [ ! -z "$fileExt" ]; then 
+		filePath=$(dirname $filePath)
+	fi
+	echo -e "     File path: $filePath"
+	if [ ! -e $filePath ]; then
+		echo -e "     File path $filePath does not exist, creating"
+		dirList=$(echo -n $filePath |cut -d/ -f2- | sed "s,/, ,g")
+		curPath="/"
+		for dir in $dirList; do 
+			curPath+="$dir/"
+			if [ -e $curPath ]; then
+				echo -e "     Folder path $curPath exist, skipping"
+			else
+				echo -ne "     Folder path $curPath does not exist, creating: "
+				echoRes "mkdir -p $curPath"
+			fi
+		done
+	else
+		echo -e "     File path $filePath exist, skipping"
+	fi
+	echo -e "    Done."
+}
+
+uploadQueueSyncServer() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local filePath srvIp msg remotePath re couterList el targetPath
+	privateVarAssign "${FUNCNAME[0]}" "srvIp" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$2"
+	let lastCounter=-1
+	verifyIp "${FUNCNAME[0]}" $srvIp
+	sshWaitForPing 30 $srvIp 1
+	if [ $? -eq 0 ]; then echo "   Log sync server $srvIp is up."; else except "Log sync server $srvIp is down!"; fi
+
+	echo -e "   Uploading log to server.."
+	echo "    Log file: $filePath"
+	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"	
+	echo -e -n "    Creating log folder /mnt/SheetQueue: "; echoRes "mkdir -p /mnt/SheetQueue"	
+	echo -e -n "    Mounting log folder to /mnt/SheetQueue: "; echoRes "mount.cifs \\\\$srvIp\\SheetQueue /mnt/SheetQueue"' -o user=smbLogs,pass=smbLogs'
+	couterList=$(ls -l /mnt/SheetQueue/ |grep '.csvDB' |awk -F_ '{print $NF}' |cut -d. -f1 |sort |awk '{print $1}')
+	if [ ! -z "$couterList" ]; then 
+		re='^[0-9]+$'
+		for el in $couterList; do
+			if [[ $el =~ $re ]] ; then
+				if [ $el -gt $lastCounter ]; then
+					let lastCounter=$el
+				fi
+			fi
+		done
+	fi
+	if [ $lastCounter -lt 0 ]; then let lastCounter=0; fi
+
+	echo "    Last file index in queue: $lastCounter"
+	let lastCounter++
+	remoteFileName=$(echo -n "$(basename $filePath|rev |cut -d. -f2- |rev)_$lastCounter.$(basename $filePath|rev |cut -d. -f1 |rev)")
+	targetPath="/mnt/SheetQueue/$remoteFileName"
+	remotePath="/home/smbLogs/SheetQueue/$remoteFileName"
+	echo "    Remote file path: $remotePath"
+	echo "    Target file path: $targetPath"
+	createPathForFile $targetPath
+	echo -e -n "    Copying $filePath to $targetPath: "; echoRes "cp -f "$filePath" "$targetPath""
+	echo "  Sending Spreadsheet sync request to sync server: $syncSrvIp"
+	sshSendCmdNohup $syncSrvIp $syncSrvUser "python3 /root/multiCard/sheetUpdateUtilityNEW.py $remotePath"
+	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"
+	echo -e "   Done."
+}
+
+uploadSQLSheetSyncServer() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local filePath srvIp msg remotePath re couterList el targetPath sshCmd
+	privateVarAssign "${FUNCNAME[0]}" "srvIp" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$2"
+	verifyIp "${FUNCNAME[0]}" $srvIp
+	sshWaitForPing 30 $srvIp 1
+	if [ $? -eq 0 ]; then echo "   Log sync server $srvIp is up."; else except "Log sync server $srvIp is down!"; fi
+
+	echo -e "   Uploading SQL to sheets.."
+	echo "    Log file: $filePath"
+	echo "  Running SQL Spreadsheet sync on sync server: $syncSrvIp"
+	sshCmd='source /root/multiCard/sqlLib.sh &>/dev/null; '"sqlExportViewCSV \"SlotJobsView\" |& tee $filePath"
+	sshSendCmd $syncSrvIp $syncSrvUser "${sshCmd}"
+	sshSendCmd $syncSrvIp $syncSrvUser "python3 /root/multiCard/sheetSQLUpdateUtility.py $filePath"
+	echo -e "   Done."
+}
+
+uploadLogSyncServer() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local filePath srvIp msg remotePath
+	privateVarAssign "${FUNCNAME[0]}" "srvIp" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "targetPath" "$3"
+
+	verifyIp "${FUNCNAME[0]}" $srvIp
+	sshWaitForPing 30 $srvIp 1
+	if [ $? -eq 0 ]; then echo "   Log sync server $srvIp is up."; else except "Log sync server $srvIp is down!"; fi
+
+	echo -e "   Uploading log to server.."
+	echo "    Log file: $filePath"
+	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"	
+	echo -e -n "    Creating log folder /mnt/LogStorage: "; echoRes "mkdir -p /mnt/LogStorage"	
+	echo -e -n "    Mounting log folder to /mnt/LogStorage: "; echoRes "mount.cifs \\\\$srvIp\\LogStorage /mnt/LogStorage"' -o user=smbLogs,pass=smbLogs'
+	remotePath="/mnt/LogStorage/$targetPath/$(basename $filePath)"
+	echo "    Remote file path: $remotePath"
+	createPathForFile $remotePath
+	echo -e -n "    Copying $filePath to $remotePath: "; echoRes "cp -f "$filePath" "$remotePath""
+	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"
+	echo -e "   Done."
+}
+
 uploadLogSmb() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local filePath srvIp msg logPath
@@ -1478,6 +1805,9 @@ uploadLogSmb() {
 	privateVarAssign "${FUNCNAME[0]}" "filePath" "$2"
 
 	verifyIp "${FUNCNAME[0]}" $srvIp
+	sshWaitForPing 30 $srvIp 1
+	if [ $? -eq 0 ]; then echo "   Smb server $srvIp is up."; else except "Smb server $srvIp is down!"; fi
+
 	echo -e "   Uploading log to server.."
 	echo "    Log file: $filePath"
 	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"	
@@ -1487,6 +1817,57 @@ uploadLogSmb() {
 	echo -e -n "    Copying$msg log to /mnt/LogSync: "; echoRes "cp -f "$filePath" "/mnt/LogSync/$(basename $filePath)""
 	echo -e -n "    Unmounting all mounts if any exists: "; echoRes "umount -a -t cifs -l"
 	echo -e "   Done."
+}
+
+blinkAllEthOnSlotList() {
+	local slot eth slotList ethArr slotIdx netIdx cmdE slotNum maxEthQty
+	privateVarAssign fatal slotList "$*"
+	declare -A ethArr
+	let maxEthQty=slotIdx=0
+	for slot in $slotList; do
+		let netIdx=0
+		ethList=$(getIfacesOnSlot $slot)
+		if [ ! -z "$ethList" ]; then
+			for eth in $ethList; do
+				if [ $maxEthQty -lt $netIdx ]; then let maxEthQty=$netIdx; fi
+				ethArr[$slotIdx,$netIdx]=$eth
+				let netIdx++
+			done
+		fi
+		let slotIdx++
+	done
+
+	for ((netIdx=0; netIdx<=$maxEthQty; netIdx++)) ; do
+		for ((slotNum=0; slotNum<=$slotIdx; slotNum++)) ; do
+			eth=${ethArr[$slotNum,$netIdx]}
+			if [ ! -z "$eth" ]; then 
+				cmdE="ethtool -p $eth 1"
+				(${cmdE} & sleep 0.1 && kill $!) > /dev/null 2>&1 &
+				sleep 0.1
+			fi
+		done
+	done
+}
+
+blinkAllEthOnSlot() {
+	local slotNum eth ethList
+	privateVarAssign fatal slotNum "$1"
+	ethList=$(getIfacesOnSlot $slotNum)
+	for eth in $ethList; do
+		cmdE="ethtool -p $eth 1"
+		(${cmdE} & sleep 0.1 && kill $!) &
+		sleep 0.1
+	done
+}
+
+blinkEthList() {
+	local slotNum eth ethList
+	privateVarAssign fatal ethList "$*"
+	for eth in $ethList; do
+		cmdE="ethtool -p $eth 1"
+		(${cmdE} & sleep 0.05 && kill $!) &
+		sleep 0.10
+	done
 }
 
 blinkAllEth() {
@@ -1633,7 +2014,7 @@ privateNumAssign() {
 	checkIfNumber $numInput
 
 	if [ ! "$funcName" == "beepSpk" ]; then
-		if [[ "$debugShowAssignations" = "1" ]]; then
+		if [ "$debugShowAssignations" = "1" -o -z "$debugMode" ]; then
 			dmsg echo "funcName=$funcName  varName=$varName  numInput=$numInput"
 		fi
 	fi
@@ -1654,7 +2035,7 @@ privateVarAssign() {
 	varVal="$*"
 
 	if [ ! "$funcName" == "beepSpk" ]; then
-		if [[ "$debugShowAssignations" = "1" ]]; then
+		if [ "$debugShowAssignations" = "1" -o -z "$debugMode" ]; then
 			dmsg echo "funcName=$funcName  varName=$varName  varVal=$varVal"
 		fi
 	fi
@@ -1748,6 +2129,7 @@ printCallstack() {
 except() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local exceptDescr
+	printDmsgStack |& tee "/dev/kmsg"
 	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
 	exceptDescr="$*"
 	echo -e "[multiCard]: Exception raised: $exceptDescr" |& tee /dev/kmsg &> /dev/null
@@ -2364,7 +2746,7 @@ listDevsPciLib() {
 	dmsg inform "slotBus=$slotBus"
 	
 	if [[ -z $infoMode ]]; then
-		if [ -z "$rootBusSpeedCap" -o -z "$rootBusWidthCap" ]; then
+		if [ -z "$rootBusSpeedCap" -a -z "$rootBusWidthCap" ]; then
 			warn "  =========================================================  \n" "sil"
 			warn "  ===     PCIe root bus requirments are undefined!!     ===  \n" "sil"
 			warn "  =========================================================  \n" "sil"
@@ -2376,6 +2758,13 @@ listDevsPciLib() {
 				dmsg debugPciVars
 				echo -e "\t "'|'" PCIe root bus: $slotBus"
 				echo -e "\t "'|'" Speed required: $rootBusSpeedCap   Width required: $rootBusWidthCap"
+				if [ -z "$rootBusSpeedCap" -o -z "$rootBusWidthCap" ]; then
+					if [ -z "$rootBusSpeedCap" ]; then
+						rootBusSpeedCap=$pciInfoDevCapSpeed
+					else
+						rootBusWidthCap=$pciInfoDevCapWidth
+					fi
+				fi
 				rootBusSpWdRes="$(speedWidthComp $rootBusSpeedCap $pciInfoDevCapSpeed $rootBusWidthCap $pciInfoDevCapWidth)"
 				echo -e -n "\t "'|'" $rootBusSpWdRes\n"
 			echo -e "\t -------------------------"
@@ -2431,8 +2820,8 @@ listDevsPciLib() {
 		dmsg inform "bpOnDevBus=$bpOnDevBus"
 	}
 	
-	dmsg inform "WAITING FOR INPUT1"
-	dmsg read foo
+	# dmsg inform "WAITING FOR INPUT1"
+	# dmsg read foo
 	
 	dmsg inform "plxOnDevBus=$plxOnDevBus"
 	if [[ -z "$plxOnDevBus" ]]; then
@@ -4463,10 +4852,12 @@ sshCheckPing() {
 
 sshWaitForPing() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local secondsPassed totalDelay targIp status startTime successPing
+	local secondsPassed totalDelay targIp status startTime successPing successReq
 	privateNumAssign "totalDelay" "$1"
 	let secondsPassed=0
 	privateVarAssign "${FUNCNAME[0]}" "targIp" "$2"
+	successReq=$3
+	if [ -z "$successReq" ]; then let successReq=5; fi
 	verifyIp "${FUNCNAME[0]}" $targIp
 	tput civis
 	# echo "  Waiting for ping on $targIp"
@@ -4488,7 +4879,7 @@ sshWaitForPing() {
 		fi
 		echo -en "\033[2K\r"
 		currTime="$(date -u +%s)"
-		if [ $successPing -eq 5 ]; then
+		if [ $successPing -eq $successReq ]; then
 			let secondsPassed=$totalDelay
 		else
 			let secondsPassed=$(bc <<<"$currTime-$startTime")
@@ -4747,7 +5138,7 @@ checkIfNumber() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local numInput re
 	privateVarAssign "${FUNCNAME[0]}" "numInput" "$1"
-	re='^[0-9]+$'
+	re='^[+-]?[0-9]+$'
 	if ! [[ $numInput =~ $re ]] ; then
 		except "provided: $numInput is not a number"
 	fi
@@ -4770,6 +5161,18 @@ countDownDelay() {
 	done
 	echo -en "\033[2K\r$msgPrompt$gr waited for $totalSecs seconds. $ec\n"
 	tput cnorm
+}
+
+verifyMac() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ipInput callerFunc
+	privateVarAssign "${FUNCNAME[0]}" "macInput" "$1"
+
+	if [ -z "$(echo -n "$macInput" | tr -d "[:digit:]" | tr -d [ABCDEFabcdef])" ]; then
+		dmsg echo -e " $bl MAC Validated$ec" 1>&2 # will mess up definition of bus addresses by ssh if sent by stdout
+	else
+		except "MAC address is not valid! Please check: $macInput"
+	fi
 }
 
 verifyIp() {
@@ -5047,6 +5450,44 @@ libs() {
 	echo -e "\n"
 }
 
+checkPathVar(){
+	if [ -z "$(echo -n "$PATH"|grep 'multiCard')" ]; then
+		export PATH="$PATH:/root/multiCard"
+		echo " Updating PATH.."
+	fi
+}
+
+makeLibSymlinks() {
+	local lib fileName
+	local LIB_PATH="/root/multiCard"
+	local libsList=( "arturLib.sh" "graphicsLib.sh" "sqlLib.sh" )
+	for lib in ${libsList[*]}; do
+		if [ -e "${LIB_PATH}/$lib" ]; then
+			fileName=$(echo -n $lib|cut -d. -f1)
+			which $fileName &> /dev/null || {
+				echo "  Creating symlink for $lib"
+				ln -s "${LIB_PATH}/$lib" "/usr/bin/$fileName" &> /dev/null
+				chmod +777 "/usr/bin/$fileName" &> /dev/null
+			}
+		else
+			echo "  $lib is not found in $LIB_PATH"
+		fi
+	done
+}
+
+setDefaultGlobals() {
+	if [ -z "${dmsgStackArr[*]}" ]; then
+		declare -ga dmsgStackArr=($(seq 0 1 30))
+		let dmsgStackArr[99]=-1
+	fi
+}
+
+libInit() {
+	checkPathVar
+	makeLibSymlinks
+	setDefaultGlobals
+}
+
 unsetDebug() {
 	unset debugMode
 	unset globalMute
@@ -5065,7 +5506,9 @@ setDebug() {
 
 if (return 0 2>/dev/null) ; then
 	echo -e '  Loaded module: \tLib for testing (support: arturd@silicom.co.il)'
+	libInit
 	rm -f /tmp/exitMsgExec
 else	
 	critWarn "This file is only a library and ment to be source'd instead"
+	source "${0}"
 fi

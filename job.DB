@@ -5,6 +5,21 @@ declare -gA slotMatrix
 #	Unique DB ID
 slotMatrix[99,99]=NULL
 
+#	SSH IP
+slotMatrix[99,98]=NULL
+
+#	SSH User
+slotMatrix[99,97]=NULL
+
+#	IPMI IP
+slotMatrix[99,96]=NULL
+
+#	IPMI User
+slotMatrix[99,95]=NULL
+
+#	IPMI Pass
+slotMatrix[99,94]=NULL
+
 #	Descriptive slot names
 slotMatrix[0,0]=1
 slotMatrix[1,0]=2
@@ -12,38 +27,52 @@ slotMatrix[2,0]=3
 slotMatrix[3,0]=4
 slotMatrix[4,0]=5
 slotMatrix[5,0]=6
+slotMatrix[6,0]=7
 
 #	PN in slot
 slotMatrix[0,1]=
 slotMatrix[1,1]=
 slotMatrix[2,1]=
-slotMatrix[3,1]=P410G8TS81-XR
+slotMatrix[3,1]=
 slotMatrix[4,1]=
 slotMatrix[5,1]=
+slotMatrix[6,1]=
 
 #	TN of UUT
 slotMatrix[0,2]=
 slotMatrix[1,2]=
 slotMatrix[2,2]=
-slotMatrix[3,2]=E02205240R035
+slotMatrix[3,2]=
 slotMatrix[4,2]=
 slotMatrix[5,2]=
+slotMatrix[6,2]=
+
+#	First MAC of UUT
+slotMatrix[0,3]=
+slotMatrix[1,3]=
+slotMatrix[2,3]=
+slotMatrix[3,3]=
+slotMatrix[4,3]=
+slotMatrix[5,3]=
+slotMatrix[6,3]=
 
 #	PCI Test
-slotMatrix[0,3]=0
-slotMatrix[1,3]=0
-slotMatrix[2,3]=0
-slotMatrix[3,3]=pciTrfTest
-slotMatrix[4,3]=0
-slotMatrix[5,3]=0
+slotMatrix[0,10]=0
+slotMatrix[1,10]=0
+slotMatrix[2,10]=0
+slotMatrix[3,10]=0
+slotMatrix[4,10]=0
+slotMatrix[5,10]=0
+slotMatrix[6,10]=0
 
 #	Link Test
-slotMatrix[0,4]=0
-slotMatrix[1,4]=0
-slotMatrix[2,4]=0
-slotMatrix[3,4]=0
-slotMatrix[4,4]=0
-slotMatrix[5,4]=0
+slotMatrix[0,11]=0
+slotMatrix[1,11]=0
+slotMatrix[2,11]=0
+slotMatrix[3,11]=0
+slotMatrix[4,11]=0
+slotMatrix[5,11]=0
+slotMatrix[6,11]=0
 
 #	Job ID
 slotMatrix[0,19]=0
@@ -52,6 +81,7 @@ slotMatrix[2,19]=0
 slotMatrix[3,19]=0
 slotMatrix[4,19]=0
 slotMatrix[5,19]=0
+slotMatrix[6,19]=0
 
 #	Tests started
 slotMatrix[0,20]=0
@@ -60,6 +90,7 @@ slotMatrix[2,20]=0
 slotMatrix[3,20]=0
 slotMatrix[4,20]=0
 slotMatrix[5,20]=0
+slotMatrix[6,20]=0
 
 #	Tests ended
 slotMatrix[0,21]=0
@@ -68,6 +99,7 @@ slotMatrix[2,21]=0
 slotMatrix[3,21]=0
 slotMatrix[4,21]=0
 slotMatrix[5,21]=0
+slotMatrix[6,21]=0
 
 #	Tests result
 slotMatrix[0,22]=null
@@ -76,6 +108,7 @@ slotMatrix[2,22]=null
 slotMatrix[3,22]=null
 slotMatrix[4,22]=null
 slotMatrix[5,22]=null
+slotMatrix[6,22]=null
 
 #	Successful runs
 slotMatrix[0,23]=0
@@ -84,6 +117,7 @@ slotMatrix[2,23]=0
 slotMatrix[3,23]=0
 slotMatrix[4,23]=0
 slotMatrix[5,23]=0
+slotMatrix[6,23]=0
 
 #	Failed runs
 slotMatrix[0,24]=0
@@ -92,6 +126,7 @@ slotMatrix[2,24]=0
 slotMatrix[3,24]=0
 slotMatrix[4,24]=0
 slotMatrix[5,24]=0
+slotMatrix[6,24]=0
 
 #	Total runs
 slotMatrix[0,25]=0
@@ -100,6 +135,7 @@ slotMatrix[2,25]=0
 slotMatrix[3,25]=0
 slotMatrix[4,25]=0
 slotMatrix[5,25]=0
+slotMatrix[6,25]=0
 
 #	Current run
 slotMatrix[0,26]=0
@@ -108,14 +144,16 @@ slotMatrix[2,26]=0
 slotMatrix[3,26]=0
 slotMatrix[4,26]=0
 slotMatrix[5,26]=0
+slotMatrix[6,26]=0
 
 #	Runs left
 slotMatrix[0,27]=0
 slotMatrix[1,27]=0
 slotMatrix[2,27]=0
-slotMatrix[3,27]=10
+slotMatrix[3,27]=0
 slotMatrix[4,27]=0
 slotMatrix[5,27]=0
+slotMatrix[6,27]=0
 
 #	Last run log
 slotMatrix[0,28]=null
@@ -124,6 +162,7 @@ slotMatrix[2,28]=null
 slotMatrix[3,28]=null
 slotMatrix[4,28]=null
 slotMatrix[5,28]=null
+slotMatrix[6,28]=null
 
 #	Total log
 slotMatrix[0,29]=
@@ -132,6 +171,7 @@ slotMatrix[2,29]=
 slotMatrix[3,29]=
 slotMatrix[4,29]=
 slotMatrix[5,29]=
+slotMatrix[6,29]=
 
 #	Global log
 slotMatrix[0,30]="GLOBAL-LOG.csv"
@@ -140,6 +180,7 @@ slotMatrix[2,30]="GLOBAL-LOG.csv"
 slotMatrix[3,30]="GLOBAL-LOG.csv"
 slotMatrix[4,30]="GLOBAL-LOG.csv"
 slotMatrix[5,30]="GLOBAL-LOG.csv"
+slotMatrix[6,30]="GLOBAL-LOG.csv"
 
 #  SLOT1 | SLOT2 | SLOT3 | SLOT4  | SLOT5  | SLOT6
 
