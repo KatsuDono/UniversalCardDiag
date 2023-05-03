@@ -64,6 +64,16 @@ parseArgs() {
 				inform "Launch key: Skipping seting up links of the card"
 				skipLinkSetup=1
 			;;
+			retest-on-fail) 
+				inform "Launch key: Retesting on fail of the test"
+				retestOnFail=1
+				let retestQty=3
+			;;
+			retest-qty) 
+				inform "Launch key: Retest amount on fail of the test"
+				retestOnFail=1
+				privateNumAssign retestQty ${VALUE}
+			;;
 			silent) 
 				silentMode=1 
 				inform "Launch key: Silent mode, no beeps allowed"
@@ -80,6 +90,10 @@ parseArgs() {
 			dbg-brk) 
 				debugBrackets=1
 				inform "Launch key: Debug mode arg: no debug brackets"
+			;;
+			debug-stack) 
+				dmsgStack=1
+				inform "Launch key: Debug message stack enable arg: enabling stack"
 			;;
 			no-exit-on-fail) 
 				noExit=1
@@ -1007,10 +1021,30 @@ checkRequiredFiles() {
 		;;
 		PE31625G4I71L) 
 			echo "  File list: PE31625G4I71L-XR-CX"
-			declare -a filesArr=(
-				${filesArr[@]}
-				"/root/PE31625G4I71L"
-			)
+			privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+			echo "  MB Specific list: $mbType"
+			case "$mbType" in
+				X10DRi) 
+					declare -a filesArr=(
+						${filesArr[@]}
+						"/root/PE31625G4I71L"
+					)
+				;;
+				X12DAi-N6) 
+					declare -a filesArr=(
+						${filesArr[@]}
+						"/root/PE31625G4I71L"
+						"/root/PE31625G4I71L/library_X12.sh"
+						"/root/PE31625G4I71L/anagen1_X12.sh"
+					)
+				;;
+				X12SPA-TF) 
+					warn "File requirment are not defined for $baseModel on mbType: $mbType"
+				;;
+				*) 
+					except "Unknown mbType: $mbType, no file requirment is defined for it"
+				;;
+			esac
 		;;
 		M4E310G4I71) 
 			echo "  File list: M4E310G4I71"
@@ -1913,6 +1947,7 @@ defineRequirments() {
 			
 			let physEthDevSpeed=8
 			let physEthDevWidth=8
+			let rootDevWidth=8
 			
 			assignBuses eth
 			dmsg inform "DEBUG1: ${pciArgs[@]}"
@@ -1920,6 +1955,7 @@ defineRequirments() {
 			pciArgs=(
 				"--target-bus=$uutBus"
 				$secBusArg
+				"--root-bus-width=$rootDevWidth"
 				"--eth-buses=$ethBuses"
 				"--eth-dev-id=$physEthDevId"
 				"--eth-kernel=$ethKern"
@@ -2529,7 +2565,7 @@ updateRequirments() {
 	echo -e "\n Checking MB type\n  $mbType detected"
 	case "$mbType" in
 		X10DRi) echo -e "  No update required.";;
-		X12DAi-N6) 
+		X12DAi-N6|X12SPA-TF) 
 			echo "  Searching for defenition update on baseModel: $baseModel"
 			case "$baseModel" in
 				PE31625G4I71L-XR-CX)
@@ -3592,7 +3628,7 @@ trafficTest() {
 			*) warn "trafficTest exception, unknown pn: $pn"
 		esac
 	else
-		inform "No master mode, searching for sequence for single mode"
+		inform "\tNo master mode, searching for sequence for single mode"
 		case "$pnLocal" in
 			PE310G4BPI71) 
 				portQty=4
@@ -3818,6 +3854,42 @@ trafficTest() {
 				test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
 				#trfSendRes=$($execFile $pcktCnt $sendDelay $queryCnt $portQty $orderFile $slotNum 2>&1)
 				#echo "$trfSendRes"
+			;;
+			PE31625G4I71L)
+				portQty=4
+				sendDelay=0x0
+				rootDir="/root/PE31625G4I71L"
+				orderFile="order"
+				
+				
+				privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+				case "$mbType" in
+					X10DRi) 
+						warn "Traffic test is not defined for $baseModel in single mode on mbType: $mbType"
+					;;
+					X12DAi-N6) 
+						sendMode=3
+						echo -n "1 2 3 4" >$rootDir/$orderFile
+						sourceDir="$(pwd)"
+						cd "$rootDir"
+						dmsg inform "pwd=$(pwd)"
+						execFile="./anagen1_X12.sh"
+						execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed"
+						let execRes=$?
+						if [ $execRes -eq 0 ]; then echo -e "\n\tTests summary: \e[0;32mPASSED\e[m"; else
+							echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+							if [ ! -z "$retestOnFail" ]; then
+								for ((rt=1; rt<=$retestQty; rt++)) ; do execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed"; done
+							fi
+						fi
+					;;
+					X12SPA-TF) 
+						warn "Traffic test is not defined for $baseModel in single mode on mbType: $mbType"
+					;;
+					*) 
+						except "Unknown mbType: $mbType, no traffic is defined for it"
+					;;
+				esac
 			;;
 			M4E310G4I71) 
 				portQty=4
@@ -4928,7 +5000,10 @@ trafficTests() {
 			sleep $globLnkUpDel
 			trafficTest "$uutSlotNum" 10000 "$baseModel"
 		;;
-		PE31625G4I71L) inform "Traffic tests are not defined for $baseModel";;
+		PE31625G4I71L) 
+			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "inline"; fi
+			trafficTest "$uutSlotNum" 100000 "$baseModel"
+		;;
 		M4E310G4I71) 
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "bp"; fi
 			inform "\t  Sourcing $baseModel lib."
@@ -5086,9 +5161,10 @@ ibsInfoCheck() {
 	checkIfContains "Checking rootfs NAND size" "--$ibsKernVer" "$(echo "$verInfoRes" |grep -m 1 "$ibsKernVer")"
 }
 
-checkIfFailed() {
+function checkIfFailed() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	local curStep severity errMsg
+	local curStep severity errMsg retStatus
+	let retStatus=0
 	
 	privateVarAssign "checkIfFailed" "curStep" "$1"
 	privateVarAssign "checkIfFailed" "severity" "$2"
@@ -5100,6 +5176,7 @@ checkIfFailed() {
 		dmsg inform ">$errMsg<"
 		dmsg inform "\n==========================================================\ncheckIfFailed debug END"
 		if [[ ! -z "$errMsg" ]]; then
+			let retStatus++
 			if [[ "$severity" = "warn" ]]; then
 				warn "$curStep" 
 			else
@@ -5107,6 +5184,7 @@ checkIfFailed() {
 			fi
 		fi
 	fi
+	return $retStatus
 }
 
 assignBuses() {
@@ -5145,9 +5223,10 @@ assignBuses() {
 	done
 }
 
-mainTest() {
+function mainTest() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	local pciTest dumpTest bpTest drateTest trfTest
+	local pciTest dumpTest bpTest drateTest trfTest retStatus
+	let retStatus=0
 	
 	if [[ ! -z "$untestedPn" ]]; then untestedPnWarn; fi
 	
@@ -5174,7 +5253,7 @@ mainTest() {
 		if [ ! -z "$ibsInfoTest" ]; then
 			echoSection "IBS Info test"
 				ibsInfoCheck |& tee /tmp/statusChk.log
-			checkIfFailed "IBS Info test failed!" warn
+			checkIfFailed "IBS Info test failed!" warn; let retStatus+=$?
 		else
 			inform "\tIBS Info test"
 		fi
@@ -5182,7 +5261,7 @@ mainTest() {
 		if [ ! -z "$bpTest" ]; then
 			echoSection "IBS BP test"
 				ibsBpTests |& tee /tmp/statusChk.log
-			checkIfFailed "IBS BP test failed!" exit
+			checkIfFailed "IBS BP test failed!" exit; let retStatus+=$?
 		else
 			inform "\tIBS BP test"
 		fi
@@ -5190,7 +5269,7 @@ mainTest() {
 		if [ ! -z "$drateTest" ]; then
 			echoSection "IBS Management rate test"
 				ibsMgntTest |& tee /tmp/statusChk.log
-			checkIfFailed "IBS Management rate test failed!" exit
+			checkIfFailed "IBS Management rate test failed!" exit; let retStatus+=$?
 		else
 			inform "\tIBS Management rate test"
 		fi
@@ -5254,7 +5333,7 @@ mainTest() {
 					listDevsPciLib "${mastPciArgs[@]}" |& tee -a /tmp/statusChk.log
 					# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 				fi
-			checkIfFailed "PCI Info & Dev Qty failed!" exit
+			checkIfFailed "PCI Info & Dev Qty failed!" exit; let retStatus+=$?
 		else
 			inform "\tPCI test skipped"
 		fi
@@ -5271,7 +5350,11 @@ mainTest() {
 					inform "\tMaster transceivers:"
 					transceiverCheck $mastSlcmMode "$mastEthBuses" |& tee -a /tmp/statusChk.log
 				fi
-			test -z "$ignDumpFail" && checkIfFailed "Info Dumps failed!" crit || checkIfFailed "Info Dumps failed!" warn
+			if [ -z "$ignDumpFail" ]; then
+				checkIfFailed "Info Dumps failed!" crit; let retStatus+=$?
+			else
+				checkIfFailed "Info Dumps failed!" warn
+			fi
 			# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
 		else
 			inform "\tDump test skipped"
@@ -5290,7 +5373,7 @@ mainTest() {
 			echoSection "BP Switch tests"
 				bpSwitchTests |& tee /tmp/statusChk.log
 				# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-			checkIfFailed "BP Switch tests failed!" exit
+			checkIfFailed "BP Switch tests failed!" exit; let retStatus+=$?
 		else
 			inform "\tBP Switch test skipped"
 		fi
@@ -5298,7 +5381,7 @@ mainTest() {
 		if [[ ! -z "$drateTest" ]]; then
 			echoSection "Data rate tests"
 				dataRateTest |& tee /tmp/statusChk.log
-			checkIfFailed "Data rate tests failed!" exit
+			checkIfFailed "Data rate tests failed!" exit; let retStatus+=$?
 		else
 			inform "\tData rate test skipped"
 		fi
@@ -5307,16 +5390,25 @@ mainTest() {
 			echoSection "Traffic tests"
 				trafficTests |& tee /tmp/statusChk.log
 				# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-			checkIfFailed "Traffic tests failed!" exit
+			checkIfFailed "Traffic tests failed!" exit; let retStatus+=$?
 		else
 			inform "\tTraffic test skipped"
 		fi
 	fi
+	return $retStatus
 }
 
 assignNets() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	publicVarAssign warn uutNets $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $uutSlotBus |awk -F/ '{print $NF}')
+	local dev uutNetArr devNet
+	for dev in $devsOnUutSlotBus; do
+		devNet=$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $dev |awk -F/ '{print $NF}')
+		if [ ! -z "$devNet" ]; then
+			uutNetArr+=($devNet)
+		fi
+	done
+	publicVarAssign warn uutNets ${uutNetArr[*]}
+	#publicVarAssign warn uutNets $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $uutSlotBus |awk -F/ '{print $NF}')
 }
 
 initialSetup(){
@@ -5409,14 +5501,18 @@ main() {
 	else 
 		inform "  Link setup skipped, IBS mode"
 	fi
-	setupLinks "$mastNets"
+	if [[ -z "$noMasterMode" ]]; then 
+		setupLinks "$mastNets"
+	fi
 	
 	test ! -z "$(echo -n $uutBus$mastBus|grep ff)" && {
 		except "UUT or Master invalid slot or not detected! uutBus: $uutBus mastBus: $mastBus"
 	} || {
 		mainTest
-		passMsg "\n\tDone!\n"
-		if [ ! -z "$minorLaunch" ]; then echo "  Returning to caller"; fi
+		if [ $? -eq 0 ]; then passMsg "\n\tDone!\n"; else warn "\n\tDone!\n"; fi
+		if [ ! -z "$minorLaunch" ]; then 
+			echo "  Returning to caller"
+		fi
 	}
 }
 

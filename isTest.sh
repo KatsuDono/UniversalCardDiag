@@ -78,6 +78,20 @@ setEmptyDefaults() {
 	echo -e " Done.\n"
 }
 
+function ctrl_c()
+{
+	echo
+	echo
+	echo -e "\n\e[0;31mTrapped Ctrl+C\nExiting.\e[m"
+	case "$baseModel" in
+		IS100G-Q-RU) warn "Trap is undefined for $baseModel";;
+		IS401U-RU) warn "Trap is undefined for $baseModel";;
+		IS-UNIV) IPPowerSwPowerAll $internalTTY 0 ;;
+		*) warn "unknown baseModel: $baseModel"
+	esac
+	exit 
+}
+
 sshCheckServer() {
 	echo "  Checking server: $trafficGenIP"
 	verifyIp "${FUNCNAME[0]}" $trafficGenIP 
@@ -661,27 +675,30 @@ is100TrfAndPwOff() {
 }
 
 isPowerCycle() {
-	local internalTTY
-	internalTTY=$(find /sys/bus/usb/devices/usb3/ -name dev |grep '3-7:1.0' |cut -d/ -f9)
 	delayList=( 1 5 10 15 60 )
-	cycleCntList=( 10 50 100 200 )
-	cycleTypeList=( "Power off" "Reset" )
+	cycleCntList=( 10 50 100 200 400 1000 )
+	cycleTypeList=( "Power off" "Reset" "Quick Power off")
 	echo -e " Select cycle type:"
 	cycleTypeSelRes=$(select_opt "${cycleTypeList[@]}")
 	echo -e " Select cycle count:"
 	cycleCntSelRes=$(select_opt "${cycleCntList[@]}")
 	let cycleTrg=${cycleCntList[$cycleCntSelRes]}
-	if [ $cycleTypeSelRes -eq 0 ]; then
+	case $cycleTypeSelRes in
+	0)	
 		echo -e "\n Select delay in seconds:"
 		delaySelRes=$(select_opt "${delayList[@]}")
 		let delayTrg=${delayList[$delaySelRes]}
-	fi
+	;;
+	1|2) ;;
+	*) except "illegal cycleTypeSelRes=$cycleTypeSelRes"
+	esac
 	
 	if [ ! -z "$(echo $internalTTY |grep ttyUSB)" ]; then
 		IPPowerCheckSerial $internalTTY
 		IPPowerSwPowerAll $internalTTY 0
 		for ((t=0;t<=$cycleTrg;t++)); do
-			if [ $cycleTypeSelRes -eq 0 ]; then
+			case $cycleTypeSelRes in
+			0)	
 				IPPowerSwPower $internalTTY 1 1
 				echo -ne "\tBoot ($t out of $cycleTrg): "
 				bootOk="$(getISBootMsg $uutSerDev 115200 10)"
@@ -693,7 +710,8 @@ isPowerCycle() {
 				fi
 				IPPowerSwPower $internalTTY 1 0
 				countDownDelay $delayTrg "  Waiting for set delay"
-			else
+			;;
+			1) 
 				if [ $t -eq 0 ]; then IPPowerSwPower $internalTTY 1 1; fi
 				echo -ne "\tReset ($t out of $cycleTrg): "
 				bootOk="$(getISRstMsg $uutSerDev 115200 15)"
@@ -703,7 +721,22 @@ isPowerCycle() {
 					echo -e "\e[0;31mFAILED\e[m"
 					except "Boot after reset failed"
 				fi
-			fi
+			;;
+			2)
+				IPPowerSwPower $internalTTY 1 1
+				echo -ne "\tBoot ($t out of $cycleTrg): "
+				bootOk="$(getISCPUMsg $uutSerDev 115200 10)"
+				dmsg "bootOk=$bootOk"
+				if [ ! -z "$(echo $bootOk|grep CPU0_MSG)" ]; then
+					echo -e "\e[0;32mOK\e[m"
+				else
+					echo -e "\e[0;31mFAILED\e[m"
+					except "Boot failed"
+				fi
+				IPPowerSwPower $internalTTY 1 0
+			;;
+			*) except "illegal cycleTypeSelRes=$cycleTypeSelRes"
+			esac
 		done
 		IPPowerSwPowerAll $internalTTY 0
 	else
@@ -1087,6 +1120,7 @@ mainTest() {
 	if [ ! -z "$pwCycle" ]; then
 		echoSection "Power Cycles"
 		isPowerCycle |& tee /tmp/statusChk.log
+		checkIfFailed "Power Cycles failed!" exit
 	fi
 	
 }
@@ -1143,6 +1177,8 @@ main() {
 		"IS100G-Q-RU") selectMod "is100";;
 		"IS401U-RU") selectMod "is40";;
 		"IS-UNIV") 
+			trap ctrl_c SIGINT
+			trap ctrl_c SIGQUIT
 			let modSelect=-1
 			publicVarAssign silent internalTTY $(find /sys/bus/usb/devices/usb3/ -name dev |grep '3-7:1.0' |cut -d/ -f9)
 			if [ -z "$(echo $internalTTY |grep ttyUSB)" ]; then
@@ -1160,7 +1196,7 @@ main() {
 
 
 if (return 0 2>/dev/null) ; then
-	echo -e '  Loaded module: \tsfpLinkTest has been loaded as lib (support: arturd@silicom.co.il)'
+	echo -e '  Loaded module: \tisTest has been loaded as lib (support: arturd@silicom.co.il)'
 else
 	echo -e '\n# arturd@silicom.co.il\n\n'
 	trap "exit 1" 10

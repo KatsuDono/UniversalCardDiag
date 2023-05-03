@@ -127,6 +127,7 @@ echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
 (return 0 2>/dev/null) && echo -e "\trebootUtility has been loaded as lib" || {
 	trap "exit 1" 10
 	PROC="$$"
+	let status=0
 	declareVars
 	source /root/multiCard/arturLib.sh; let status+=$?
 	source /root/multiCard/graphicsLib.sh; let status+=$?

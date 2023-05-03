@@ -2,7 +2,7 @@
 
 
 defineColors() {
-	echo "  Defining colors.."
+	dmsg echo "  Defining colors.."
 	gr='\e[0;32m'
 	yl='\e[0;33m'
 	rd='\e[0;31m'
@@ -14,7 +14,7 @@ defineColors() {
 }
 
 defineCharrArr() {
-	echo "  Defining char arrays.."
+	dmsg echo "  Defining char arrays.."
 	unset delayChars
 	declare -ga delayChars; delayChars=( '[       ]' '[=      ]' '[==     ]' '[===    ]' '[ ===   ]' '[  ===  ]' '[   === ]' '[    ===]' '[     ==]' '[      =]' )
 }
@@ -214,4 +214,5 @@ if (return 0 2>/dev/null) ; then
 	defineCharrArr
 else	
 	critWarn "This file is only a library and ment to be source'd instead"
+	source "${0}"
 fi
