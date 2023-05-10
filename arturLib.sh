@@ -1490,6 +1490,60 @@ echoRes() {
 	test -z "$(echo "$cmdRes" |grep -w 'res:1')" && echo -n -e "\e[0;32mOK\e[m\n" || echo -n -e "\e[0;31mFAIL"'!'"\e[m\n"
 }
 
+createFtpShare() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ftpSharePath
+	privateVarAssign "${FUNCNAME[0]}" "ftpSharePath" "$1"	
+	echo "  Creating FTP share on server: $ftpSharePath"
+	if ! command -v vsftpd &> /dev/null; then
+		except "vsftpd not found"
+	else
+		echo -e -n "    Stopping vsftpd: "; echoRes "service vsftpd stop"
+		echo -e -n "    Backing up current config: "; echoRes "cp /etc/vsftpd/vsftpd.conf /etc/vsftpd/vsftpd.conf.bak"
+		mkdir -p /var/run/vsftpd/empty
+		
+		echo "listen=YES
+		anonymous_enable=YES
+		write_enable=YES
+		anon_upload_enable=YES
+		anon_mkdir_write_enable=YES
+		chroot_local_user=YES
+		local_enable=NO
+		secure_chroot_dir=/var/run/vsftpd/empty
+		pasv_min_port=40000
+		pasv_max_port=50000
+		xferlog_enable=YES
+		xferlog_file=/var/log/vsftpd.log
+		xferlog_std_format=YES
+		idle_session_timeout=600
+		data_connection_timeout=120
+		max_clients=10
+		max_per_ip=5
+		local_umask=022
+		file_open_mode=0666
+		anon_root=$ftpSharePath
+		" > /etc/vsftpd/vsftpd.conf
+		# echo -e -n "    Creating PN folder /root/$syncPn: "; echoRes "mkdir -p /root/$syncPn"
+		# echo -e -n "    Creating PN folder /root/$syncPn: "; echoRes "mkdir -p /root/$syncPn"
+		# echo -e -n "    Creating PN folder /root/$syncPn: "; echoRes "mkdir -p /root/$syncPn"
+		# echo -e -n "    Creating PN folder /root/$syncPn: "; echoRes "mkdir -p /root/$syncPn"
+		# Create a directory for the FTP share and set its permissions
+		sudo mkdir -p $ftpSharePath
+		sudo chmod a-w $ftpSharePath
+		sudo chown nobody:nogroup $ftpSharePath
+		service vsftpd start
+	fi
+	echo "  Done."
+}
+
+closeFtpShare() {
+	if [ -e "/etc/vsftpd/vsftpd.conf.bak" ]; then
+		service vsftpd stop
+		cp -f /etc/vsftpd/vsftpd.conf.bak /etc/vsftpd/vsftpd.conf
+		service vsftpd start
+	fi
+}
+
 syncFilesFromServ() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local forcedExec
@@ -1639,7 +1693,7 @@ syncLogsOnedrive() {
 	else
 		echo -e " Syncing logs to Onedrive.."
 		echo "  Starting sync on LogStorage."
-		onedrive --synchronize --upload-only --no-remote-delete --verbose --single-directory LogStorage
+		onedrive --synchronize --upload-only --no-remote-delete --single-directory LogStorage
 		echo -e " Done."
 	fi
 }
@@ -3484,6 +3538,128 @@ pingTest() {
 	echo -e " Done.\n"
 }
 
+function getATTQty() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local retRes cmdRes re ttyR cmdR resNum
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+	let retRes=-1
+
+	cmdRes="$(sendATT $ttyR "echo -en sendRes=;${cmdR}")"
+	if [ ! -z "$cmdRes" ]; then
+		resNum=$(grep "sendRes=" <<< "$cmdRes" |grep -v "sendRes=;" |cut -d= -f2 |sed 's/[^0-9]//g')
+		re='^[0-9]+$'
+		if [[ $resNum =~ $re ]] ; then
+			let retRes=$resNum
+			echo -n $resNum
+		fi
+	fi
+
+	return $retRes
+}
+
+function getATTString() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local cmdRes re ttyR cmdR resStr respTimeout newArgs
+
+	respTimeout=5
+
+	for arg in "$@"
+	do
+		if ! [ "$(echo -n "$arg" |cut -c1-2)" == "--" ]; then 
+			newArgs+=("$arg")
+		else
+			KEY=$(echo $arg|cut -c3- |cut -f1 -d=)
+			VALUE=$(echo $arg |cut -f2 -d=)
+			case "$KEY" in
+				resp-timeout) respTimeout=${VALUE} ;;
+				*) dmsg echo "Unknown arg: $arg"
+			esac
+		fi
+	done
+	set -- "${newArgs[@]}"
+
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	cmdRes="$(sendATT --resp-timeout=$respTimeout $ttyR "echo -en sendRes=;${cmdR}")"
+	if [ ! -z "$cmdRes" ]; then
+		resStr=$(grep "sendRes=" <<< "$cmdRes" |grep -v "sendRes=;" |cut -d= -f2 |sed 's/\r$/ /')
+		if [ ! -z "$resStr" ]; then echo $resStr; else echo "null"; fi
+	fi
+}
+
+function getATTBlock() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local cmdRes re ttyR cmdR resStr
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	cmdRes="$(sendATT $ttyR "echo 'sendBlockStart-----';${cmdR};echo -e '\n-----sendBlockEnd';")"
+	if [ ! -z "$cmdRes" ]; then
+		resBlock=$(grep -v "\-';\|Start';" <<< "$cmdRes" |awk '/sendBlockStart-----/{f=1;next} /-----sendBlockEnd/{f=0} f')
+		if [ ! -z "$resBlock" ]; then echo "$resBlock"; else echo "null"; fi
+	fi
+}
+
+function sendATT () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyR cmdR respTimeout newArgs
+
+	respTimeout=5
+
+	for arg in "$@"
+	do
+		if ! [ "$(echo -n "$arg" |cut -c1-2)" == "--" ]; then 
+			newArgs+=("$arg")
+		else
+			KEY=$(echo $arg|cut -c3- |cut -f1 -d=)
+			VALUE=$(echo $arg |cut -f2 -d=)
+			case "$KEY" in
+				resp-timeout) respTimeout=${VALUE} ;;
+				*) dmsg echo "Unknown arg: $arg"
+			esac
+		fi
+	done
+	set -- "${newArgs[@]}"
+
+	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
+
+	serState=$(getATTSerialState $ttyR $uutBaudRate $respTimeout 2>&1)
+	serState=$(echo "$serState" | sed 's/[^a-zA-Z0-9]//g') # cleanup of special chars
+	
+	case "$serState" in
+		null)	
+			warn "Couldnt get status of the box, is the device connected and turned on?"
+			except "null state received! (state: $serState)" 
+		;;
+		shell) 	
+			sendSerialCmd --no-dollar $ttyR $uutBaudRate $respTimeout $cmdR
+		;;
+		login)
+			loginATT $ttyR $uutBaudRate $respTimeout $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd --no-dollar $ttyR $uutBaudRate $respTimeout $cmdR
+			else
+				except "Unable to log in from $serState!"
+			fi
+		;;
+		password) 
+			cmdRes=$(sendSerialCmd $ttyR $uutBaudRate $respTimeout nop)
+			sleep 3
+			loginATT $ttyR $uutBaudRate $respTimeout $uutBdsUser $uutBdsPass
+			if [ $? -eq 0 ]; then
+				sendSerialCmd --no-dollar $ttyR $uutBaudRate $respTimeout $cmdR
+			else
+				except "Unable to log in from $serState!"
+			fi
+		;;
+		*) except "unexpected case state received! (state: $serState)"
+	esac
+}
+
+
 function sendIS40 () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyR cmdR
@@ -3988,13 +4164,14 @@ function loginIS () {
 	return $?
 }
 
-function sendSerialCmd () {
+function loginATT () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN baud timeout cmd
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
-	privateVarAssign "${FUNCNAME[0]}" "cmd" "$*"
+	privateVarAssign "${FUNCNAME[0]}" "login" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "pass" "$1"
 
 	which expect > /dev/null || except "expect not found by which!"
 	which tio > /dev/null || except "tio not found by which!"
@@ -4011,26 +4188,127 @@ function sendSerialCmd () {
 	eof { send_user \"\nEOF\n\"; exit 1 }
 	}
 	expect {
-	*\$* { send \"$cmd\r\" }
-	*#* { send \"$cmd\r\" }
-	*0>* { send \"$cmd\r\" }
-	timeout { send_user \"\nTimeout2\n\"; send \x14q\r ; exit 1 }
+	*ogin:* { send \"$login\r\" }
+	timeout { send_user \"\nTimeout2\n\"; send \x03; send \x14q\r ; exit 1 }
 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
 	}
 	expect {
-	*\$* { send \x14q\r }
+	*word:* { send \"$pass\r\" }
+	timeout { send_user \"\nTimeout3\n\"; send \x03; send \x14q\r ; exit 1 }
+	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+	}
+	expect {
 	*#* { send \x14q\r }
-	*0>* { send \x14q\r }
-	*login:* { send \x14q\r }
-	timeout { send_user \"\nTimeout3\n\"; send \x14q\r ; exit 1 }
+	timeout { send_user \"\nTimeout4\n\"; send \x03; send \x14q\r ; exit 1 }
 	eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
 	}
 	expect {
 	Disconnected { send_user Done\n }
-	timeout { send_user \"\nTimeout4\n\"; exit 1 }
+	timeout { send_user \"\nTimeout5\n\"; exit 1 }
 	eof { send_user \"\nEOF\n\"; exit 1 }
 	}
 	" 
+	return $?
+}
+
+function sendSerialCmd () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd newArgs arg noDollar
+
+
+	# extracting keys
+	for arg in "$@"
+	do
+		if ! [ "$(echo -n "$arg" |cut -c1-2)" == "--" ]; then 
+			newArgs+=("$arg")
+		else
+			KEY=$(echo $arg|cut -c3- |cut -f1 -d=)
+			VALUE=$(echo $arg |cut -f2 -d=)
+			case "$KEY" in
+				no-dollar) noDollar=1 ;;
+				*) dmsg echo "Unknown arg: $arg"
+			esac
+		fi
+	done
+	set -- "${newArgs[@]}"
+
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "cmd" "$*"
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	if [ -z "$noDollar" ]; then
+		expect -c "
+		set timeout $timeout
+		log_user 0
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*\$* { send \"$cmd\r\" }
+		*#* { send \"$cmd\r\" }
+		*0>* { send \"$cmd\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x03; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		log_user 1
+		expect {
+		*\$* { send \x14q\r }
+		*#* { send \x14q\r }
+		*0>* { send \x14q\r }
+		*login:* { send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x03; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		log_user 0
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; send \x03; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		"
+	else
+		expect -c "
+		set timeout $timeout
+		log_user 0
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*#* { send \"$cmd\r\" }
+		*0>* { send \"$cmd\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x03; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		log_user 1
+		expect {
+		*#* { send \x14q\r }
+		*0>* { send \x14q\r }
+		*login:* { send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x03; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		log_user 0
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; send \x03; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		"
+	fi
 	return $?
 }
 
@@ -4361,6 +4639,54 @@ function getIBSSerialState () {
 	)"
 	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'State:' |awk -F 'State:' '{print $2}' |cut -d ' ' -f2)
 	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
+	echo -n "$serStateRes"
+}
+
+function getATTSerialState () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd serStateRes serialCmdNlRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"	
+
+	which expect > /dev/null || except "expect not found by which!"
+	which tio > /dev/null || except "tio not found by which!"
+
+	serialCmdNlRes="$(
+		expect -c "
+		set timeout $timeout
+		log_user 1
+		exp_internal 0
+		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+		send \r
+		expect {
+		Connected { send \r }
+		timeout { send_user \"\nTimeout1\n\"; send \x03; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		expect {
+		*:~#* { send_user \"\n State: shell\r\" }
+		*ogin:* { send_user \"\n State: login\r\" }
+		*word:* { send_user \"\n State: password\r\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x03; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		** { send \x03; send \x14q\r }
+		timeout { send_user \"\nTimeout3\n\"; send \x03; send \x14q\r ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send \x14q\r ; exit 1 }
+		}
+		expect {
+		Disconnected { send_user Done\n }
+		timeout { send_user \"\nTimeout4\n\"; send \x03; exit 1 }
+		eof { send_user \"\nEOF\n\"; exit 1 }
+		}
+		" 2>&1
+	)"
+	dmsg echo "$serialCmdNlRes"
+	serStateRes=$(echo "$serialCmdNlRes" |grep -w 'State:' |awk -F 'State:' '{print $2}' |cut -d ' ' -f2)
+	if [[ -z "$serStateRes" ]]; then serStateRes=null; fi
+	# echo -n "$serStateRes" | tr -dc '[:print:]'
 	echo -n "$serStateRes"
 }
 
