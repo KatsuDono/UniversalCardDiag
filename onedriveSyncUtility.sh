@@ -7,6 +7,8 @@ declareVars() {
 	btitle="  arturd@silicom.co.il"	
 	let exitExec=0
 	let debugBrackets=0
+	let retryCount=10
+	let retryTimeout=5
 }
 
 parseArgs() {
@@ -23,6 +25,8 @@ parseArgs() {
 				debugMode=1 
 				inform "Launch key: Debug mode"
 			;;
+			retry-count) retryCount=${VALUE};;
+			retry-timeout) retryTimeout=${VALUE};;
 			help) showHelp ;;
 			*) echo "Unknown arg: $ARG"; showHelp
 		esac
@@ -71,7 +75,7 @@ syncLoop() {
 		printf '\e[A\e[K\e[A\e[K'
 		if [ -e "$lockFilePath" ]; then
 			warn "  Unable to write to onedrive path, it is locked (try count: $retryCnt)"
-			countDownDelay 5 "  Waiting for lock removal.."
+			countDownDelay $retryTimeout "  Waiting for lock removal.."
 		else
 			dmsg echo "  Locking DB"
 			echo 1>$lockFilePath
@@ -85,7 +89,7 @@ syncLoop() {
 			break;
 		fi
 		let retryCnt++
-		if [ $retryCnt -gt 10 ]; then
+		if [ $retryCnt -gt $retryCount ]; then
 			warn "  Reached maximum retry count, aborting onedrive sync."
 			break;
 		fi

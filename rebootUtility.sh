@@ -94,32 +94,41 @@ powerUpIpmi() {
 }
 
 main() {
-	echo "  Checking IPMI is UP"
-	sshWaitForPing 3 $ipmiIpArg
-	if [ $? -eq 1 ]; then except "IPMI is down (IP: $ipmiIpArg)"; fi
-	echo "  Checking SSH is DOWN"
-	sshWaitForPing 3 $sshIp
-	if [ $? -eq 0 ]; then
-		powerDownSsh
-		countDownDelay 15 "  Waiting for power down.."
-		sshWaitForPing 5 $sshIp
-		if [ $? -eq 1 ]; then
-			echo "  Host $sshIp is down."
-			powerUpIpmi
+	local errMsg errStat retryCnt
+	let retryCnt=0
+	until [ $errStat -eq 0 -o $retryCnt -eq 10 ]; do
+		let errStat=0
+		echo "  Checking IPMI is UP"
+		sshWaitForPing 3 $ipmiIpArg
+		if [ $? -eq 1 ]; then except "IPMI is down (IP: $ipmiIpArg)"; fi
+		echo "  Checking SSH is DOWN"
+		sshWaitForPing 3 $sshIp
+		if [ $? -eq 0 ]; then
+			powerDownSsh
+			countDownDelay 15 "  Waiting for power down.."
+			sshWaitForPing 5 $sshIp
+			if [ $? -eq 1 ]; then
+				echo "  Host $sshIp is down."
+				powerUpIpmi
+			else
+				let errStat+=1; errMsg="Host $sshIp is up!"
+			fi
 		else
-			except "Host $sshIp is up!"
+			powerUpIpmi
 		fi
-	else
-		powerUpIpmi
-	fi
-	countDownDelay 170 "  Waiting for boot.."
-	sshWaitForPing 30 $sshIp
-	if [ $? -eq 0 ]; then
-		ipmiCheckChassis $ipmiIp $ipmiUser $ipmiPass
-		echo "  Power up ok."
-	else
-		except "Host $sshIp is down!"
-	fi
+		if [ $errStat -eq 0 ]; then
+			countDownDelay 170 "  Waiting for boot.."
+			sshWaitForPing 30 $sshIp
+			if [ $? -eq 0 ]; then
+				ipmiCheckChassis $ipmiIp $ipmiUser $ipmiPass
+				echo "  Power up ok."
+			else
+				let errStat+=1; errMsg="Host $sshIp is down!"
+			fi
+		fi
+		let retryCnt+=$errStat
+	done
+	if [ $errStat -gt 0 ]; then except "$errMsg"; fi
 	passMsg "\n\tDone!\n"
 }
 

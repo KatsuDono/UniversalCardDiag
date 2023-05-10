@@ -587,7 +587,7 @@ closeJob() {
 
 closeSlotJob() {
 	local targSlot closePrompt shareLink cmdRes
-	local uutSlotNum uutPn uutTn jobIDDB failRunsDB passRunsDB dbID totalRunsDB runsLeftDB currentRunDB uutMac sshCmd
+	local uutSlotNum uutPn uutTn jobIDDB failRunsDB passRunsDB dbID totalRunsDB runsLeftDB currentRunDB uutMac sshCmd curTTY syncFailRes
 	privateNumAssign targSlot $1
 	
 	publicVarAssign fatal uutSlotNum $(readDB $targSlot --slot-num)
@@ -624,46 +624,53 @@ closeSlotJob() {
 			writeDB $targSlot --runs-left=0
 			updateSqlCounters $targSlot
 			echo "    Syncing OneDrive logs"
-			sshSendCmd $syncSrvIp root '/root/multiCard/onedriveSyncUtility.sh'
-			if [ $failRunsDB -gt 0 ]; then
-				echo "    Job did fail, sharing FailLogs folder"
-				sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/FailLogs/$jobIDDB"
-				cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
-				echo "$cmdRes"
-				shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
-				# shareLink=$(sharePathOnedrive "/LogStorage/FailLogs/$jobIDDB" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
+			curTTY=$(tty)
+			syncFailRes=$( sshSendCmd $syncSrvIp root '/root/multiCard/onedriveSyncUtility.sh --retry-count=240 --retry-timeout=1' | tee $curTTY | grep 'aborting onedrive sync.' )
+			if [ ! -z "$syncFailRes" ]; then 
+				echo "   Rolling back slot status to finalized, as the sync failed"
+				changeSlotStatus $targSlot "FINALIZED" --rollback
 			else
-				echo "    Job did not fail, sharing JobStorage folder"
-				sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/JobStorage/$jobIDDB"
-				cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
-				echo "$cmdRes"
-				shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
-				# cmdRes="$(sharePathOnedrive "/LogStorage/JobStorage/$jobIDDB")"
-				# shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
+				if [ $failRunsDB -gt 0 ]; then
+					echo "    Job did fail, sharing FailLogs folder"
+					sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/FailLogs/$jobIDDB"
+					cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
+					echo "$cmdRes"
+					shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
+					# shareLink=$(sharePathOnedrive "/LogStorage/FailLogs/$jobIDDB" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
+				else
+					echo "    Job did not fail, sharing JobStorage folder"
+					sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/JobStorage/$jobIDDB"
+					cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
+					echo "$cmdRes"
+					shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
+					# cmdRes="$(sharePathOnedrive "/LogStorage/JobStorage/$jobIDDB")"
+					# shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
+				fi
+				if [ -z "$shareLink" ]; then
+					critWarn "Unable to create shared link!"
+					echo -e "Full log:\n$cmdRes"
+				else
+					echo "    Share link: $shareLink"
+					echo "    PN: $uutPn"
+					echo "    TN: $uutTn"
+					echo "    MAC: $uutMac"
+					echo "    JobID: $jobIDDB"
+					echo "    DBID: $dbID"
+					echo "    Total runs: $totalRunsDB"
+					echo "    Failed runs: $failRunsDB"
+					echo "    Runs left: $runsLeftDB"
+					echo "  Remove slot job from DB?"
+					case `select_opt "${closePrompt[@]}"` in
+						0) 
+							changeSlotStatus $targSlot "REMOVED"
+							clearSlotDB $targSlot
+						;;
+						1) ;;
+						*) except "closePrompt for clear slot unknown exception" 
+					esac
+				fi
 			fi
-			if [ -z "$shareLink" ]; then
-				critWarn "Unable to create shared link!"
-				echo -e "Full log:\n$cmdRes"
-			else
-				echo "    Share link: $shareLink"
-				echo "    PN: $uutPn"
-				echo "    TN: $uutTn"
-				echo "    MAC: $uutMac"
-				echo "    JobID: $jobIDDB"
-				echo "    DBID: $dbID"
-				echo "    Total runs: $totalRunsDB"
-				echo "    Failed runs: $failRunsDB"
-				echo "    Runs left: $runsLeftDB"
-				echo "  Remove slot job from DB?"
-				case `select_opt "${closePrompt[@]}"` in
-					0) 
-						changeSlotStatus $targSlot "REMOVED"
-						clearSlotDB $targSlot
-					;;
-					1) ;;
-					*) except "closePrompt for clear slot unknown exception" 
-				esac
-			fi
+
 			echo "   Done."
 		;;
 		1)
@@ -735,6 +742,7 @@ changeSlotStatus() {
 	local uutPn uutTn macDB passRunsDB failRunsDB totalRunsDB runsLeftDB jobIDDB
 	privateNumAssign targSlotIdx $1
 	privateVarAssign "${FUNCNAME[0]}" targetStatus "$2"
+	rollbackStatus=$3
 
 	case "$targetStatus" in 
 		"READY"|"STARTED"|"ENDED"|"FINALIZED"|"CLOSED"|"REMOVED")
@@ -755,12 +763,16 @@ changeSlotStatus() {
 			publicVarAssign fatal queueLogPathFull "/tmp/$dbID.csvDB"
 			publicVarAssign fatal globalLogPathFull "/root/multiCard/LogStorage/GlobalLogs/$(readDB $targSlotIdx --global-log)"
 			writeSQLDB "$jobIDDB" --update-job-status --status=$targetStatus
-			echo "$jobIDDB;$uutPn;$uutTn;$slotNum;STATUS_CHANGE;$testResDB;$passRunsDB;$failRunsDB;$runsLeftDB;;;;;$dbID;$macDB" 2>&1 |& tee -a "$globalLogPathFull" "$queueLogPathFull" >/dev/null
-			uploadLogSyncServer $syncSrvIp "$globalLogPathFull" "GlobalLogs"
-			if [ -e "$queueLogPathFull" ]; then
-				sshSendCmdNohup $syncSrvIp $syncSrvUser '/root/multiCard/sheetsSyncUtility.sh'
-				# uploadQueueSyncServer $syncSrvIp "$queueLogPathFull"
-				echo "  Clearing queue log"; rm -f $queueLogPathFull 2>&1 > /dev/null
+			if [ -z "$rollbackStatus" ]; then
+				echo "$jobIDDB;$uutPn;$uutTn;$slotNum;STATUS_CHANGE;$testResDB;$passRunsDB;$failRunsDB;$runsLeftDB;;;;;$dbID;$macDB" 2>&1 |& tee -a "$globalLogPathFull" "$queueLogPathFull" >/dev/null
+				uploadLogSyncServer $syncSrvIp "$globalLogPathFull" "GlobalLogs"
+				if [ -e "$queueLogPathFull" ]; then
+					sshSendCmdNohup $syncSrvIp $syncSrvUser '/root/multiCard/sheetsSyncUtility.sh'
+					# uploadQueueSyncServer $syncSrvIp "$queueLogPathFull"
+					echo "  Clearing queue log"; rm -f $queueLogPathFull 2>&1 > /dev/null
+				fi
+			else
+				echo "  Rollback mode, sheets update and sync are disabled"
 			fi
 		;;
 		*) critWarn "   unexpected targetStatus value: $targetStatus, skipping";;

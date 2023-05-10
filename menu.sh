@@ -121,6 +121,9 @@ main() {
 		"isD2" 		"| IS401U-RU (40G Modules ONLY!)"
 		"isD3" 		"| IS Power Tests"
 		"delim" 	"========================================"
+		"delim" 	"|  AT&T"
+		"attD1" 	"| 80500-0150-G02"
+		"delim" 	"========================================"
 		"delim" 	"|  Etc.."
 		# "transRep" 	"| PE310G4BPI71-SR (transceiver check)"
 		# "transRep1" "| PE310G4BPI71-SR (transceiver clone)"
@@ -204,18 +207,12 @@ main() {
 		ibsD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T-MC-AM" --ibs-mode $@$addArgs;;
 		ibsD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-*" --ibs-mode $@$addArgs;;
 		ibsD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-LR-RW" --ibs-mode $@$addArgs;;
-		isD1)
-			testFileExist "${MC_SCRIPT_PATH}/isTest.sh"
-			${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS100G-Q-RU" $@$addArgs
-		;;
-		isD2)
-			testFileExist "${MC_SCRIPT_PATH}/isTest.sh"
-			${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS401U-RU" $@$addArgs
-		;;
-		isD3)
-			testFileExist "${MC_SCRIPT_PATH}/isTest.sh"
-			${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS-UNIV" --test-sel="pwCycle" $@$addArgs
-		;;
+		isD1|isD2|isD3) 	testFileExist "${MC_SCRIPT_PATH}/isTest.sh" ;;&
+		isD1) 		${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS100G-Q-RU" $@$addArgs ;;
+		isD2)		${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS401U-RU" $@$addArgs ;;
+		isD3)		${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS-UNIV" --test-sel="pwCycle" $@$addArgs ;;
+		attD1|nop) 		testFileExist "${MC_SCRIPT_PATH}/boxTest.sh" ;;&
+		attD1)		${MC_SCRIPT_PATH}/boxTest.sh --uut-pn="80500-0150-G02" $@$addArgs ;;
 		sett1)		
 			if [ "$ignoreDumpFail" = "NO" ]; then
 				ignoreDumpFail="YES"

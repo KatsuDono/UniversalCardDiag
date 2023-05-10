@@ -14,6 +14,36 @@ declareVars() {
 	def4p="1 1 2 2 3 3 4 4"
 	uutUIOdevNum="null"
 	mastUIOdevNum="null"
+	pnArr=(
+		"PE310G4BPI71-SR"
+		"PE310G4BPI71-LR"
+		"PE310G4I71L-XR-CX1"
+		"PE210G2BPI40-T"
+		"PE310G4BPI40"
+		"PE310G4I40"
+		"PE310G2BPI71-SR"
+		"PE340G2BPI71-QS43"
+		"PE310G4DBIR"
+		"PE310G4BPI9-LR"
+		"PE310G4BPI9-SR"
+		"PE210G2BPI9"
+		"PE210G2SPI9A-XR"
+		"PE325G2I71"
+		"PE31625G4I71L-XR-CX"
+		"M4E310G4I71-XR-CP"
+		"PE340G2DBIR-QS41"
+		"PE3100G2DBIR"
+		"PE425G4I71L"
+		"P410G8TS81-XR"
+		"IBSGP-T-MC-AM"
+		"IBS10GP-LR-RW"
+		"IBSGP-T"
+		"IBS10GP-*"
+		"IBSGP-T*"
+		"TS4"
+		"PE2G2I35"
+		"PE2G4I35"
+	)
 }
 
 parseArgs() {
@@ -1311,7 +1341,7 @@ defineRequirments() {
 	local ethToRemove secBusAddr
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && except "requirements cant be defined, empty uutPn"
-	if [[ ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR\|PE310G4BPI71-LR\|PE310G4I71L-XR-CX1\|PE210G2BPI40-T\|PE310G4BPI40\|PE310G4I40\|PE310G2BPI71-SR\|PE340G2BPI71-QS43\|PE310G4DBIR\|PE310G4BPI9-LR\|PE310G4BPI9-SR\|PE210G2BPI9\|PE210G2SPI9A-XR\|PE325G2I71\|PE31625G4I71L-XR-CX\|M4E310G4I71-XR-CP\|PE340G2DBIR-QS41\|PE3100G2DBIR\|PE425G4I71L\|P410G8TS81-XR\|IBSGP-T-MC-AM\|IBS10GP-LR-RW\|IBSGP-T\|IBS10GP-*\|IBSGP-T*\|TS4\|PE2G2I35\|PE2G4I35") ]]; then
+	if [[ " ${pnArr[*]} " =~ " ${uutPn} " ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		
 		test ! -z $(echo -n $uutPn |grep "PE310G4BPI71-SR") && {
