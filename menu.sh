@@ -66,6 +66,7 @@ main() {
 		"delim" 	"|  TOOLS"
 		"showSlots" "| Show PCI Slots"
 		"showSlM"	"| Show PCI Slots (minimal)"
+		"serMon"	"| Serial monitor"
 		"delim" 	"========================================"
 		"delim" 	"|  ACCELERATION CARDS"
 		"acc1" 		"| PE3IS2CO3LS"
@@ -96,7 +97,7 @@ main() {
 		"sfpD6" 	"| PE325G2I71-XR-CX"
 		"sfpD6-1" 	"| PE325G2I71-XR-SP"
 		"sfpD7" 	"| PE31625G4I71L-XR-CX"
-		"sfpD8" 	"| M4E310G4I71-XR-CP2"
+#		"sfpD8" 	"| M4E310G4I71-XR-CP2"
 		"sfpD10" 	"| PE340G2DBIR-QS41"
 		"sfpD11" 	"| PE3100G2DBIR"
 		"sfpD12"	"| PE425G4I71L"
@@ -119,10 +120,14 @@ main() {
 		"delim" 	"|  IS"
 		"isD1" 		"| IS100G-Q-RU"
 		"isD2" 		"| IS401U-RU (40G Modules ONLY!)"
+		#"isD2-1" 	"| IS401U-* (40G Modules ONLY!)"
 		"isD3" 		"| IS Power Tests"
 		"delim" 	"========================================"
 		"delim" 	"|  AT&T"
 		"attD1" 	"| 80500-0150-G02"
+		"delim" 	"========================================"
+		"delim" 	"|  GRANITE"
+		"granD1" 	"| 80500-0224-G02"
 		"delim" 	"========================================"
 		"delim" 	"|  Etc.."
 		# "transRep" 	"| PE310G4BPI71-SR (transceiver check)"
@@ -137,6 +142,133 @@ main() {
 		"delim" 	"========================================"
 		"delim" 	"|  Settings"
 		"sett1" 	"| Ignore dump fails [ $ignoreDumpFail ]"
+		"delim" 	"========================================"
+		"Exit" 		"| Exit" 
+		"delim" 	"========================================"
+	)
+	declare -a accCardArgs=(
+		"delim" 	"========================================"
+		"delim" 	"|  TOOLS"
+		"showSlots" "| Show PCI Slots"
+		"showSlM"	"| Show PCI Slots (minimal)"
+		"serMon"	"| Serial monitor"
+		"delim" 	"========================================"
+		"delim" 	"|  ACCELERATION CARDS"
+		"acc1" 		"| PE3IS2CO3LS"
+		"acc2" 		"| PE3IS2CO3LS-CX"
+		"acc3" 		"| PE2ISCO3-CX"
+		"acc4" 		"| PE3ISLBTL"
+		"acc4-1" 	"| PE3ISLBTL-FU"
+		"acc4-2" 	"| PE3ISLBTL-FN"
+		"acc4-3" 	"| PE316ISLBTL-CX"
+		"acc5" 		"| PE3ISLBLL"
+		"acc6" 		"| PE316IS2LBTLB-CX"
+		"acc7" 		"| P3IMB-M-P1-VZ"
+		"delim" 	"========================================"
+		"delim" 	"|  Settings"
+		"sett1" 	"| Ignore dump fails [ $ignoreDumpFail ]"
+		"delim" 	"========================================"
+		"Exit" 		"| Exit" 
+		"delim" 	"========================================"
+	)
+	declare -a sfpCardArgs=(
+		"delim" 	"========================================"
+		"delim" 	"|  TOOLS"
+		"showSlots" "| Show PCI Slots"
+		"showSlM"	"| Show PCI Slots (minimal)"
+		"serMon"	"| Serial monitor"
+		"delim" 	"========================================"
+		"delim" 	"|  SFP CARDS"
+		"sfpD1" 	"| PE210G2BPI9-SR"
+		"sfpD1-1" 	"| PE210G2BPI9-SRSD-BC8"
+		"sfpD1-2" 	"| PE210G2BPI9-SR-SD"
+		"sfpD1-3" 	"| PE210G2BPI9-SRD-SD"
+		"sfpD9" 	"| PE210G2SPI9A-XR"
+		"sfpD2" 	"| PE310G4BPI71-SR"
+		"sfpD2-1" 	"| PE310G4BPI71-LR"
+		"sfpD2-2" 	"| PE310G4I71L-XR-CX1"
+		"sfpD3" 	"| PE310G2BPI71-SR"
+		"sfpD3-1" 	"| PE340G2BPI71-QS43"
+		"sfpD4" 	"| PE310G4DBIR"
+		"sfpD5" 	"| PE310G4BPI9-SR"
+		"sfpD5-1" 	"| PE310G4BPI9-LR"
+		"sfpD6" 	"| PE325G2I71-XR-CX"
+		"sfpD6-1" 	"| PE325G2I71-XR-SP"
+		"sfpD7" 	"| PE31625G4I71L-XR-CX"
+#		"sfpD8" 	"| M4E310G4I71-XR-CP2"
+		"sfpD10" 	"| PE340G2DBIR-QS41"
+		"sfpD11" 	"| PE3100G2DBIR"
+		"sfpD12"	"| PE425G4I71L"
+		"delim" 	"========================================"
+		"delim" 	"|  Settings"
+		"sett1" 	"| Ignore dump fails [ $ignoreDumpFail ]"
+		"delim" 	"========================================"
+		"Exit" 		"| Exit" 
+		"delim" 	"========================================"
+	)
+	declare -a rj45CardArgs=(
+		"delim" 	"========================================"
+		"delim" 	"|  TOOLS"
+		"showSlots" "| Show PCI Slots"
+		"showSlM"	"| Show PCI Slots (minimal)"
+		"serMon"	"| Serial monitor"
+		"delim" 	"========================================"
+		"delim" 	"|  RJ45 CARDS"
+		"rjD1" 		"| PE210G2BPI40-T* (universal)"
+		"rjD2" 		"| PE310G4BPI40-T"
+		"rjD3" 		"| PE310G4DBIR-T"
+		"rjD4" 		"| PE310G4I40-T"
+		"rjD5" 		"| PE2G2I35"
+		"rjD6" 		"| PE2G4I35"
+		"delim" 	"========================================"
+		"delim" 	"|  Settings"
+		"sett1" 	"| Ignore dump fails [ $ignoreDumpFail ]"
+		"delim" 	"========================================"
+		"Exit" 		"| Exit" 
+		"delim" 	"========================================"
+	)
+	declare -a boxEtcArgs=(
+		"delim" 	"========================================"
+		"delim" 	"|  TOOLS"
+		"showSlots" "| Show PCI Slots"
+		"showSlM"	"| Show PCI Slots (minimal)"
+		"serMon"	"| Serial monitor"
+		"delim" 	"========================================"
+		"delim" 	"|  IBS"
+		"ibsD1" 	"| IBSGP-T* (universal)"
+		"ibsD2" 	"| IBSGP-T"
+		"ibsD3" 	"| IBSGP-T-MC-AM"
+		"ibsD4" 	"| IBS10GP-* (universal)"
+		"ibsD5" 	"| IBS10GP-LR-RW"
+		"delim" 	"========================================"
+		"delim" 	"|  IS"
+		"isD1" 		"| IS100G-Q-RU"
+		"isD2" 		"| IS401U-RU (40G Modules ONLY!)"
+		#"isD2-1" 	"| IS401U-* (40G Modules ONLY!)"
+		"isD3" 		"| IS Power Tests"
+		"delim" 	"========================================"
+		"delim" 	"|  AT&T"
+		"attD1" 	"| 80500-0150-G02"
+		"attD1-1" 	"| 80500-0150-G02 (skip info fail)"
+		"delim" 	"========================================"
+		"delim" 	"|  GRANITE"
+		"granD1" 	"| 80500-0224-G02"
+		"delim" 	"========================================"
+		"Exit" 		"| Exit" 
+		"delim" 	"========================================"
+	)
+	declare -a sectionArgs=(
+		"delim" 	"========================================"
+		"delim" 	"|  TOOLS"
+		"showSlots" "| Show PCI Slots"
+		"showSlM"	"| Show PCI Slots (minimal)"
+		"serMon"	"| Serial monitor"
+		"delim" 	"========================================"
+		"accSect1" 	"| ACCELERATION CARDS"
+		"accSect2" 	"| SFP CARDS"
+		"accSect3" 	"| RJ45 CARDS"
+		"accSect4" 	"| IBS  IS  AT&T"
+		"accSect5" 	"| ALL"
 		"delim" 	"========================================"
 		"Exit" 		"| Exit" 
 		"delim" 	"========================================"
@@ -162,6 +294,20 @@ main() {
 	# createLog
 	read -r conRows conCols < <(stty size)
 	# all dynamic > $(( $conRows - 10 )) $(( $conCols - 36 )) $(( $conRows - 18 ))
+	test -z "$menuChoice" && whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" $(( $conRows - 10 )) 50 $(( $conRows - 18 )) ${sectionArgs[@]} 3>&2 2>&1 1>&3) || whptRes=$menuChoice
+	case "$whptRes" in
+		accSect1) 	cardArgs=("${accCardArgs[@]}");;
+		accSect2) 	cardArgs=("${sfpCardArgs[@]}");;
+		accSect3) 	cardArgs=("${rj45CardArgs[@]}");;
+		accSect4) 	cardArgs=("${boxEtcArgs[@]}");;
+		accSect5) 	cardArgs=("${cardArgs[@]}");;
+		showSlots) 	showPciSlots;;
+		showSlM) 	showPciSlots --minimalMode;;
+		serMon)		startSerialMonitor;;
+		delim) exit;;
+		Exit) exit;;
+		*) exitFail echo "Unknown menu entry: $whptRes"
+	esac
 	test -z "$menuChoice" && whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" $(( $conRows - 10 )) 50 $(( $conRows - 18 )) ${cardArgs[@]} 3>&2 2>&1 1>&3) || whptRes=$menuChoice
 	case "$whptRes" in
 		acc) 		${MC_SCRIPT_PATH}/acc_diag_lib.sh;;
@@ -207,12 +353,15 @@ main() {
 		ibsD3) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBSGP-T-MC-AM" --ibs-mode $@$addArgs;;
 		ibsD4) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-*" --ibs-mode $@$addArgs;;
 		ibsD5) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="IBS10GP-LR-RW" --ibs-mode $@$addArgs;;
-		isD1|isD2|isD3) 	testFileExist "${MC_SCRIPT_PATH}/isTest.sh" ;;&
+		isD1|isD2|isD2-1|isD3) 	testFileExist "${MC_SCRIPT_PATH}/isTest.sh" ;;&
 		isD1) 		${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS100G-Q-RU" $@$addArgs ;;
 		isD2)		${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS401U-RU" $@$addArgs ;;
+		isD2-1)		${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS401U-UNIVERSAL" $@$addArgs ;;
 		isD3)		${MC_SCRIPT_PATH}/isTest.sh --uut-pn="IS-UNIV" --test-sel="pwCycle" $@$addArgs ;;
 		attD1|nop) 		testFileExist "${MC_SCRIPT_PATH}/boxTest.sh" ;;&
 		attD1)		${MC_SCRIPT_PATH}/boxTest.sh --uut-pn="80500-0150-G02" $@$addArgs ;;
+		attD1-1)	${MC_SCRIPT_PATH}/boxTest.sh --uut-pn="80500-0150-G02" --skip-info-fail $@$addArgs ;;
+		granD1)		${MC_SCRIPT_PATH}/boxTest.sh --uut-pn="80500-0224-G02" $@$addArgs ;;
 		sett1)		
 			if [ "$ignoreDumpFail" = "NO" ]; then
 				ignoreDumpFail="YES"
@@ -226,6 +375,7 @@ main() {
 
 		showSlots) 	showPciSlots;;
 		showSlM) 	showPciSlots --minimalMode;;
+		serMon)		startSerialMonitor;;
 		transRep)	
 			testFileExist "/root/PE310G4BPI71"
 			cd /root/PE310G4BPI71
