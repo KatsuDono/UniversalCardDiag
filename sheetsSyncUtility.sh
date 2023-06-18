@@ -71,7 +71,7 @@ syncLoop() {
 		printf '\e[A\e[K\e[A\e[K'
 		if [ -e "$lockFilePath" ]; then
 			warn "  Unable to write to google path, it is locked (try count: $retryCnt)"
-			countDownDelay 5 "  Waiting for lock removal.."
+			if [ ! -z "$TERM" ]; then countDownDelay 5 "  Waiting for lock removal.."; else	sleep 5; fi
 		else
 			echo "  Locking GSheets"
 			echo 1>$lockFilePath

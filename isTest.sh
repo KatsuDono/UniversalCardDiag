@@ -173,7 +173,7 @@ defineRequirments() {
 	local ethToRemove secBusAddr secBusArg
 	echo -e "\n Defining requirements.."
 	test -z "$uutPn" && except "requirements cant be defined, empty uutPn"
-	if [[ ! -z $(echo -n $uutPn |grep "IS100G-Q-RU\|IS401U-RU\|IS-UNIV") ]]; then
+	if [[ ! -z $(echo -n $uutPn |grep "IS100G-Q-RU\|IS401U-RU\|IS401U-UNIVERSAL\|IS-UNIV") ]]; then
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 
 		test ! -z $(echo -n $uutPn |grep "IS100G-Q-RU") && {
@@ -202,6 +202,20 @@ defineRequirments() {
 			isSwVer="0.2.2.0"
 			isFwVer="22.2.0.40"
 			isDevType="3.0.34-sl"
+		}
+
+		test ! -z $(echo -n $uutPn |grep "IS401U-UNIVERSAL") && {
+			baseModel="IS401U-RU"
+			uutBdsUser="badas"
+			acquireVal "Badas password" uutBdsPass uutBdsPass
+			uutRootUser="root"
+			acquireVal "Root password" uutRootPass uutRootPass
+			uutBaudRate=115200
+
+			isUbootVer="."
+			isSwVer="."
+			isFwVer="."
+			isDevType="."
 		}
 
 		test ! -z $(echo -n $uutPn |grep "IS-UNIV") && {
@@ -1220,5 +1234,5 @@ else
 		exit 1
 	fi
 	main
-	if [ -z "$minorLaunch" ]; then echo -e "See $(inform "--help" "--nnl" "--sil") for available parameters\n"; fi
+	if [ -z "$minorLaunch" ]; then echo -e "See $yl--help$ec for available parameters\n"; fi
 fi

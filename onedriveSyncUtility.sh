@@ -25,8 +25,10 @@ parseArgs() {
 				debugMode=1 
 				inform "Launch key: Debug mode"
 			;;
-			retry-count) retryCount=${VALUE};;
-			retry-timeout) retryTimeout=${VALUE};;
+			retry-count) 	retryCount=${VALUE};;
+			retry-timeout) 	retryTimeout=${VALUE};;
+			lock-contents) 	lockContents=${VALUE};;
+			upload-path)	uploadPath=${VALUE};;
 			help) showHelp ;;
 			*) echo "Unknown arg: $ARG"; showHelp
 		esac
@@ -78,10 +80,10 @@ syncLoop() {
 			countDownDelay $retryTimeout "  Waiting for lock removal.."
 		else
 			dmsg echo "  Locking DB"
-			echo 1>$lockFilePath
+			echo Contents: $lockContents >$lockFilePath
 
 			rsync -arvu "/home/smbLogs/LogStorage/" "/root/OneDrive/LogStorage/"
-			syncLogsOnedrive
+			syncLogsOnedrive $uploadPath
 
 			dmsg echo "  Unlocking DB"
 			rm -f "$lockFilePath"

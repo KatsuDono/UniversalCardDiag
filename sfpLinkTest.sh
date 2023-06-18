@@ -34,6 +34,7 @@ declareVars() {
 		"PE340G2DBIR-QS41"
 		"PE3100G2DBIR"
 		"PE425G4I71L"
+		"PE425G4I71L-XR-CX"
 		"P410G8TS81-XR"
 		"IBSGP-T-MC-AM"
 		"IBS10GP-LR-RW"
@@ -5572,5 +5573,5 @@ else
 		exit 1
 	fi
 	main
-	if [ -z "$minorLaunch" ]; then echo -n " See "; echo -n $(inform --nnl --sil "--help"); echo -e " for available parameters\n"; fi
+	if [ -z "$minorLaunch" ]; then echo -n " See $yl--help$ec for available parameters\n"; fi
 fi

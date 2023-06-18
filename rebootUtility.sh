@@ -50,6 +50,7 @@ showHelp() {
 
 setEmptyDefaults() {
 	echo -e " Setting defaults.."
+	syncSrvIp=172.30.7.17
 	sshIpArg=172.30.7.24
 	sshUserArg=root
 	ipmiIpArg=172.30.7.25
@@ -93,6 +94,11 @@ powerUpIpmi() {
 	ipmiPowerUP $ipmiIp $ipmiUser $ipmiPass
 }
 
+powerDownIpmi() {
+	echo "  Powering down IPMI: $ipmiUser@$ipmiIp"
+	ipmiPowerDOWN $ipmiIp $ipmiUser $ipmiPass
+}
+
 main() {
 	local errMsg errStat retryCnt
 	let retryCnt=0
@@ -105,30 +111,39 @@ main() {
 		sshWaitForPing 3 $sshIp
 		if [ $? -eq 0 ]; then
 			powerDownSsh
-			countDownDelay 15 "  Waiting for power down.."
+			countDownDelay 10 "  Waiting for power down.."
+			powerDownIpmi
+			countDownDelay 10 "  Waiting for IPMI power down.."
 			sshWaitForPing 5 $sshIp
 			if [ $? -eq 1 ]; then
 				echo "  Host $sshIp is down."
 				powerUpIpmi
 			else
+				addSQLLogRecord $syncSrvIp $sshIp --ssh-power-down-failed
 				let errStat+=1; errMsg="Host $sshIp is up!"
 			fi
 		else
 			powerUpIpmi
 		fi
 		if [ $errStat -eq 0 ]; then
-			countDownDelay 170 "  Waiting for boot.."
-			sshWaitForPing 30 $sshIp
+			countDownDelay 160 "  Waiting for boot.."
+			sshWaitForPing 190 $sshIp
 			if [ $? -eq 0 ]; then
 				ipmiCheckChassis $ipmiIp $ipmiUser $ipmiPass
 				echo "  Power up ok."
 			else
+				addSQLLogRecord $syncSrvIp $sshIp --ssh-startup-failed
 				let errStat+=1; errMsg="Host $sshIp is down!"
 			fi
 		fi
 		let retryCnt+=$errStat
 	done
-	if [ $errStat -gt 0 ]; then except "$errMsg"; fi
+	if [ $errStat -gt 0 ]; then
+		addSQLLogRecord $syncSrvIp $sshIp --reboot-unsuccessfull
+		except "$errMsg"
+	else
+		addSQLLogRecord $syncSrvIp $sshIp --ssh-startup-ok
+	fi
 	passMsg "\n\tDone!\n"
 }
 
