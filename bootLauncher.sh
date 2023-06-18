@@ -83,7 +83,7 @@ createGlobalLog() {
 }
 
 loadCfg() {
-	local cfgPath srcRes cfgPathArg dbID randHexLong idx globalLogName globalLogPath
+	local cfgPath srcRes cfgPathArg randHexLong idx globalLogName globalLogPath
 	cfgPathArg=$1
 
 	echo -e "  Loading config file.."
@@ -207,8 +207,7 @@ declareVars() {
 
 main() {
 	local jobCreate defStartup slotSel
-	# getTracking
-	# createLog
+	addSQLLogRecord $syncSrvIp $dbID --server-up
 	if [ ! -z "$autostartMode" ]; then
 		checkHWkey
 		if [ $? -eq 0 ]; then 
@@ -230,8 +229,6 @@ main() {
 			*) except "Unknown action";;
 		esac
 	fi
-	echo "  Sending OneDrive sync request to sync server: $syncSrvIp"
-	sshSendCmdNohup $syncSrvIp $syncSrvUser '/root/multiCard/onedriveSyncUtility.sh'
 }
 
 readDB() {
@@ -371,7 +368,7 @@ writeSQLDB() {
 }
 
 writeDB() {
-	local slotIdx targLine KEY VALUE lockFilePath paramIdx
+	local slotIdx targLine KEY VALUE lockFilePath paramIdx jobID
 	privateNumAssign "slotIdx" "$1"; shift
 	lockFilePath=$jobDBPath.lock
 
@@ -401,13 +398,15 @@ writeDB() {
 			global-log) 	let paramIdx=30 ;;
 			*) except "Unknown DB key: $ARG"
 		esac
+		jobID=${slotMatrix[$slotIdx,19]}
 		targLine="slotMatrix[$slotIdx,$paramIdx]"
 		targLineMasked='slotMatrix\['$slotIdx','$paramIdx'\]'
 		if [ -e "$lockFilePath" ]; then
 			failRun "Unable to write to DB file, it is locked"
 		else
 			dmsg echo "  Locking DB"
-			echo 1>$lockFilePath
+			echo "JobID: $jobID">$lockFilePath
+			if [ ! -z "$jobID" ]; then addSQLLogRecord $syncSrvIp $jobID --db-locked; fi
 		fi
 
 		dmsg echo "  Updating $KEY to ${VALUE} (line: $targLine)"
@@ -419,6 +418,9 @@ writeDB() {
 	done
 	dmsg echo "  Unlocking DB"
 	rm -f "$lockFilePath"
+	if [ ! -e "$lockFilePath" ]; then
+		if [ ! -z "$jobID" ]; then addSQLLogRecord $syncSrvIp $jobID --db-unlocked; fi
+	fi
 }
 
 function clearSlotDB() {
@@ -529,7 +531,7 @@ createJobsLoop() {
 					;;
 					"ENDED") warn "   Job is already ended, skipping";;
 					"FINALIZED") warn "   Job is already finalized, skipping";;
-					"CLOSED") warn "   Job is already closed, skipping";;
+					"CLOSED") warn "   Job is already closed, skipping"; clearSlotDB $slotSel;;
 					"REMOVED") warn "   Job is already removed, skipping"; clearSlotDB $slotSel;;
 					*) critWarn "   unexpected testResultDB value: $testResultDB, skipping";;
 				esac
@@ -623,32 +625,38 @@ closeSlotJob() {
 			echo "    Clearing runs left counter"
 			writeDB $targSlot --runs-left=0
 			updateSqlCounters $targSlot
+
 			echo "    Syncing OneDrive logs"
-			curTTY=$(tty)
-			syncFailRes=$( sshSendCmd $syncSrvIp root '/root/multiCard/onedriveSyncUtility.sh --retry-count=240 --retry-timeout=1' | tee $curTTY | grep 'aborting onedrive sync.' )
+			if [ $failRunsDB -gt 0 ]; then
+				echo "    Job did fail, syncing FailLogs folder"
+				sshCmd="/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/FailLogs/$jobIDDB\" --retry-count=480 --retry-timeout=1"
+			else
+				echo "    Job did not fail, syncing JobStorage folder"
+				sshCmd="/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/JobStorage/$jobIDDB\" --retry-count=480 --retry-timeout=1"
+			fi
+			syncFailRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
+			echo "$cmdRes"
+			syncFailRes=$(grep 'aborting onedrive sync.' <<<$syncFailRes)
+
 			if [ ! -z "$syncFailRes" ]; then 
 				echo "   Rolling back slot status to finalized, as the sync failed"
 				changeSlotStatus $targSlot "FINALIZED" --rollback
 			else
 				if [ $failRunsDB -gt 0 ]; then
 					echo "    Job did fail, sharing FailLogs folder"
+					echo "    Creating share link"
 					sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/FailLogs/$jobIDDB"
-					cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
-					echo "$cmdRes"
-					shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
-					# shareLink=$(sharePathOnedrive "/LogStorage/FailLogs/$jobIDDB" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
 				else
 					echo "    Job did not fail, sharing JobStorage folder"
 					sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/JobStorage/$jobIDDB"
-					cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
-					echo "$cmdRes"
-					shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
-					# cmdRes="$(sharePathOnedrive "/LogStorage/JobStorage/$jobIDDB")"
-					# shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
 				fi
+				cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
+				echo "$cmdRes"
+				shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
 				if [ -z "$shareLink" ]; then
 					critWarn "Unable to create shared link!"
-					echo -e "Full log:\n$cmdRes"
+					echo "   Rolling back slot status to finalized, as the sync failed"
+					changeSlotStatus $targSlot "FINALIZED" --rollback
 				else
 					echo "    Share link: $shareLink"
 					echo "    PN: $uutPn"
@@ -920,6 +928,7 @@ checkJobStates() {
 	loadCfg $jobDBPath
 	publicVarAssign fatal dbID $(readDB 99 --db-id)
 	publicVarAssign fatal queueLogPathFull "/tmp/$dbID.csvDB"
+	addSQLLogRecord $syncSrvIp $dbID --cycle-started
 	echo "  Clearing queue log"; rm -f $queueLogPathFull 2>&1 > /dev/null
 	echo -e "  Checking jobs for all slots.."
 	for ((slotCounter=0;slotCounter<=$maxSlots;slotCounter++))
@@ -953,6 +962,7 @@ checkJobStates() {
 			esac
 		fi
 	done
+	addSQLLogRecord $syncSrvIp $dbID --cycle-ended
 	if [ -e "$queueLogPathFull" ]; then
 		sshSendCmdNohup $syncSrvIp $syncSrvUser '/root/multiCard/sheetsSyncUtility.sh'
 		# uploadSQLToSheetSyncServer $syncSrvIp "/tmp/SQL_$dbID.csvDB"
@@ -1037,7 +1047,7 @@ startSlotJob() {
 	publicNumAssign currentRunDB $(readDB $slotIdx --current-run)
 	publicNumAssign runsLeftDB $(readDB $slotIdx --runs-left)
 	publicVarAssign warn totalLogDB $(readDB $slotIdx --total-log)
-	publicVarAssign warn jobIDDB $(readDB $slotIdx --job-id)
+	publicVarAssign fatal jobIDDB $(readDB $slotIdx --job-id)
 	dbID=$(readDB 99 --db-id)
 
 	writeDB $slotIdx --test-start=1
@@ -1049,14 +1059,8 @@ startSlotJob() {
 	critWarn --sil "SORT OUT proper log path determination"
 	randHex=$(xxd -u -l 4 -p /dev/urandom)
 	# logPath="/root/multiCard/$uutTn"'_'"PN-$uutPn"'_'"Slot-$uutSlotNum"'_'"Run-"$currentRunDB'_'$randHex.log
-	
-	if [ "$jobIDDB" = "0" ]; then unset jobIDDB; fi
-	if [ -z "$jobIDDB" ]; then
-		echo "  Job ID does not exist, creating..."
-		randHexLong=$(xxd -u -l 16 -p /dev/urandom)
-		writeDB $slotIdx --job-id=$randHexLong
-		publicVarAssign fatal jobIDDB $(readDB $slotIdx --job-id)
-	fi
+
+	addSQLLogRecord $syncSrvIp $jobIDDB --run-started
 
 	logPath="$uutTn"'_'"PN-$uutPn"'_'"Slot-$uutSlotNum"'_'"Run-"$currentRunDB'_'$jobIDDB.log
 	echo -e -n "  Creating job logs folder /root/multiCard/LogStorage/JobStorage/$jobIDDB: "; echoRes "mkdir -p /root/multiCard/LogStorage/JobStorage/$jobIDDB"
@@ -1155,19 +1159,28 @@ startSlotJob() {
 	else
 		echo "$jobIDDB;$uutPn;$uutTn;$uutSlotNum;$currentRunDB;$testResVerb;$passRunsDB;$failRunsDB;$runsLeftDB;;;;;$dbID;$macDB" 2>&1 |& tee -a "$globalLogPathFull" "$queueLogPathFull" >/dev/null
 	fi 
+	addSQLLogRecord $syncSrvIp $jobIDDB --run-ended
 	if [ -z "$globalLogPathFull" ]; then
 		critWarn "globalLogPathFull path in unknown, skipping upload"
 	else
 		uploadLogSyncServer $syncSrvIp "$logPathFull" "JobStorage/$jobIDDB"
 		uploadLogSyncServer $syncSrvIp "$slotLogPathFull" "JobStorage/$jobIDDB"
 		uploadLogSyncServer $syncSrvIp "$globalLogPathFull" "GlobalLogs"
+		echo "  Sending OneDrive sync request to sync JobStorage and GlobalLogs on server: $syncSrvIp"
+		sshSendCmdNohup $syncSrvIp $syncSrvUser "/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/JobStorage/$jobIDDB\" --retry-count=480 --retry-timeout=1"
+		sshSendCmdNohup $syncSrvIp $syncSrvUser "/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/GlobalLogs\" --retry-count=480 --retry-timeout=1"
 		if [ ! -z "$debugInfoPathFull" ]; then 
+			addSQLLogRecord $syncSrvIp $jobIDDB --run-failed
 			sendAlert 'Run failed!'"\nJob: $jobIDDB\nPN: $uutPn\nTN: $uutTn\nRun result: $testResVerb\nRuns left: $runsLeftDB"
 			uploadLogSyncServer $syncSrvIp "$debugInfoPathFull" "JobStorage/$jobIDDB"
 			uploadLogSyncServer $syncSrvIp "$logPathFull" "FailLogs/$jobIDDB"
 			uploadLogSyncServer $syncSrvIp "$slotLogPathFull" "FailLogs/$jobIDDB"
 			uploadLogSyncServer $syncSrvIp "$debugInfoPathFull" "FailLogs/$jobIDDB"
 			uploadLogSyncServer $syncSrvIp "$globalLogPathFull" "FailLogs/$jobIDDB"
+			echo "  Sending OneDrive sync request to sync FailLogs on server: $syncSrvIp"
+			sshSendCmdNohup $syncSrvIp $syncSrvUser "/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/FailLogs/$jobIDDB\" --retry-count=480 --retry-timeout=1"
+		else
+			addSQLLogRecord $syncSrvIp $jobIDDB --run-passed
 		fi
 	fi
 
