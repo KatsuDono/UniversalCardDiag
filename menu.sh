@@ -101,6 +101,7 @@ main() {
 		"sfpD10" 	"| PE340G2DBIR-QS41"
 		"sfpD11" 	"| PE3100G2DBIR"
 		"sfpD12"	"| PE425G4I71L"
+		"sfpD12"	"| PE425G4I71L-XR-CX"
 		"delim" 	"========================================"
 		"delim" 	"|  RJ45 CARDS"
 		"rjD1" 		"| PE210G2BPI40-T* (universal)"
@@ -199,6 +200,7 @@ main() {
 		"sfpD10" 	"| PE340G2DBIR-QS41"
 		"sfpD11" 	"| PE3100G2DBIR"
 		"sfpD12"	"| PE425G4I71L"
+		"sfpD12"	"| PE425G4I71L-XR-CX"
 		"delim" 	"========================================"
 		"delim" 	"|  Settings"
 		"sett1" 	"| Ignore dump fails [ $ignoreDumpFail ]"
@@ -294,21 +296,25 @@ main() {
 	# createLog
 	read -r conRows conCols < <(stty size)
 	# all dynamic > $(( $conRows - 10 )) $(( $conCols - 36 )) $(( $conRows - 18 ))
-	test -z "$menuChoice" && whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" $(( $conRows - 10 )) 50 $(( $conRows - 18 )) ${sectionArgs[@]} 3>&2 2>&1 1>&3) || whptRes=$menuChoice
-	case "$whptRes" in
-		accSect1) 	cardArgs=("${accCardArgs[@]}");;
-		accSect2) 	cardArgs=("${sfpCardArgs[@]}");;
-		accSect3) 	cardArgs=("${rj45CardArgs[@]}");;
-		accSect4) 	cardArgs=("${boxEtcArgs[@]}");;
-		accSect5) 	cardArgs=("${cardArgs[@]}");;
-		showSlots) 	showPciSlots;;
-		showSlM) 	showPciSlots --minimalMode;;
-		serMon)		startSerialMonitor;;
-		delim) exit;;
-		Exit) exit;;
-		*) exitFail echo "Unknown menu entry: $whptRes"
-	esac
-	test -z "$menuChoice" && whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" $(( $conRows - 10 )) 50 $(( $conRows - 18 )) ${cardArgs[@]} 3>&2 2>&1 1>&3) || whptRes=$menuChoice
+	if [ -z "$menuChoice" ]; then
+		whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" $(( $conRows - 10 )) 50 $(( $conRows - 18 )) ${sectionArgs[@]} 3>&2 2>&1 1>&3)
+		case "$whptRes" in
+			accSect1) 	cardArgs=("${accCardArgs[@]}");;
+			accSect2) 	cardArgs=("${sfpCardArgs[@]}");;
+			accSect3) 	cardArgs=("${rj45CardArgs[@]}");;
+			accSect4) 	cardArgs=("${boxEtcArgs[@]}");;
+			accSect5) 	cardArgs=("${cardArgs[@]}");;
+			showSlots) 	showPciSlots;;
+			showSlM) 	showPciSlots --minimalMode;;
+			serMon)		startSerialMonitor;;
+			delim) exit;;
+			Exit) exit;;
+			*) exitFail echo "Unknown menu entry: $whptRes"
+		esac
+		whptRes=$(whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --menu "Select card or tool" $(( $conRows - 10 )) 50 $(( $conRows - 18 )) ${cardArgs[@]} 3>&2 2>&1 1>&3)
+	else
+		whptRes=$menuChoice
+	fi
 	case "$whptRes" in
 		acc) 		${MC_SCRIPT_PATH}/acc_diag_lib.sh;;
 		acc1)		${MC_SCRIPT_PATH}/acc_diag_lib.sh --uut-pn="PE3IS2CO3LS" $@$addArgs;;

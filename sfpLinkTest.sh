@@ -27,9 +27,14 @@ declareVars() {
 		"PE310G4BPI9-LR"
 		"PE310G4BPI9-SR"
 		"PE210G2BPI9"
+		"PE210G2BPI9-SR"
+		"PE210G2BPI9-SRSD-BC8"
+		"PE210G2BPI9-SR-SD"
+		"PE210G2BPI9-SRD-SD"
 		"PE210G2SPI9A-XR"
 		"PE325G2I71"
 		"PE31625G4I71L-XR-CX"
+		"PE31625G4I71L"
 		"M4E310G4I71-XR-CP"
 		"PE340G2DBIR-QS41"
 		"PE3100G2DBIR"
@@ -62,6 +67,24 @@ parseArgs() {
 			test-sel) 
 				inform "Launch key: Selected test: ${VALUE}"
 				testSelArg=${VALUE}
+			;;
+			pci-cycle-fac) 
+				inform "Launch key: Custom PCI test cycle factor: ${VALUE}"
+				privateNumAssign globPciTestsCycleMultiplier ${VALUE}
+				if [[ $globPciTestsCycleMultiplier =~ ^[0-9]+$ ]] && [ "$globPciTestsCycleMultiplier" -ge 1 ]; then
+					dmsg inform "globPciTestsCycleMultiplier accepted: $globPciTestsCycleMultiplier"
+				else
+					except "Ffactor needs to be whole number and greater or equal to 1."
+				fi
+			;;
+			trf-cycle-fac) 
+				inform "Launch key: Custom Traffic test cycle factor: ${VALUE}"
+				privateNumAssign globTrafficTestsCycleMultiplier ${VALUE}
+				if [[ $globTrafficTestsCycleMultiplier =~ ^[0-9]+$ ]] && [ "$globTrafficTestsCycleMultiplier" -ge 1 ]; then
+					dmsg inform "globTrafficTestsCycleMultiplier accepted: $globTrafficTestsCycleMultiplier"
+				else
+					except "Factor needs to be whole number and greater or equal to 1."
+				fi
 			;;
 			ibs-mode) 
 				inform "Launch key: IBS mode"
@@ -171,6 +194,8 @@ setEmptyDefaults() {
 	publicVarAssign warn globLnkUpDel "0.3"
 	publicVarAssign warn globLnkAcqRetr "7"
 	publicVarAssign warn globRtAcqRetr "7"
+	publicVarAssign warn globPciTestsCycleMultiplier "1"
+	publicVarAssign warn globTrafficTestsCycleMultiplier "1"
 	echo -e " Done.\n"
 }
 
@@ -900,6 +925,7 @@ checkRequiredFiles() {
 			declare -a filesArr=(
 				${filesArr[@]}				
 				"/root/PE310G4BPI71/txgen2.sh"	
+				"/root/PE310G4BPI71/pcitxgenohup2.sh"
 			)				
 		;;
 		PE310G2BPI71) 
@@ -1957,7 +1983,7 @@ defineRequirments() {
 			dmsg inform "DEBUG2: ${pciArgs[@]}"
 		}
 
-		test ! -z $(echo -n $uutPn |grep "PE31625G4I71L-XR-CX") && {
+		test ! -z $(echo -n $uutPn |grep "PE31625G4I71L") && {
 			ethKern="i40e"
 			ethMaxSpeed="10000"
 			let physEthDevQty=4
@@ -2788,7 +2814,7 @@ trafficTest() {
 	shift 
 	privateVarAssign "trafficTest" "pn" "$1"
 	
-	echo -e "\tTraffic tests (profile $pn): \n"
+	echo -e "\tTraffic tests (profile $pn, packet count: $pcktCnt): \n"
 
 	case "$pn" in
 		PE3100G2DBIR)
@@ -2804,6 +2830,7 @@ trafficTest() {
 	if [ -z "$noMasterMode" ]; then 
 		case "$pnLocal" in
 			PE310G4BPI71) 
+				let execStat=0
 				portQty=4
 				sendDelay=0x0
 				buffSize=4096
@@ -2813,8 +2840,15 @@ trafficTest() {
 				cd "$rootDir"
 				dmsg inform "pwd=$(pwd)"
 				dmsg inform "$pcktCnt $sendDelay $portQty $execFile $slotNum"
-				execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="TxRx Passed" --exp-kw="Txgen Test Passed"
-				test "$?" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+				echo -e "\tChecking datalink (Txgen async)..\n"
+				execScript "$execFile" "10000 $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="TxRx Passed" --exp-kw="Txgen Test Passed"; let execStat+=$?
+				execFile="./pcitxgenohup2.sh"
+				sendDelay=1000
+				for ((rt=1; rt<=5; rt++)) ; do 
+					echo -e "\n\tSending traffic (pcitxgen nohup, run:$rt)..\n"
+					execScript "$execFile" "$pcktCnt $sendDelay $buffSize $portQty $mastSlotNum $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"; let execStat+=$?
+				done
+				test "$execStat" = "0" && echo -e "\n\tTests summary: \e[0;32mPASSED\e[m" || echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
 			;;
 			PE310G4I71) 
 				portQty=4
@@ -3897,6 +3931,54 @@ trafficTest() {
 				case "$mbType" in
 					X10DRi) 
 						warn "Traffic test is not defined for $baseModel in single mode on mbType: $mbType"
+						setIfaceLinks -up $uutNets
+						setIfaceChannels -target-qty=3 $uutNets 
+						setIrq $uutNets
+						setIfaceParams -flow -on $uutNets
+						allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel"
+						allNetAct "$uutNets" "Check Data rates on UUT" "getEthRates" "25000" "$baseModel"
+						sendMode=0x3
+						sendDelay=0x0
+						sourceDir="$(pwd)"
+						cd "$rootDir"
+						dmsg inform "pwd=$(pwd)"
+						# echo -n "1 2 3 4" >$rootDir/$orderFile
+						# execFile="./8x8_anagenohup1_slotIPmod.sh"
+						# echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA2_P1 <-> BGA2_P2)..\n"
+						# execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+						# let execRes+=$?
+						# echo -n "1 3 2 4" >$rootDir/$orderFile
+						# echo -e "\n\tSending traffic (BGA1_P1 <-> BGA2_P1, BGA1_P2 <-> BGA2_P2)..\n"
+						# execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+						# let execRes+=$?
+						echo -n "1 2 3 4 1 3 2 4" >$rootDir/$orderFile
+						execFile="./8x8_anagenohup1_slotIPmod_NETmode.sh"
+						if [ -z "$retestQty" ]; then let retestQty=10; fi
+						for ((rt=1; rt<=$retestQty; rt++)) ; do 
+							echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA1_P1 <-> BGA2_P1, BGA2_P1 <-> BGA2_P2, BGA1_P2 <-> BGA2_P2)\n"
+							updateIfaceStats $uutNets &>/dev/null
+							execScript "$execFile" "$sendMode $pcktCnt $sendDelay $(($portQty*2)) $orderFile $uutNets $uutNets" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+							let execRes+=$?
+							updateIfaceStats $uutNets &>/dev/null
+							compareIfaceStats $uutNets
+							if [ $execRes -gt 0 ]; then break; fi
+						done
+						if [ $execRes -eq 0 ]; then echo -e "\n\tTests summary: \e[0;32mPASSED\e[m"; else
+							echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+							if [ ! -z "$retestOnFail" ]; then
+								echo -n "1 2 3 4" >$rootDir/$orderFile
+								echo -e "\n\tRETEST: Sending traffic (BGA1_P1 <-> BGA1_P2, BGA2_P1 <-> BGA2_P2)\n"
+								execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+								echo -n "1 3 2 4" >$rootDir/$orderFile
+								echo -e "\n\tRETEST: Sending traffic (BGA1_P1 <-> BGA2_P1, BGA1_P2 <-> BGA2_P2)\n"
+								execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+								echo -n "1 2 3 4 1 3 2 4" >$rootDir/$orderFile
+								execFile="./8x8_anagenohup1_slotIPmod_NETmode.sh"
+								echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA1_P1 <-> BGA2_P1, BGA2_P1 <-> BGA2_P2, BGA1_P2 <-> BGA2_P2)\n"
+								execScript "$execFile" "$sendMode $pcktCnt $sendDelay $(($portQty*2)) $orderFile $uutNets $uutNets" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+							fi
+						fi
+
 					;;
 					X12DAi-N6) 
 						sendMode=3
@@ -4944,7 +5026,7 @@ trafficTests() {
 			inform "\t  Sourcing $baseModel lib."
 			source /root/PE310G4BPI71/library.sh 2>&1 > /dev/null
 			sleep $globLnkUpDel
-			trafficTest "$uutSlotNum" 100000 "$baseModel"
+			trafficTest "$uutSlotNum" 1000000 "$baseModel"
 		;;
 		PE310G2BPI71)
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "inline"; fi
@@ -4952,14 +5034,14 @@ trafficTests() {
 			inform "\t  Sourcing $baseModel lib."
 			source /root/PE310G2BPI71/library.sh 2>&1 > /dev/null
 			sleep $globLnkUpDel
-			trafficTest "$uutSlotNum" 100000 "$baseModel"
+			trafficTest "$uutSlotNum" 1000000 "$baseModel"
 		;;
 		PE310G4I71) 
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "inline"; fi
 			inform "\t  Sourcing $baseModel lib."
 			source /root/PE310G4I71/library.sh 2>&1 > /dev/null
 			sleep $globLnkUpDel
-			trafficTest "$uutSlotNum" 100000 "$baseModel"
+			trafficTest "$uutSlotNum" 1000000 "$baseModel"
 		;;
 		PE340G2BPI71) 
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "inline"; fi
@@ -5029,18 +5111,18 @@ trafficTests() {
 			dmsg which check_receiver
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "bp"; fi
 			sleep $globLnkUpDel
-			trafficTest "$uutSlotNum" 10000 "$baseModel"
+			trafficTest "$uutSlotNum" 100000 "$baseModel"
 		;;
 		PE31625G4I71L) 
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "inline"; fi
-			trafficTest "$uutSlotNum" 100000 "$baseModel"
+			trafficTest "$uutSlotNum" 5000000 "$baseModel"
 		;;
 		M4E310G4I71) 
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "bp"; fi
 			inform "\t  Sourcing $baseModel lib."
 			source /root/M4E310G4I71/library.sh 2>&1 > /dev/null
 			sleep $globLnkUpDel
-			trafficTest "$uutSlotNum" 100000 "$baseModel"
+			trafficTest "$uutSlotNum" 1000000 "$baseModel"
 		;;
 		P425G410G8TS81) 
 			inform "\t  Sourcing $baseModel lib."
@@ -5256,7 +5338,7 @@ assignBuses() {
 
 function mainTest() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	local pciTest dumpTest bpTest drateTest trfTest retStatus
+	local pciTest dumpTest bpTest drateTest trfTest retStatus cycleIdx
 	let retStatus=0
 	
 	if [[ ! -z "$untestedPn" ]]; then untestedPnWarn; fi
@@ -5419,9 +5501,11 @@ function mainTest() {
 
 		if [[ ! -z "$trfTest" ]]; then
 			echoSection "Traffic tests"
-				trafficTests |& tee /tmp/statusChk.log
-				# dmsg inform "\tmainTest DEBUG: /tmp/statusChk.log: \n$(cat /tmp/statusChk.log)"
-			checkIfFailed "Traffic tests failed!" exit; let retStatus+=$?
+				for ((cycleIdx=$globTrafficTestsCycleMultiplier; cycleIdx>0; --cycleIdx)) ; do
+					trafficTests |& tee /tmp/statusChk.log
+					echo "  Traffic run finished, cycles left: $(($cycleIdx-1))"
+					checkIfFailed "Traffic tests failed!" exit; let retStatus+=$?
+				done
 		else
 			inform "\tTraffic test skipped"
 		fi
@@ -5555,13 +5639,22 @@ else
 	trap "exit 1" 10
 	PROC="$$"
 	declareVars
-	source /root/multiCard/arturLib.sh; let status+=$?
-	source /root/multiCard/graphicsLib.sh; let status+=$?
-	if [[ ! "$status" = "0" ]]; then 
+	let loadStatus=0
+	if ! [ "$(type -t makeLibSymlinks 2>&1)" == "function" ]; then 
+		source /root/multiCard/arturLib.sh; let loadStatus+=$?
+	fi
+	if ! [ "$(type -t defineColors 2>&1)" == "function" ]; then 
+		source /root/multiCard/graphicsLib.sh; let loadStatus+=$?
+	fi
+	if ! [ "$(type -t getIfaceMaxBuff 2>&1)" == "function" ]; then 
+		source /root/multiCard/trafficLib.sh; let loadStatus+=$?
+	fi
+	if [[ ! "$loadStatus" = "0" ]]; then 
 		echo -e "\t\e[0;31mLIBRARIES ARE NOT LOADED! UNABLE TO PROCEED\n\e[m"
 		exit 1
 	fi
 	echoHeader "$toolName" "$ver"
+	sendToKmsg "\n\n\n\t$toolName $ver has ${gr}started$ec!"
 	echoSection "Startup.."
 	parseArgs "$@"
 	setEmptyDefaults
@@ -5573,5 +5666,5 @@ else
 		exit 1
 	fi
 	main
-	if [ -z "$minorLaunch" ]; then echo -n " See $yl--help$ec for available parameters\n"; fi
+	if [ -z "$minorLaunch" ]; then echo -ne " See $yl--help$ec for available parameters\n"; fi
 fi

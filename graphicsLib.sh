@@ -3,14 +3,35 @@
 
 defineColors() {
 	dmsg echo "  Defining colors.."
-	gr='\e[0;32m'
-	yl='\e[0;33m'
-	rd='\e[0;31m'
-	bl='\e[0;34m'
-	pr='\e[0;35m'
-	cy='\e[0;36m'
-    blw='\e[0;44;37m'
-	ec='\e[m'
+	# gr='\e[0;32m'
+	# yl='\e[0;33m'
+	# rd='\e[0;31m'
+	# bl='\e[0;34m'
+	# pr='\e[0;35m'
+	# cy='\e[0;36m'
+    # blw='\e[0;44;37m'
+	# ec='\e[m'
+	gr='\033[0;32m'
+	yl='\033[0;33m'
+	rd='\033[0;31m'
+	bl='\033[0;34m'
+	pr='\033[0;35m'
+	cy='\033[0;36m'
+	org='\033[38;5;208m'
+    blw='\033[0;44;37m'
+	bwt='\033[4;90;107m'
+	blb='\033[7;49;94m'
+	blp='\033[38;5;147m'
+	cyg='\033[38;5;195m'
+	ec='\033[m'
+}
+
+colorExample() {
+	local colorVars="gr yl rd bl pr cy org blw bwt blb blp cyg"
+	local colorV
+	for colorV in $colorVars; do
+		echo -e " $colorV: ${!colorV}Example Text$ec"
+	done
 }
 
 defineCharrArr() {

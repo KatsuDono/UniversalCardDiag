@@ -1223,6 +1223,7 @@ else
 		exit 1
 	fi
 	echoHeader "$toolName" "$ver"
+	sendToKmsg "\n\n\n\t$toolName $ver has ${gr}started$ec!"
 	echoSection "Startup.."
 	parseArgs "$@"
 	setEmptyDefaults
