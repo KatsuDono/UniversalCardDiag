@@ -33,6 +33,7 @@ echoFail() {
 echoSection() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"		
 	local addEl
+	sendToKmsg 'Section "'$yl$1$ec'" has started..'
 	for ((e=0;e<=${#1};e++)); do addEl="$addEl="; done		
 	echo -e "\n  =====$addEl====="
 	echo -e "  ░░   $1    ░░"
@@ -66,14 +67,70 @@ killAllScripts() {
 	done
 }
 
+function killProcess(){
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local procN procNameList procPid procPidList status sigN sigList pidKilled
+	privateVarAssign "${FUNCNAME[0]}" "procNameList" "$*"
+	sigList="INT TERM KILL"
+	let status=0
+
+	for procN in $procNameList; do
+		procPidList=$(pidof -x $procN)
+		if isDefined procPidList; then
+			for procPid in $procPidList; do
+				let pidKilled=0
+				for sigN in $sigList; do
+					if [ -e /proc/$procPid ]; then 
+						kill -$sigN "$procPid" &>/dev/null
+						sleep 0.4
+						if [ ! -e /proc/$procPid ]; then 
+							let pidKilled++
+							break
+						fi
+					else
+						let pidKilled++
+						break
+					fi
+				done
+				if [ $pidKilled -eq 0 ]; then
+					let status++
+				fi
+			done
+		fi
+	done
+	return $status
+}
+
 exitFail() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local procId parentFunc
+	local procId parentFunc exitDisable childPids
 	dmsg "exitExec=$exitExec procId=$procId"
-	test -z "$2" && procId=$PROC || procId=$2
-	test -z "$procId" && echo -e "\t\e[1;41;33mexitFail exception, procId not specified\e[m"
+	procPIDArg=$2
+	test -z "$procPIDArg" && procId=$PROC || procId=$procPIDArg
+	if [ -z "$procId" ]; then
+		echo -e "\t\e[1;41;33mexitFail exception, procId not specified\e[m"
+		echo -e "\t\e[1;41;33mPossibly run as a function, so not executing exit\e[m"
+		exitDisable=1
+	fi
 	test -z "$guiMode" && echo -e "\t\e[1;41;33m$1\e[m\n" 1>&2 || msgBox "$1"
-	if [ ! -z "$minorLaunch" ]; then echo -e "\n\tTotal Summary: \e[0;31mTESTS FAILED\e[m" 1>&2; fi
+	if [ ! -z "$minorLaunch" ]; then 
+		echo -e "\n\tTotal Summary: \e[0;31mTESTS FAILED\e[m" 1>&2
+		if [ ! -z "$procPIDArg" ]; then
+			# sendToKmsg "PStree of main pid: ${PIDStackArr[0]}"
+			# sendToKmsg "\n$(ps -o pid,ppid,cmd --ppid "${PIDStackArr[0]}" --forest 2>&1)"
+			# sendToKmsg "PStree of killable pid: $procPIDArg"
+			# sendToKmsg "\n$(ps -o pid,ppid,cmd --ppid "$procPIDArg" --forest 2>&1)"
+			childPids=$(pgrep -P "$procId" |tr '\n' ' ')
+			if [ ! -z "$childPids" ]; then
+				sendToKmsg "killing child pids of PID: $procPIDArg ($childPids)"
+			fi
+			sendToKmsg `kill -9 $childPids 2>&1`
+			sendToKmsg "killing PID: $procPIDArg"
+			sendToKmsg `kill -9 $procPIDArg 2>&1`
+			# sendToKmsg "PStree of main pid after kill: ${PIDStackArr[0]}"
+			# sendToKmsg "\n$(ps -o pid,ppid,cmd --ppid "${PIDStackArr[0]}" --forest 2>&1)"
+		fi
+	fi
 	echo -e "\n"
 	test "$exitExec" = "3" && {
 		critWarn "\t Exit loop detected, exiting forced."
@@ -89,8 +146,15 @@ exitFail() {
 			beepSpk fatal 3
 		fi
 	fi
-	if [[ -z "$noExit" ]]; then 
+	if [ -z "$noExit" -a -z "$exitDisable" ]; then 
+		sendToKmsg "Exiting.."
 		exit 1
+	fi
+}
+
+sendToKmsg() {
+	if [ ! -z "$1" ]; then
+		echo -e "[${cy}multiCard$ec][$yl${FUNCNAME[1]}$ec]:\t $*" |& tee /dev/kmsg &> /dev/null
 	fi
 }
 
@@ -102,6 +166,7 @@ dbgWarn() {	#nnl = no new line
 }
 
 critWarn() {  #nnl = no new line
+	sendToKmsg "$1"
 	test -z "$2" && echo -e "\e[0;47;31m$1\e[m" 1>&2 || {
 		test "$2"="nnl" && echo -e -n "\e[0;47;31m$1\e[m" 1>&2 || echo -e "\e[0;47;31m$1\e[m" 1>&2
 	}
@@ -109,9 +174,16 @@ critWarn() {  #nnl = no new line
 }
 
 warn() {	#nnl = no new line  #sil = silent mode
-	test -z "$2" && echo -e "\e[0;33m$1\e[m" 1>&2 || {
-		test "$2"="nnl" && echo -e -n "\e[0;33m$1\e[m" 1>&2 || echo -e "\e[0;33m$1\e[m" 1>&2
-	}
+	sendToKmsg "$1"
+	if [ -z "$2" ]; then
+		echo -e "\e[0;33m$1\e[m" 1>&2
+	else
+		if [ "$2"="nnl" ]; then
+			echo -e -n "\e[0;33m$1\e[m" 1>&2
+		else
+			echo -e "\e[0;33m$1\e[m" 1>&2
+		fi
+	fi
 	test "$3"="sil" || beepSpk warn
 }
 
@@ -148,6 +220,7 @@ passMsg() { #nnl = no new line  #sil = silent mode
 	else
 		echo -e "\tTotal Summary: \e[0;32mALL TESTS PASSED\e[m"
 	fi
+	sendToKmsg "Finished tests, exiting.."
 	beepSpk pass
 }
 
@@ -215,6 +288,213 @@ dmsg() {
 		fi
 	else
 		echo "dmsg exception, input parameters undefined!" 1>&2
+	fi
+}
+
+setPromptCmd() {
+	local newPrompt basePrompt inputPrompt args
+	if [ ! -z "$1" ]; then
+		echo "  Setting prompt.. (old: $PROMPT_COMMAND)"
+		args=$*
+		inputPrompt=$(tr -d '\r' <<<$(echo "$args")|tr -d '\n')
+		newPrompt='echo -ne "\033]0 ${USER}@${HOSTNAME%%.*} ${PWD/#$HOME/~} '$inputPrompt'\007"'
+		export PROMPT_COMMAND=$newPrompt
+		echo "  Setting prompt.. (new: $PROMPT_COMMAND)"
+	fi
+}
+
+updateBottomStatusBar() {
+	local status="$1"
+	local ui_lines=3	# Number of lines in the UI bar
+	local wallSymbol="~"
+	local last_row=$(tput lines)
+	local startOfBar=$((last_row - ui_lines))
+	local width=$(tput cols)
+	local line
+	local top_bottom_symbols=$(printf "$wallSymbol%.0s" $(seq 1 $width)) # Create top and bottom symbols
+
+	tput sc								# Save current cursor position
+	tput cup $startOfBar 0 				# Move the cursor to the UI bar location
+	tput setab 4						# Set background color to dark blue
+	tput setaf 7						# Set font color to white
+	for ((line=$startOfBar; line<=$last_row; line++)); do
+		tput cup $line 0
+		tput el
+	done							# Clear the UI bar
+	tput cup $startOfBar 0				# Move the cursor back to the UI bar location
+    exec 5>&1
+	echo "$top_bottom_symbols" >&5
+	echo -n "$wallSymbol$wallSymbol" >&5
+	tput cuf 2
+    echo -n "MSG: $status" >&5
+	tput cr
+	tput cuf $((width - 2))
+	echo "$wallSymbol$wallSymbol" >&5
+    echo -n "$top_bottom_symbols" >&5
+	exec 5>&-
+	tput rc								# Restore saved cursor position
+	tput sgr0
+}
+
+updateTopStatusBar() {
+	local status=$*
+	local ui_lines=3	# Number of lines in the UI bar
+	local wallSymbol="~"
+	local width=$(tput cols)
+	local line
+	local top_bottom_symbols=$(printf "$wallSymbol%.0s" $(seq 1 $width)) # Create top and bottom symbols
+
+	tput sc								# Save current cursor position
+	tput cup 0 0 				# Move the cursor to the UI bar location
+	tput setab 4						# Set background color to dark blue
+	tput setaf 7						# Set font color to white
+	for ((line=0; line<$ui_lines; line++)); do
+		tput cup $line 0
+		tput el
+	done							# Clear the UI bar
+	tput cup 0 0				# Move the cursor back to the UI bar location
+    exec 5>&1
+	echo "$top_bottom_symbols" >&5
+	echo -n "$wallSymbol$wallSymbol" >&5
+	tput cuf 2
+    echo -n "$status" >&5
+	tput cr
+	tput cuf $((width - 2))
+	echo "$wallSymbol$wallSymbol" >&5
+    echo -n "$top_bottom_symbols" >&5
+	exec 5>&-
+	tput rc								# Restore saved cursor position
+	tput sgr0
+}
+
+updateTopStatusBarTMUX() {
+	local status="$1"
+	local wallSymbol="~"
+	if [[ -n "$TMUX" ]]; then
+		local width=$(tmux display-message -p "#{pane_width}")
+		local top_bottom_symbols=$(printf "$wallSymbol%.0s" $(seq 1 $width)) # Create top and bottom symbols
+
+		tmux set-option -g status off         # Disable the default status line
+
+		# Update the status line content
+		tmux set-option -g status-left-length $((width - 4))
+		tmux set-option -g status-right-length $((width - 4))
+		tmux set-option -g status-interval 1
+
+		# Print the status message
+		tmux set-option -g status-left "#[bg=blue,fg=white] MSG: $status"
+		tmux set-option -g status-right "#[bg=blue,fg=white] MSG: $status"
+
+		tmux set-option -g status on
+		tmux refresh-client -S                 # Refresh the tmux client to display changes
+	fi
+}
+
+createRamdisk() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local ramdiskSize totalMem readyToMount
+	privateNumAssign "ramdiskSize" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "ramdiskPath" "$2"
+	let readyToMount=0
+    if [ -e "$ramdiskPath" ]; then
+		if mountpoint -q $ramdiskPath; then
+			freeRamdisk "$ramdiskPath"
+		fi
+        if [ ! -z "$(ls -A "$ramdiskPath" 2>/dev/null)" ]; then
+			let ++readyToMount
+			except "Unable to create ramdisk path: $ramdiskPath"
+        fi
+	fi
+	mkdir -p "$ramdiskPath" 2>/dev/null
+	if [ $readyToMount -eq 0 ]; then
+		#local freeMemReq=32768
+		local freeMemReq=16768
+		local totalMem=$(free -m | awk '/^Mem:/{print $2}')
+		if (( totalMem - ramdiskSize >= freeMemReq )); then
+			mount -t tmpfs -o size="${ramdiskSize}M" tmpfs $ramdiskPath
+			if [ $? -eq 0 ]; then
+				dmsg inform "Ramdisk ($ramdiskPath) created with size ${ramdiskSize}MB."
+			else
+				except "Unable to create ramdisk: $ramdiskPath"
+			fi
+		else
+			except "Not enough free RAM to create the RAM disk."
+		fi
+	else
+		except "Skipping creation of ramdisk: $ramdiskPath"
+	fi
+}
+
+freeRamdisk() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local ramdiskPath
+	privateVarAssign "${FUNCNAME[0]}" "ramdiskPath" "$1"
+	if [ -e "$ramdiskPath" ]; then
+		if mountpoint -q $ramdiskPath; then
+			local busyPids=$(lsof +c0 +D $ramdiskPath  |awk 'NR>1 {print $1" "$2}' |grep -v 'awk\|lsof\|grep\|bash' |cut -d' ' -f2)
+			if isDefined busyPids; then
+				kill $busyPids
+			fi
+			busyPids=$(lsof +c0 +D $ramdiskPath  |awk 'NR>1 {print $1" "$2}' |grep -v 'awk\|lsof\|grep\|bash' |cut -d' ' -f2)
+			if ! isDefined busyPids; then
+				# Unmount RAM disk
+				umount $ramdiskPath
+				if [ $? -eq 0 ]; then
+					dmsg inform "Ramdisk ($ramdiskPath) unmounted."
+					# Remove RAM disk directory
+					rmdir $ramdiskPath
+					if [ $? -eq 0 ]; then
+						dmsg inform "Ramdisk ($ramdiskPath) directory removed."
+					else
+						except "Unable to remove ramdisk folder: $ramdiskPath"
+					fi
+				else
+					except "Unable to unmount ramdisk: $ramdiskPath"
+				fi
+			else
+				except "Unable to kill some pids ($(lsof +c0 +D $ramdiskPath |awk 'NR>1 {print $1" "$2}' |grep -v 'awk\|lsof\|grep\|bash')) while trying to free ramdisk folder: $ramdiskPath"
+			fi
+		else
+			dmsg inform "Ramdisk ($ramdiskPath) is not currently mounted."
+		fi
+	else
+		dmsg inform "Ramdisk path ($ramdiskPath) is nonexistent, skipping"
+	fi
+}
+
+function initTmp() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local tmpPath="$1"
+	if ! isDefined tmpPath; then tmpPath="/root/tmpStor"; fi
+	if [ -e "$tmpPath" ]; then
+		tmpMounted="$(mount |grep "$tmpPath" 2>/dev/null)"
+		if ! isDefined tmpMounted; then
+			createTempPath "$tmpPath"
+		fi
+	else
+		createTempPath "$tmpPath"
+	fi
+}
+
+function createTempPath () {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local tmpPath tmpMounted testFile
+	tmpPath="$1"
+	if ! isDefined tmpPath; then tmpPath="/root/tmpStor"; fi
+	if [ ! -e "$tmpPath" ]; then mkdir -p $tmpPath; fi
+	testFile="$tmpPath/test.file"
+	tmpMounted="$(mount |grep "$tmpPath" 2>/dev/null)"
+	if isDefined tmpMounted; then
+		umount /root/tmpStor &>/dev/null
+		if [ $? -ne 0 ]; then except "Unable to unmount path: $tmpPath"; fi 
+	fi
+	mount -t tmpfs -o size=100M tmpfs $tmpPath
+	if [ $? -ne 0 ]; then except "Unable to mount temporary path: $tmpPath"; fi 
+	echo "test">$testFile
+	if [ ! -e "$testFile" ]; then
+		except "Unable to create test file: $testFile"
+	else
+		rm -f "$testFile"
 	fi
 }
 
@@ -310,6 +590,19 @@ function getTracking () {
 	fi
 }
 
+testFolderExist() {
+	local filePath returnOnly silent
+	filePath="$1"
+	returnOnly="$2"
+	silent="$3"
+	test -z "$silent" && echo -e -n "  Checking folder path: $filePath"
+	if [[ -e "$filePath" ]]; then 
+		test "$returnOnly" = "true" && return 0
+		test -z "$silent" && echo -e "  \e[0;32mok.\e[m"
+	else
+		test "$returnOnly" = "true" && return 1 || exitFail "Folder $filePath does not exists!"
+	fi
+}
 
 testFileExist() {
 	local filePath returnOnly silent
@@ -323,6 +616,17 @@ testFileExist() {
 	else
 		test "$returnOnly" = "true" && return 1 || exitFail "File $filePath does not exists!"
 	fi
+}
+
+checkIfacesExist() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local iface ifaceList
+	privateVarAssign "${FUNCNAME[0]}" "ifaceList" "$*"
+	for iface in $ifaceList; do
+		if ! ifaceExist "$iface"; then
+			except "Non existent ethernet interface: $iface"
+		fi
+	done
 }
 
 beepNoExec() {
@@ -494,16 +798,96 @@ execScript() {
 	done
 	if [[ ! "$retStatus" = "0" ]]; then
 		echo -e "\n\t\e[0;31m -- TRACE START --\e[0;33m\n"
-		traceSnip="$(echo "$cmdRes" |grep -B 10 -A 99 -w "$scriptTraceKeyw")"
+		traceSnip="$(echo "$cmdRes" |grep -B 99 -A 99 -w "$scriptTraceKeyw")"
 		if [[ -z "$traceSnip" ]]; then 
 			echo -e "$(echo "$cmdRes")"
 		else
-			echo -e "$(echo "$cmdRes" |grep -B 10 -A 99 -w "$scriptTraceKeyw")"
+			echo -e "$(echo "$cmdRes" |grep -B 99 -A 99 -w "$scriptTraceKeyw")"
 		fi
 		echo -e "\n\t\e[0;31m --- TRACE END ---\e[m\n"
 	fi
 	unset cmdRes
 	return $retStatus
+}
+
+function select_option_adv {
+
+	#	EXAMPLE USAGE
+	# -----------------------------------------------
+	# options=("one" "two" "three")
+
+	# select_option "${options[@]}"
+	# choice=$?
+
+	# echo "Choosen index = $choice"
+	# echo "        value = ${options[$choice]}"
+	# -----------------------------------------------
+
+	ESC=$( printf "\033")
+	cursor_blink_on()		{ printf "$ESC[?25h"; }
+	cursor_blink_off()		{ printf "$ESC[?25l"; }
+	cursor_to()				{ printf "$ESC[$1;${2:-1}H"; }
+	print_option()			{ printf "   $1  "; }
+	print_option_hlt()     { printf "   $ESC[7m$bwt$1$ec$ESC[27m "; }
+	print_selected()		{ printf "  $ESC[7m $1 $ESC[27m"; }
+	print_selected_alt()	{ printf "  $ESC[7m $1 $ESC[27m"; }
+	print_selected_final()	{ printf "  $blb $1 $ec  "; }
+	get_cursor_row()		{ IFS=';' read -sdR -p $'\E[6n' ROW COL; echo ${ROW#*[}; }
+	key_input()				{ read -s -n3 key 2>/dev/null >&2
+							if [[ $key = $ESC[A ]]; then echo up;    fi
+							if [[ $key = $ESC[B ]]; then echo down;  fi
+							if [[ $key = ""     ]]; then echo enter; fi; }
+
+	# initially print empty new lines (scroll down if at bottom of screen)
+	for opt; do printf "\n"; done
+
+	# determine current screen position for overwriting the options
+	local lastrow=`get_cursor_row`
+	local startrow=$(($lastrow - $#))
+
+	# ensure cursor and input echoing back on upon a ctrl+c during read -s
+	trap "cursor_blink_on; stty echo; printf '\n'; exit" 2
+	cursor_blink_off
+
+	local selected=0
+	while true; do
+		# print options by overwriting the last lines
+		local idx=0
+		for opt; do
+			cursor_to $(($startrow + $idx))
+			if [ $idx -eq $selected ]; then
+				print_selected_alt "$opt"
+				local selOpt=$opt
+			else
+				print_option "$opt"
+			fi
+			((idx++))
+		done
+
+		# user key control
+		case `key_input` in
+			enter) 
+				cursor_to $(($startrow + $selected))
+				print_option_hlt "$selOpt"
+				sleep 0.1
+				cursor_to $(($startrow + $selected))
+				print_selected_final "$selOpt"
+				sleep 0.05
+				break
+			;;
+			up)    ((selected--));
+				if [ $selected -lt 0 ]; then selected=$(($# - 1)); fi;;
+			down)  ((selected++));
+				if [ $selected -ge $# ]; then selected=0; fi;;
+		esac
+	done
+
+	# cursor position back to normal
+	cursor_to $lastrow
+	printf "\n"
+	cursor_blink_on
+
+	return $selected
 }
 
 function select_option {
@@ -589,6 +973,14 @@ function select_opt {
     select_option "$@" 1>&2
     local result=$?
     echo $result
+    return $result
+}
+
+function select_opt_adv {
+
+    select_option_adv "$@" 1>&12 #redirecting prompts in stdout to special descriptor 12 for prompts
+    local result=$?
+	echo $result >&13
     return $result
 }
 
@@ -759,13 +1151,23 @@ showPciSlots() {
 		;;
 	esac
 
-
+	dmidecode -H 0x0000 2>&1 > /dev/null
+	let dmiHandleAvbl=$?
 	dmiSlotInfo="$(dmidecode -t slot)"
-	for ((i=1;i<=$maxSlots;i++)) do 
-		slotArr[4,$i]=$(echo "$dmiSlotInfo" |grep Handle |head -n$i |tail -n1 |cut -d, -f1 |awk '{print $2}')
-		slotArr[2,$i]=$(dmidecode -H ${slotArr[4,$i]} |grep Type |awk '{print $2}' |cut -c2-)
-	done
+	if [ $dmiHandleAvbl -eq 0 ]; then
+		for ((i=1;i<=$maxSlots;i++)) do 
+			slotArr[4,$i]=$(echo "$dmiSlotInfo" |grep Handle |head -n$i |tail -n1 |cut -d, -f1 |awk '{print $2}')
+			slotArr[2,$i]=$(dmidecode -H ${slotArr[4,$i]} |grep Type |awk '{print $2}' |cut -c2-)
+		done
+	else
+		for ((i=1;i<=$maxSlots;i++)) do 
+			slotArr[4,$i]="N/A"
+			slotArr[2,$i]=$(grep 'Type:'<<<"$dmiSlotInfo" |head -n$i |tail -n1 |awk '{print $2}' |tr -d '[:alpha:]')
+		done
+	fi
 	
+
+
 
 	for ((i=1;i<=$maxSlots;i++)) do 
 		dmsg inform "slotArr 0, $i = ${slotArr[0,$i]}   4, $i = ${slotArr[4,$i]}   2, $i = ${slotArr[2,$i]}"
@@ -912,7 +1314,7 @@ getDmiSlotBuses() {
 		X10DRi) 
 			dmsg inform "mbType=$mbType"
 			# echo "$(dmidecode -t slot |grep "Bus Address" |cut -d: -f3)"
-			privateVarAssign critical rNum $(lspci -nnd ::0604 |grep -m1 Xeon |cut -d'[' -f3 |cut -d: -f2 |cut -c1)
+			privateVarAssign critical rNum $(lspci -nn |grep '[0604]' |grep -m1 "Xeon\|Haswell" |cut -d'[' -f3 |cut -d: -f2 |cut -c1)
 			for dId in 2 4 6 8; do
 				rootBus=$(lspci -d 8086:${rNum}f0$dId |grep -m1 00: |awk '{print $1}')
 				if [ -z "$rootBus" ]; then rootBusVal="ff"; else rootBusVal="$rootBus"; fi
@@ -1422,6 +1824,80 @@ function selectSlot () {
 	fi
 }
 
+selectUSBTPLink() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local hubNum usbBusSelRes
+	privateVarAssign "${FUNCNAME[0]}" "hubNum" "$1"
+	local args="--hub-number=$hubNum --hub-dev-id=bda:411 --hub-dev-id=bda:5411 --minimal --margs=dgc"
+	if fdExist 12; then inform "\t${FUNCNAME[0]} >fdExist=yes"; else  inform "\t${FUNCNAME[0]} >fdExist=no"; fi
+	# usbBusSelRes=`selectUSBBusFDRedir "$hubNum" "${args}"`
+	exec 12>&1
+	usbBusSelRes=$(selectUSBBusFDRedir "$hubNum" "${args}")
+	echo -e "\t${FUNCNAME[0]} >usbBusSelRes=$usbBusSelRes"
+}
+
+function selectUSBBusFDRedir () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local hubNum usbBusSelRes args
+	privateVarAssign "${FUNCNAME[0]}" "hubNum" "$1" ;shift
+	local args="$*"
+
+	if ! fdExist 12; then exec 12>&-; fi #closing file descriptor 12 for prompts of select_opt_adv
+	exec 12>&1  #opening file descriptor 12 for prompts of select_opt_adv
+	echo "$(ls -la /proc/$$/fd/ |grep /dev |awk '{print $9}')" >&2
+	usbBusSelRes=$(selectUSBBus "Select USB device on hub $hubNum" "${args}" 13>&1)
+
+	echo -n $usbBusSelRes
+
+	if fdExist 12; then exec 12>&-; fi #closing file descriptor 12 for prompts of select_opt_adv
+}
+
+function selectUSBBus () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local selDesc usbDevs usbSelRes usbDevsList usbDevBuses
+	local usbArgs dev devsList
+	
+	if fdExist 12; then inform "\t${FUNCNAME[0]} >fdExist=yes" >&2; else  inform "\t${FUNCNAME[0]} >fdExist=no" >&2; fi
+	echo "$(ls -la /proc/$$/fd/ |grep /dev |awk '{print $9}')" >&2
+	if ! fdExist 12; then  #checking if file descriptor 12 was opened for prompts of select_opt_adv
+		except "File descriptor 12 was not created before execution of ${FUNCNAME[0]}"
+	else
+		privateVarAssign "${FUNCNAME[0]}" "selDesc" "$1"; shift
+		echo -e "$selDesc" >&12 #sending to file descriptor 12 for prompts
+		privateVarAssign "${FUNCNAME[0]}" "usbArgs" "$*"
+		privateVarAssign "${FUNCNAME[0]}" "devsList" "$(getUsbDevsOnHub $usbArgs |sort)"
+
+		while read dev; 
+		do
+			if [[ ! -z "$dev" ]]; then
+				usbDevs+=( "Port: $(cut -d';' -f1 <<<"$dev") -> $(cut -d';' -f3 <<<"$dev")" )
+				usbDevBuses+=( $(cut -d';' -f2 <<<"$dev") )
+			fi
+		done <<<"$devsList"	
+
+		if [ ${#usbDevs[@]} -eq ${#usbDevBuses[@]} ]; then
+			for ((cnt=0;cnt<${#usbDevs[@]};cnt++));
+			do
+				usbDevsList+=("${usbDevs[$cnt]} (bus: ${usbDevBuses[$cnt]})")
+			done
+		else
+			warn "USB count and USB bus device count does not correspond, skipping verbalization" >&12 #sending to file descriptor 12 for prompts
+		fi
+		if [[ ! -z "${usbDevs[@]}" ]]; then
+			if [ -z "$usbDevsList" ]; then
+				usbSelRes=$(select_opt_adv "${usbDevs[@]}" 13>&1) #redirecting all FD 13, which is for the results to the stdout
+			else
+				usbSelRes=$(select_opt_adv "${usbDevsList[@]}" 13>&1) #redirecting all FD 13, which is for the results to the stdout
+			fi
+			echo -n "${usbDevBuses[$usbSelRes]}" >&13 #sending to file descriptor 13 for results
+		else
+			except "no usb devs found!"
+		fi
+	fi
+	
+	exec 12>&- #closing file descriptor 12 for prompts of select_opt_adv
+}
+
 function selectSerial () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local selDesc serialDevs slotSelRes
@@ -1483,6 +1959,114 @@ function ibsSelectMgntMasterPort () {
 		return $(echo -n ${mastNets[$netSelect]} |cut -c4-)
 	else
 		except "unable to retrieve eth name!"
+	fi
+}
+
+function selectFileFromFolder() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local folderPath fileList extReq keywReq KEY VALUE ARG grepCmd file fileListArr fileSelectedIdx
+
+	for ARG in "$@"
+	do
+		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
+		VALUE=$(echo $ARG |cut -f2 -d=)
+		case "$KEY" in
+			dir) privateVarAssign "${FUNCNAME[0]}" "folderPath" "${VALUE}";;
+			ext) privateVarAssign "${FUNCNAME[0]}" "extReq" "${VALUE}";;
+			keyw) privateVarAssign "${FUNCNAME[0]}" "keywReq" "${VALUE}";;
+			*) except "Unknown arg: $ARG"
+		esac
+	done
+
+	if ! isDefined folderPath; then 
+		except "folder path is required"
+	else
+		lastChar=$(rev <<<"$folderPath" |cut -c1)
+		if [ ! "$lastChar" = "/" ]; then folderPath+='/'; fi
+	fi
+
+	if isDefined extReq; then 
+		grepCmd="ls -p ${folderPath} |egrep '\.$extReq$'"
+	else
+		grepCmd="ls -p ${folderPath} 2>/dev/null |grep -v '/'"
+	fi
+
+	if isDefined keywReq; then 
+		grepCmd+="|grep '"$keywReq"'"
+	fi
+
+	if [ -d "$folderPath" ]; then
+		fileList="$(eval $grepCmd)"
+		fileListCount=$(wc -l <<<"$fileList")
+		maxLines=$(($(stty size |awk '{print $1}')-4))
+		if [ $fileListCount -gt $maxLines ]; then
+			except "there are too much files for current tty size (max: $maxLines  actual count: $fileListCount)"
+		else
+			for file in $fileList; do
+				fileListArr+=($file)
+			done
+			fileSelectedIdx=`select_opt "${fileListArr[@]}"`
+			echo -n "$folderPath${fileListArr[$fileSelectedIdx]}"
+		fi
+	else
+		except "folder path:$folderPath does not exist or is not a directory"
+	fi
+}
+
+function makeFileCrc() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local filePath calcCrc crcFilePath
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$1"
+	checkPkgExist md5sum
+
+	if [ -e "$filePath" ]; then
+		crcFilePath="${filePath}.crc"
+		rm -f "$crcFilePath" >/dev/null 2>&1
+		calcCrc=$(md5sum "$filePath" |awk '{print $1}'| tr -d '[:cntrl:]')
+		if isDefined calcCrc; then
+			echo -n "$calcCrc">"$crcFilePath"
+			if [ -e "$crcFilePath" ]; then
+				return 0
+			else
+				except "crc file could not be created for file: $filePath"
+			fi
+		else
+			except "crc could not be calculated for file: $filePath"
+		fi
+	else
+		except "file: $filePath does not exist"
+	fi
+}
+
+function checkFileCrc() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local filePath calcCrc crcFilePath
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$1"
+	checkPkgExist md5sum
+
+	if [ -e "$filePath" ]; then
+		crcFilePath="${filePath}.crc"
+		if [ -e "$crcFilePath" ]; then
+			calcCrc=$(md5sum "$filePath" |awk '{print $1}'| tr -d '[:cntrl:]')
+			mastCrc=$(cat "$crcFilePath")
+			if isDefined calcCrc; then
+				if isDefined mastCrc; then
+					if [ "$calcCrc" = "$mastCrc" ]; then
+						return 0
+					else
+						except "crc check failed for file: $filePath"
+					fi
+				else
+					except "crc from .crc file could not be gathered for file: $filePath"
+				fi
+			else
+				except "crc could not be calculated for file: $filePath"
+			fi
+		else
+			except "crc file for provided file: $filePath does not exist"
+		fi
+	else
+		except "file: $filePath does not exist"
 	fi
 }
 
@@ -2020,7 +2604,18 @@ printNetsStats() {
 			echo "speedsReq=${speedsReq[*]}"
 		fi
 	else
-		netDevs="$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep -v "virtual\|total" |cut -d/ -f5-)"
+		if isDefined netsReq; then
+			for iface in ${netsReq[*]}; do
+				netDevWithPath=$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep -v "virtual\|total" |cut -d/ -f5- |grep $iface)
+				if [ -z "$netDevWithPath" ]; then
+					echo -e -n "\e[0;31mInterface $iface does not exist!\e[m" 
+				else
+					netDevs+="$netDevWithPath "
+				fi
+			done
+		else
+			netDevs="$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep -v "virtual\|total" |cut -d/ -f5-)"
+		fi
 	fi
 	
 	let netDevIdx=0
@@ -2056,6 +2651,48 @@ printNetsStats() {
 		echo -e "$line"
 	done
 
+}
+
+netMonitorLoop() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local net nets devIpInfo
+	local pauseParamsCmdRes globAutoNegParamsCmdRes pauseRxStateOn pauseTxStateOn pauseAutoNegStateOn globAutoNegStateOn
+	local netStatsRes devPauseInfo devIpInfo loopCounter
+	let loopCounter=0
+	privateVarAssign "${FUNCNAME[0]}" "nets" "$*"
+	if isDefined nets; then
+		checkIfacesExist $nets
+		echo -e "  Starting net monitor on ifaces: $org"$nets"$ec"
+		while true; do
+			netStatsRes="$(printNetsStats "--nets-req=$nets")"
+			devIpInfo=""
+			devPauseInfo=""
+			for net in $nets; do
+				devPauseInfo+="  $org$net$ec> "
+				devIpInfo+="  $(ip a show $net |head -n1)\n"
+				privateVarAssign "${FUNCNAME[0]}" "pauseParamsCmdRes" "$(ethtool -a $net)"
+				pauseRxStateOn=$(grep -x "^RX.*on" <<<"$pauseParamsCmdRes")
+				pauseTxStateOn=$(grep -x "^TX.*on" <<<"$pauseParamsCmdRes")
+				pauseAutoNegStateOn=$(grep -x "^Autoneg.*on" <<<"$pauseParamsCmdRes")
+				privateVarAssign "${FUNCNAME[0]}" "globAutoNegParamsCmdRes" "$(ethtool $net 2>/dev/null |grep -x ".*Auto.*negotiation:.*")"
+				globAutoNegStateOn=$(grep -x "^.*: on$" <<<"$globAutoNegParamsCmdRes")
+				
+				if isDefined pauseAutoNegStateOn; then devPauseInfo+="AutoNeg: ${gr}ON$ec   "; else devPauseInfo+="AutoNeg: ${rd}OFF$ec  "; fi
+				if isDefined pauseRxStateOn; then devPauseInfo+="RX: ${gr}ON$ec  "; else devPauseInfo+="RX: ${rd}OFF$ec "; fi
+				if isDefined pauseTxStateOn; then devPauseInfo+="TX: ${gr}ON$ec "; else devPauseInfo+="TX: ${rd}OFF$ec"; fi
+				if isDefined globAutoNegStateOn; then devPauseInfo+="  GLOBAL AutoNeg: ${gr}ON$ec   "; else devPauseInfo+="  GLOBAL AutoNeg: ${rd}OFF$ec  "; fi
+				devPauseInfo+="\n"
+			done
+			clear
+			echo -e " Loop: $loopCounter\n"
+			echo -e "$netStatsRes\n"
+			echo -e "\n"
+			echo -e "$devIpInfo\n"
+			echo -e "Pause params: \n$devPauseInfo\n"
+			sleep 1
+			let loopCounter++
+		done
+	fi
 }
 
 getDebugInfo() {
@@ -2160,30 +2797,45 @@ publicNumAssign() {
 }
 
 privateNumAssign() {
-	local numInput varName numInput varNameDesc funcName
-
+	local numInput varName numInput varNameDesc funcName retRes
+	let retRes=0
+	
 	funcName="${FUNCNAME[1]}"
 	varName="$1"
 	shift
 	numInput=$1 ;shift
 	if [[ ! -z "$*" ]]; then except "function overloaded"; fi
-	checkIfNumber $numInput
-
-	if [ ! "$funcName" == "beepSpk" ]; then
-		if [ "$debugShowAssignations" = "1" -o -z "$debugMode" ]; then
-			dmsg echo "funcName=$funcName  varName=$varName  numInput=$numInput"
+	if isNumber numInput; then
+		if [ ! "$funcName" == "beepSpk" ]; then
+			if [ "$debugShowAssignations" = "1" -o -z "$debugMode" ]; then
+				dmsg echo "funcName=$funcName  varName=$varName  numInput=$numInput"
+			fi
 		fi
+		if [ -z "$funcName" ]; then
+			let retRes++
+			except "preEval check, funcName undefined!"
+		else
+			if [ -z "$varName" ]; then
+				let retRes++
+				except "preEval check, varName undefined!"
+			else
+				if [ -z "$numInput" ]; then
+					let retRes++
+					except "preEval check exception, $funcName: $varName definition failed, new value is undefined!"
+				else
+					eval "let $varName=\$numInput"
+				fi
+			fi
+		fi
+	else
+		except "preEval check, new value for $varName: $numInput is not a number!"
 	fi
-	
-	test -z "$funcName" && exitFail "privateNumAssign preEval check exception, funcName undefined!"
-	test -z "$varName" && exitFail "privateNumAssign preEval check exception, varName undefined!"
-	test -z "$numInput" && exitFail "privateNumAssign preEval check exception, $funcName: $varName definition failed, new value is undefined!"
-	
-	eval "let $varName=\$numInput"
+	return $retRes
 }
 
-privateVarAssign() {
-	local varName varVal varNameDesc funcName
+function privateVarAssign() {
+	local varName varVal varNameDesc funcName retRes
+	let retRes=0
 	funcName="$1"
 	shift
 	varName="$1"
@@ -2196,20 +2848,29 @@ privateVarAssign() {
 		fi
 	fi
 	
-	# test -z "$funcName" && exitFail "privateVarAssign preEval check exception, caller: ${FUNCNAME[1]} > funcName undefined!"
-	# test -z "$varName" && exitFail "privateVarAssign preEval check exception, caller: ${FUNCNAME[1]} > varName undefined!"
-	# test -z "$varVal" && exitFail "privateVarAssign preEval check exception, caller: ${FUNCNAME[1]} > $funcName: $varName definition failed, new value is undefined!"
+	if [ -z "$funcName" ]; then
+		let retRes++
+		except "preEval check, funcName undefined!"
+	else
+		if [ -z "$varName" ]; then
+			let retRes++
+			except "preEval check, varName undefined!"
+		else
+			if [ -z "$varVal" ]; then
+				let retRes++
+				except "preEval check, new value for $varName is undefined!"
+			else
+				eval $varName=\$varVal
+			fi
+		fi
+	fi
 	
-	test -z "$funcName" && except "preEval check, funcName undefined!"
-	test -z "$varName" && except "preEval check, varName undefined!"
-	test -z "$varVal" && except "preEval check, new value for $varName is undefined!"
-
-
-	test -z "$(echo $varVal|grep 'noargs')" && eval $varName=\$varVal
+	return $retRes
 }
 
 publicVarAssign() {
-	local varName varVal varNameDesc errMsg
+	local varName varVal varNameDesc errMsg retRes
+	let retRes=0
 	varSeverity="$1"
 	shift
 	varName="$1"
@@ -2217,20 +2878,26 @@ publicVarAssign() {
 	varVal=$@
 	varNameDesc="$varName"
 	errMsg=""
-	# inform "DEBUG> call stack> ${FUNCNAME[*]}"
-	# test -z "$varName" && errMsg="  publicVarAssign preEval check exception, caller: ${FUNCNAME[1]} > varName undefined!"
-	# test -z "$varSeverity" && errMsg="  publicVarAssign preEval check exception, caller: ${FUNCNAME[1]} > while proccesing assigning for $varName, varSeverity undefined!"
-	# test -z "$varVal" && errMsg="  publicVarAssign preEval check exception, caller: ${FUNCNAME[1]} > while proccesing assigning for $varName, varVal undefined!"
-	
-	test -z "$varName" && errMsg="preEval check, varName undefined!"
-	test -z "$varSeverity" && errMsg="preEval check, varSeverity for $varName undefined!"
-	test -z "$varVal" && errMsg="preEval check, new value for $varName is undefined!"
 
+	if [ -z "$varName" ]; then
+		let retRes++
+		errMsg="preEval check, varName undefined!"
+	else
+		if [ -z "$varSeverity" ]; then
+			let retRes++
+			errMsg="preEval check, varSeverity for $varName undefined!"
+		else
+			if [ -z "$varVal" ]; then
+				let retRes++
+				errMsg="preEval check, new value for $varName is undefined!"
+			fi
+		fi
+	fi
 
-	test -z "$errMsg" && {
+	if ! isDefined errMsg; then
 		eval $varName=\$varVal
 		echo -e "  $varNameDesc=${!varName}"
-	} || {
+	else
 		case "$varSeverity" in
 			fatal) 
 				critWarn "\t$(caller): $(printCallstack)"
@@ -2241,7 +2908,127 @@ publicVarAssign() {
 			silent) ;;
 			*) except "varSeverity not in range: $varSeverity"
 		esac
-	}
+	fi
+
+	return $retRes
+}
+
+function checkPkgExist() {
+	local pkgNameList
+	privateVarAssign "${FUNCNAME[0]}" "pkgNameList" "$*"
+	for pkg in $pkgNameList; do
+		which $pkg >/dev/null 2>&1
+		if ! [ $? -eq 0 ]; then 
+			except "Package $pkg is not found in PATH, check package exists"
+		fi
+	done
+}
+
+function isBlockDevice() {
+	local blockDev=$1 ;shift
+	local blockDev statusRes isBlockDev
+	let statusRes=0
+	if [ -z "$blockDev" ]; then
+		let statusRes++
+	else
+		isBlockDev="$(grep $blockDev<<<"$(ls /sys/class/block/ 2>&1)")"
+		if [ -z "$isBlockDev" ]; then
+			let statusRes++
+		fi
+	fi
+	return $statusRes
+}
+
+function isMMCDevice() {
+	local mmcDev=$1 ;shift
+	local mmcDev statusRes isMmcDev
+	let statusRes=0
+	if [ -z "$mmcDev" ]; then
+		let statusRes++
+	else
+		isMmcDev="$(grep $mmcDev<<<"$(ls /sys/class/mmc_host/ 2>&1)")"
+		if [ -z "$isMmcDev" ]; then
+			let statusRes++
+		fi
+	fi
+	return $statusRes
+}
+
+function isNumber() {
+	local varList=$*
+	local varVal varValEval statusRes
+	let statusRes=0
+	re='^[+-]?[0-9]+$'
+	for varVal in $varList; do
+		varValEval=$(eval echo -ne "\$$varVal" 2>/dev/nul) 
+		if [ -z "$varValEval" ]; then
+			let statusRes++
+		else
+			if ! [[ $varValEval =~ $re ]] ; then
+				let statusRes++
+			fi
+		fi
+	done
+	return $statusRes
+}
+
+function isDefined() {
+	local varList=$*
+	local varVal varValEval statusRes
+	let statusRes=0
+
+	for varVal in $varList; do
+		varValEval=$(eval echo -ne "\$$varVal" 2>/dev/nul) 
+		if [ -z "$varValEval" ]; then
+			let statusRes++
+		fi
+	done
+	return $statusRes
+}
+
+function fdExist() {
+	local fdReqList=$*
+	local fdReq fdList fdExist statusRes
+	let statusRes=0
+
+	fdList=$(ls -la /proc/$$/fd/ |grep /dev |awk '{print $9}')
+
+	for fdReq in $fdReqList; do
+		fdExist=$(echo -ne "$fdList" |grep -x "$fdReq" 2>/dev/nul) 
+		if [ -z "$fdExist" ]; then
+			let statusRes++
+		fi
+	done
+	return $statusRes
+}
+
+function ifaceExist() {
+	local ifaceReqList=$*
+	local ifaceReq statusRes
+	let statusRes=0
+
+	for ifaceReq in $ifaceReqList; do
+		if ! [ -e "/sys/class/net/$ifaceReq/" ]; then
+			let statusRes++
+		fi
+	done
+	return $statusRes
+}
+
+function contains() {
+	local varReq="$1"; shift
+	local varVal="$*"
+	local containsValue
+	if isDefined varVal; then
+		containsValue="$(echo -n "$varVal" |grep "$varReq")"
+		if isDefined containsValue; then
+			return 0
+		else
+			return 1
+		fi
+	else
+		return 1
+	fi
 }
 
 function checkDefinedVal () {
@@ -2289,16 +3076,53 @@ printCallstack() {
 	echo -ne "\n"
 }
 
+printPIDTree() {
+	local pid="$1"
+	local indent=0
+	local stack=()
+
+	echo -n "$pid "
+	# Traverse the call/creator tree iteratively
+	while [ -n "$pid" ]; do
+		stack+=("$pid") # Add PID to stack
+		pid=$(ps -o ppid= -p "$pid") # Get parent PID
+
+		# Print the current PID with appropriate indentation
+		# printf "%${indent}s" ""
+		# echo "PID: ${stack[-1]}"
+
+		# indent=$((indent + 2)) # Increment indentation level
+
+		echo -n $pid' '
+	done
+}
+
 except() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local exceptDescr
-	printDmsgStack |& tee "/dev/kmsg"
+	local exceptDescr pidOnExcept
+	pidOnExcept=$BASHPID
+	#exceptParentPid=$(printPIDTree $pidOnExcept 2>/dev/null |awk '{print $4}')
+	exceptParentPid=$(ps -o pid,ppid,cmd --ppid "${PIDStackArr[0]}" --forest 2>&1 |grep -v 'statusChk' |grep -m1 "${PIDStackArr[0]}" |awk '{print $1}')
+	sendToKmsg `printDmsgStack 2>&1`
 	# not using privateVarAssign because could cause loop in case of fail inside the assigner itself
 	exceptDescr="$*"
-	echo -e "[multiCard]: Exception raised: $exceptDescr" |& tee /dev/kmsg &> /dev/null
-	echo -e "[multiCard]: Exception callstack: $(caller): $(printCallstack)" |& tee /dev/kmsg &> /dev/null
+	sendToKmsg "Exception raised: $exceptDescr"
+	sendToKmsg "Exception callstack: $(caller): $(printCallstack)"
+	sendToKmsg "Subshell level on exception execution: $BASH_SUBSHELL  Except parent PID: $exceptParentPid"
+	sendToKmsg "PID tree (from 'except' pid: $pidOnExcept): $(printPIDTree $pidOnExcept 2>/dev/null)"
+	if [ ! -z "$PIDStackArr" ]; then 
+		sendToKmsg "Main shell parent pid: ${PIDStackArr[*]}"
+	fi
 	critWarn "\t$(caller): $(printCallstack)"
-	exitFail "${FUNCNAME[1]} exception> $exceptDescr"
+	if [ $BASH_SUBSHELL -gt 2 ]; then
+		if [ ! -z "$exceptParentPid" ]; then
+			exitFail "${FUNCNAME[1]} exception> $exceptDescr" $exceptParentPid
+		else
+			exitFail "${FUNCNAME[1]} exception> $exceptDescr" $BASH_SUBSHELL
+		fi
+	else
+		exitFail "${FUNCNAME[1]} exception> $exceptDescr"
+	fi
 }
 
 removeArg() {
@@ -2317,26 +3141,6 @@ checkOverload() {
 	if [[ ! -z "$*" ]]; then
 		except "$callerFunc overloaded with parameters, unexpected args: $*"
 	fi
-
-	# [[ -z "$funcArgs" ]] && except "funcArgs for callerFunc:$callerFunc are undefined!"
-
-	# for ARG in "$@"; do
-	# 	KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
-	# 	VALUE=$(echo $ARG |cut -f2 -d=)
-	# 	if [[ ! -z $(echo -n $KEY |grep -w "arg-max\|arg-min\|arg-exact") ]]; then 
-	# 		compKey=$KEY
-	# 		[[ ! -z "${VALUE}" ]] && let compValue=${VALUE} || except "VALUE undefined for key: $KEY!"
-	# 	else 
-	# 		[[ -z "$argsNoFlags" ]] && argsNoFlags=("$ARG") || argsNoFlags+=("$ARG")	
-	# 	fi
-	# done
-
-	# case "$compKey" in
-	# 	arg-max) if [[ ! ${#argsNoFlags[@]} -le $compValue ]]; then except "$callerFunc" "overloaded with parameters, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
-	# 	arg-min) if [[ ! ${#argsNoFlags[@]} -ge $compValue ]]; then except "$callerFunc" "insufficent parameters, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
-	# 	arg-exact) if [[ ! ${#argsNoFlags[@]} -eq $compValue ]]; then except "$callerFunc" "incorrect parameter count, ${#argsNoFlags[@]} received, but $compValue expected!"; fi ;;	
-	# 	*) except "compKey received unexpected key: $compKey"
-	# esac
 }
 
 speedWidthComp() {
@@ -3333,6 +4137,7 @@ checkIfContains() {
 	reqValWithDelimeter=$2
 	reqVal="$(echo "$reqValWithDelimeter" |cut -c3-)"
 	actVal=$3
+	severity=$4
 
 	
 	if [[ ! -z "$reqVal" ]]; then
@@ -3340,7 +4145,11 @@ checkIfContains() {
 		if [[ ! -z "$(echo "$actVal" |grep -m 1 "$reqVal")" ]]; then 
 			echo -e "$reqVal \e[0;32mOK\e[m"
 		else 
-			echo -e "\e[0;31mFAIL\e[m ('$reqVal' wasnt found"'!'")"
+			if [ "$severity" = "warn" ]; then
+				echo -e "${yl}WARN$ec ('$reqVal' wasnt found"'!'")"
+			else
+				echo -e "\e[0;31mFAIL\e[m ('$reqVal' wasnt found"'!'")"
+			fi
 		fi
 	fi
 }
@@ -4084,7 +4893,8 @@ function getNANOQty() {
 			let retRes=0
 			echo -n $resNum
 		else
-			let retRes=$resNum
+			dmsg inform "match ${rd}failed$yl"
+			let retRes=99
 		fi
 	fi
 
@@ -4122,7 +4932,7 @@ function getNANOString() {
 	fi
 }
 
-function getNANOBlock() {
+function getNANOBlock () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local cmdRes re ttyR cmdR resStr respTimeout newArgs timeoutArg bmcShellMode bmcCliMode
 
@@ -4149,7 +4959,7 @@ function getNANOBlock() {
 	privateVarAssign "${FUNCNAME[0]}" "ttyR" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "cmdR" "$*"
 
-	cmdRes="$(sendNANO $ttyR "echo 'sendBlockStart-----';${cmdR};echo -e '\n-----sendBlockEnd';" $timeoutArg)"
+	cmdRes="$(sendNANO --terminal=pico $ttyR "echo 'sendBlockStart-----';${cmdR};echo;echo -e '-----sendBlockEnd'" $timeoutArg)"
 	if [ ! -z "$cmdRes" ]; then
 		resBlock=$(grep -v "\-';\|Start';" <<< "$cmdRes" |awk '/sendBlockStart-----/{f=1;next} /-----sendBlockEnd/{f=0} f')
 		if [ ! -z "$resBlock" ]; then echo "$resBlock"; else echo "null"; fi
@@ -4158,7 +4968,7 @@ function getNANOBlock() {
 
 function sendNANO () {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller): $(printCallstack)"
-	local ttyR cmdR respTimeout newArgs envVar verbArg powerOffReq
+	local ttyR cmdR respTimeout newArgs envVar addArg powerOffReq
 
 	for envVar in uutBaudRate uutBdsUser uutBdsPass; do
 		checkDefined $envVar
@@ -4175,7 +4985,8 @@ function sendNANO () {
 			VALUE=$(echo $arg |cut -f2 -d=)
 			case "$KEY" in
 				resp-timeout) respTimeout=${VALUE} ;;
-				verbose) verbArg="--verbose" ;;
+				verbose) addArg+=" --verbose" ;;
+				terminal) addArg+=" --terminal=${VALUE}" ;;
 				power-off) powerOffReq=1 ;;
 				*) dmsg echo "Unknown arg: $arg"
 			esac
@@ -4202,30 +5013,31 @@ function sendNANO () {
 			fi
 		;;
 		linux_shell) 
-			sendSerialCmdNANO $ttyR $uutBaudRate $respTimeout $cmdR $verbArg
+			sendSerialCmdNANO $ttyR $uutBaudRate $respTimeout $cmdR$addArg
 		;;
 		login)
 			dmsg inform "LOGIN_REQUEST> $ttyR@$uutBaudRate t/o:$respTimeout user:$uutBdsUser pass:$uutBdsPass"
 			loginNANO $ttyR $uutBaudRate $respTimeout $uutBdsUser $uutBdsPass
 			if [ $? -eq 0 ]; then
-				sendSerialCmdNANO $ttyR $uutBaudRate $respTimeout $cmdR $verbArg
+				sendSerialCmdNANO $ttyR $uutBaudRate $respTimeout $cmdR$addArg
 			else
 				except "Unable to send cmd from $serState!"
 			fi
 		;;
 		password) 
-			cmdRes=$(sendSerialCmdNANO $ttyR $uutBaudRate $respTimeout nop $verbArg)
+			cmdRes=$(sendSerialCmdNANO $ttyR $uutBaudRate $respTimeout nop$addArg)
 			sleep 3
 			dmsg inform "LOGIN_REQUEST> $ttyR@$uutBaudRate t/o:$respTimeout user:$uutBdsUser pass:$uutBdsPass"
 			loginNANO $ttyR $uutBaudRate $respTimeout $uutBdsUser $uutBdsPass
 			if [ $? -eq 0 ]; then
-				sendSerialCmdNANO $ttyR $uutBaudRate $respTimeout $cmdR $verbArg
+				sendSerialCmdNANO $ttyR $uutBaudRate $respTimeout $cmdR$addArg
 			else
 				except "Unable to send cmd from $serState!"
 			fi
 		;;
 		*) except "unexpected case state received! (state: $serState)"
 	esac
+	dmsg inform "cmdRes=$cmdRes"
 }
 
 function sendIS40 () {
@@ -5094,9 +5906,10 @@ function sendSerialCmd () {
 
 function sendSerialCmdNANO () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local ttyN baud timeout cmd newArgs arg noDollar verb
+	local ttyN baud timeout cmd newArgs arg noDollar verb ttyLock
 
-	verb=0
+	if [ -z "$debugMode" ]; then verb=0; else verb=1; fi
+
 	# extracting keys
 	for arg in "$@"
 	do
@@ -5107,6 +5920,7 @@ function sendSerialCmdNANO () {
 			VALUE=$(echo $arg |cut -f2 -d=)
 			case "$KEY" in
 				verbose) verb=1 ;;
+				terminal) termMode=${VALUE} ;;
 				*) dmsg echo "Unknown arg: $arg"
 			esac
 		fi
@@ -5118,85 +5932,64 @@ function sendSerialCmdNANO () {
 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "cmd" "$*"
 
-	ttyLock="$(lsof |grep "$ttyN")"
-	if [ ! -z "$ttyLock" ]; then warn "$ttyLock"; fi
+	for ((retCnt=0;retCnt<=20;retCnt++)); do
+		ttyLock=$(lsof |grep $ttyN)
+		if [ -z "$ttyLock" ]; then
+			break
+		fi
+		sleep 0.1
+	done
+	if [ ! -z "$ttyLock" ]; then critWarn "$ttyLock"; fi
 
 	which expect > /dev/null || except "expect not found by which!"
 	which tio > /dev/null || except "tio not found by which!"
+	if [ "$termMode" = "pico" ]; then
+		which picocom > /dev/null || except "picocom not found by which!"
+		termCmd="picocom -b $baud -f n -y n -p 1 --omap crlf /dev/$ttyN"
+		termExitSeq='\x01\x18'
+		conMsg='Terminal\ ready'
+		discMsg='Thanks\ for\ using\ picocom'
+	else
+		termCmd="tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none"
+		termExitSeq='\x14q\r'
+		termDiscSeq=$termExitSeq
+		conMsg='Connected'
+		discMsg='Disconnected'
+	fi
 
 	expect -c "
 	set timeout $timeout
 	log_user $verb
-	exp_internal 0
-	spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
+	exp_internal $verb
+	spawn $termCmd
 	expect {
-		Connected { send \r }
+		$conMsg { send \n }
 		timeout { send_user \"\nTimeout1\n\"; exit 1 }
 		eof { send_user \"\nEOF1\n\"; exit 1 }
 	}
 	expect {
-		*]#* { send \"$cmd\r\" }
-		*ogin:* { send \"$cmd\r\" }
-		*word:* { send \"$cmd\r\" }
-		timeout { send_user \"\nTimeout2\n\"; send \x03; send \x14q\r ; exit 1 }
+		*]#* { expect *; send \"$cmd\n\" }
+		*ogin:* { send \"$cmd\n\" }
+		*word:* { send \"$cmd\n\" }
+		timeout { send_user \"\nTimeout2\n\"; send \x03; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF2\n\"; send \x14q\r ; exit 1 }
 	}
 	log_user 1
 	sleep 0.3
 	expect {
-		*]#* { send \x14q\r }
-		*ogin:* { send \x14q\r }
-		*word:* { send \x14q\r }
-		timeout { send_user \"\nTimeout3\n\"; send \x03; send \x14q\r ; exit 1 }
-		eof { send_user \"\nEOF3\n\"; send \x14q\r ; exit 1 }
+		*]#* { send $termExitSeq }
+		*ogin:* { send $termExitSeq }
+		*word:* { send $termExitSeq }
+		timeout { send_user \"\nTimeout3\n\"; send \x03; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF3\n\"; send $termExitSeq ; exit 1 }
 	}
 	log_user $verb
 	expect {
-		Disconnected { send_user Done\n }
+		$discMsg { send_user Done\n }
 		timeout { send_user \"\nTimeout4\n\"; send \x03; exit 1 }
 		eof { send_user \"\nEOF4\n\"; exit 1 }
 	}
 	"
-}
-
-function resetSerialNANO () {
-	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local ttyN baud timeout cmd newArgs arg noDollar verb exceptIdx
-
-	verb=0
-	# extracting keys
-	for arg in "$@"
-	do
-		if ! [ "$(echo -n "$arg" |cut -c1-2)" == "--" ]; then 
-			newArgs+=("$arg")
-		else
-			KEY=$(echo $arg|cut -c3- |cut -f1 -d=)
-			VALUE=$(echo $arg |cut -f2 -d=)
-			case "$KEY" in
-				verbose) verb=1 ;;
-				*) dmsg echo "Unknown arg: $arg"
-			esac
-		fi
-	done
-	set -- "${newArgs[@]}"
-
-	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
-	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"
-
-	ttyLock="$(lsof |grep "$ttyN")"
-	if [ ! -z "$ttyLock" ]; then warn "$ttyLock"; fi
-	#stty -F /dev/$ttyN $baud
-
-	which expect > /dev/null || except "expect not found by which!"
-	which tio > /dev/null || except "tio not found by which!"
-	echo " Setting stty settings on $ttyN to baud $baud"
-	stty -F /dev/$ttyN $baud
-	echo " Terminal send ESC.."
-	echo -ne "\x1B\r" > /dev/$ttyN
-	echo " Terminal End of Transmission.."
-	echo -ne "\x04\r" > /dev/$ttyN
-	echo " Terminal send ESC sequence.."
-	echo -ne "\x1B\x5B\x21\x70" > /dev/$ttyN
 }
 
 function initSerialNANO () {
@@ -5229,7 +6022,6 @@ function initSerialNANO () {
 		warn "$ttyLock"
 		killActiveSerialWriters $ttyN
 	fi
-	#stty -F /dev/$ttyN $baud
 
 	which expect > /dev/null || except "expect not found by which!"
 	which tio > /dev/null || except "tio not found by which!"
@@ -5388,42 +6180,72 @@ function sendSerialCmdBMC () {
 function NANObootMonitor () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN logPath stateList lastPrintedState writerPids retStatus newStates bootingActive lastState loginState
-	local retCnt portClosed
-	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
+	local retCnt portClosed bootMode shortBoot
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "bootMode" "$2"
 	testFileExist "/dev/$ttyN"
 
+	case $bootMode in
+		"fullBoot") 
+			loginPrompt="LINUX_LOGIN_PROMPT"	
+			loginMsg="Login state reached!"	
+		;;
+		"shortBoot") 
+			loginPrompt="BOOT_MGR_MSG"
+			loginMsg="Boot state reached!"
+			shortBoot=1
+		;;
+		*) except "illegal bootMode: $bootMode"
+	esac
+
 	let retStatus=0
-	let loopLimit=480
+	let loopLimit=960
+	let linesPrinted=0
 	let bootingActive=1
 	logPath="/tmp/${ttyN}_serial_log.txt"
 	killActiveSerialWriters $ttyN
 	rm -f "$logPath"
 	#set +m
 	serialWriterNANO $ttyN $logPath
-	echo "  Boot monitor running:"
+	echo "  Boot monitor running ($bootMode):"
 	lastPrintedState=""
+	lastBootState=""
 	while [ $bootingActive -gt 0 ]; do
 		if [ -e "$logPath" ]; then
 			stateList="$(sed 's/\x1B[@A-Z\\\]^_]\|\x1B\[[0-9:;<=>?]*[-\!"#$%&'"'"'()*+,.\/]*[][\\@A-Z^_`a-z{|}~]//g' <<<"$(cat $logPath)" |grep --binary-files=text 'State:' |awk '{print $2}' |tr -d '\r')"
 			#stateList="$(cat $logPath |sed 's/\x1B[@A-Z\\\]^_]\|\x1B\[[0-9:;<=>?]*[-!"#$%&'"'"'()*+,.\/]*[][\\@A-Z^_`a-z{|}~]//g' |grep --binary-files=text 'State:' |awk '{print $2}')"
-			lastState=$(tail -n1 <<<"$stateList")
-			loginState=$(grep 'LINUX_LOGIN_PROMPT' <<<"$stateList" |grep -v WAIT)
-			newStates=$(comm -13 <(echo "$lastPrintedState") <(echo "$stateList") 2>/dev/null)
-			if [ ! -z "$newStates" ]; then 
-				echo -e "   $newStates"
-				lastPrintedState="$stateList"
+			let lineCount=$(wc -l <<<"$stateList")
+			let linesRequired=$(($lineCount-$linesPrinted))
+			if [ $linesRequired -gt 0 ]; then
+				lastState=$(tail -n1 <<<"$stateList")
+				loginState=$(grep --binary-files=text "$loginPrompt" <<<"$stateList")
+				newStates="$(tail -n$linesRequired<<<"$stateList" |sed -z 's/\n/\n   /g')"
+				if [ ! -z "$newStates" ]; then 
+					if [ $linesPrinted -eq 0 ]; then
+						echo -ne "   $newStates"
+					else
+						echo -ne "$newStates"
+					fi
+					lastPrintedState="$stateList"
+					lastBootState="$lastState"
+					let linesPrinted=$lineCount
+				fi
 			fi
-			if [ ! -z "$loginState" ]; then let bootingActive=0; echo -e "   ${gr}Login state reached!$ec"; fi
+			if [ ! -z "$loginState" ]; then let bootingActive=0; echo -e "   ${gr}$loginMsg$ec"; fi
 		fi
 		if [ $loopLimit -eq 0 ]; then
 			echo -e "\t${rd}BOOT FAILED!$ec\n\tLast state: $yl$lastState$ec"
+			echo -e "$rd\n\n\nFULL LOG START --- \n$yl"
+			cat $logPath.console_out |sed 's/\x1B[@A-Z\\\]^_]\|\x1B\[[0-9:;<=>?]*[-\!"#$%&'"'"'()*+,.\/]*[][\\@A-Z^_`a-z{|}~]//g'
+			echo -e "$rd\nFULL LOG END --- \n\n\n$ec"
 			let retStatus++
 			let bootingActive=0
 		fi
-		sleep 0.48
+		sleep 0.24
 		let loopLimit--
 	done
 	echo "  Done."
+	killActiveSerialWriters $ttyN
 	let portClosed=0
 	for ((retCnt=0;retCnt<=12;retCnt++)); do
 		srvAct=$(lsof |grep $uutSerDev)
@@ -5441,6 +6263,7 @@ function NANObootMonitor () {
 		killActiveSerialWriters $ttyN
 		#set -m
 	fi
+	echo  "  Port activity: $(lsof |grep $uutSerDev)"
 	return $retStatus
 }
 
@@ -5476,13 +6299,28 @@ serialMonitor() {
 
 serialWriterNANO() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local logFilePath lsofPids pid nohupCmd
+	local logFilePath lsofPids pid nohupCmd conOutPath serialLogPid pid
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "logFilePath" "$1"
-	#fuser -k /dev/$ttyN
-	echo " Starting writer on $ttyN"
-	#stty -F /dev/$ttyN 115200
-	nohup sh -c "source /root/multiCard/arturLib.sh; getNANOBootMsg $ttyN 115200 240 pico > $logFilePath 2>&1" >/dev/null 2>&1 & >/dev/null 2>&1
+	conOutPath="$logFilePath.console_out"
+	echo -e "\nSetting up serial configs."
+	fuser -k /dev/$ttyN
+	rm -f $logFilePath
+	#stty -F /dev/$ttyN 115200 raw -echo -echok -echoctl -echoke
+	stty -F /dev/$ttyN 115200 raw -echo -noflsh
+	setserial /dev/$ttyN baud_base 115200 close_delay 100 closing_wait 9000 callout_nohup low_latency
+	sleep 0.2
+	echo " Starting reader on /dev/$ttyN"
+	nohup sh -c "cat /dev/$ttyN > $conOutPath" &
+	pid=$!; serialLogPids+=("$pid")
+	echo -e "Logger started. PID: $pid\n"
+	sleep 0.2
+	#echo -e "\nSetting up serial configs."
+	# stty -F /dev/$ttyN 115200 raw -echo -echok -echoctl -echoke
+	echo " Starting boot watcher on $ttyN"
+	nohup sh -c "source /root/multiCard/arturLib.sh; getNANOBootMsgFromLog "$conOutPath" > $logFilePath" >/dev/null 2>&1 & >/dev/null 2>&1
+	pid=$!; serialLogPids+=("$pid")
+	echo -e "Watcher started. PID: $pid\n"
 }
 
 function killSerialWriters () {
@@ -5511,7 +6349,7 @@ function killActiveSerialWriters () {
 		lsofPids=$(getACMttyWriters $ttyN)
 
 		if [ ! -z "$lsofPids" ]; then
-			echo " Killing active writers on serial device"
+			echo " Killing active writers on $ttyN"
 			for pid in $lsofPids; do kill -9 $pid; echo "  Killing PID $pid"; done
 		fi
 		echo " Done."
@@ -5533,6 +6371,24 @@ function killLogWriters () {
 		fi
 		echo " Done."
 	fi
+}
+
+function USBBPsyclePort () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN timeout sendRes
+	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
+	privateNumAssign "timeout" "$2"
+ 
+	if [ -e /dev/$ttyN ]; then
+		echo  " Unplugging USB.."
+		sendRes="$(sendSerialCmd $ttyN 9600 5 "set_bypass off")"
+		sleep $timeout
+		echo  " Replugging USB.."
+		sendRes="$(sendSerialCmd $ttyN 9600 5 "set_bypass on")"
+	else
+		except "Port /dev/$ttyN does not exist"
+	fi
+	echo  " Done cycling USB.."
 }
 
 function IPPowerCheckSerial () {
@@ -5889,7 +6745,7 @@ function getATTSerialState () {
 
 function getNANOSerialState () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
-	local ttyN baud timeout cmd serStateRes serialCmdNlRes verbal
+	local ttyN baud timeout cmd serStateRes serialCmdNlRes verbal ttyLock
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1"; shift
@@ -5898,6 +6754,15 @@ function getNANOSerialState () {
 	which expect > /dev/null || except "expect not found by which!"
 	which tio > /dev/null || except "tio not found by which!"
 
+	for ((retCnt=0;retCnt<=20;retCnt++)); do
+		ttyLock=$(lsof |grep $ttyN)
+		if [ -z "$ttyLock" ]; then
+			break
+		fi
+		sleep 0.1
+	done
+	if [ ! -z "$ttyLock" ]; then critWarn "$ttyLock"; fi
+
 	serialCmdNlRes="$(
 		expect -c "
 		set timeout $timeout
@@ -5905,7 +6770,7 @@ function getNANOSerialState () {
 		exp_internal $verbal
 		spawn tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none
 		expect {
-			Connected { send_user \"\nConnected to /dev/$ttyN\n\";send \"\r\n\" }
+			Connected { send_user \"\nConnected to /dev/$ttyN\n\";send \n }
 			timeout { send_user \"\nTimeout1\n\"; send \x03; exit 1 }
 			eof { send_user \"\nEOF\n\"; exit 1 }
 		}
@@ -5942,6 +6807,13 @@ function getNANOSerialState () {
 	fi
 }
 
+replugUSBMsg() {
+	local title btitle conRows conCols
+	title="USB Reconnect"
+	btitle="  arturd@silicom.co.il"	
+	whiptail --nocancel --notags --title "$title" --backtitle "$btitle" --msgbox "Reconnect USB cable to the UUT" 8 35 3>&2 2>&1 1>&3
+}
+
 getACMttyWriters(){
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN
@@ -5955,38 +6827,26 @@ getACMttyServices(){
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"
-
+	systemctl stop ModemManager.service &>/dev/null
 	ioFilter='ModemMana\|gmain\|pool\|gdbus'
 	lsof |grep $ttyN |grep $ioFilter |awk '{print $2}'
 }
 
-function getNANOBootMsg () {
+function bootNANOgrubShell () {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ttyN baud timeout cmd serStateRes termCmd
 	privateVarAssign "${FUNCNAME[0]}" "ttyN" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "baud" "$1"; shift
 	privateVarAssign "${FUNCNAME[0]}" "timeout" "$1" ;shift
-	termMode="$1"
 
 	which expect > /dev/null || except "expect not found by which!"
-	which tio > /dev/null || except "tio not found by which!"
-	if [ "$termMode" = "pico" ]; then
-		which picocom > /dev/null || except "picocom not found by which!"
-		termCmd="picocom -b $baud -f n -y n -p 1 -r --omap crlf /dev/$ttyN"
-		reconCmd="picocom -b $baud -f n -y n -p 1 -i --omap crlf /dev/$ttyN"
-		termExitSeq='\x01\x18'
-		termDiscSeq='\x01\x11'
-		conMsg='Terminal\ ready'
-		discMsg='Thanks\ for\ using\ picocom'
-	else
-		termCmd="tio /dev/$ttyN -b $baud -d 8 -p none -s 1 -f none"
-		reconCmd=$termCmd
-		termExitSeq='\x14q\r'
-		termDiscSeq=$termExitSeq
-		conMsg='Connected'
-		discMsg='Disconnected'
-	fi
-	let reconTimeout=45
+
+	which picocom > /dev/null || except "picocom not found by which!"
+	termCmd="picocom -b $baud -f n -y n -p 1 -r --omap crlf /dev/$ttyN"
+	termExitSeq='\x01\x18'
+	termDiscSeq='\x01\x11'
+	conMsg='Terminal\ ready'
+	discMsg='Thanks\ for\ using\ picocom'
 
 	expect -c "
 	set timeout $timeout
@@ -6000,18 +6860,7 @@ function getNANOBootMsg () {
 			send \r 
 		}
 		timeout { send_user \"\nTimeout1\n\"; exit 1 }
-		eof { 
-			send_user \"\nEOF0\n\"; exit 1 
-			spawn $termCmd
-			send \r
-			expect {
-				$conMsg { send_user \"\r\n\r\nState: WAIT_FOR_SERIAL_INIT\r\n\r\n\";send \r }
-				timeout { send_user \"\nTimeout1\n\"; exit 1 }
-				eof { 
-					send_user \"\nEOF1\n\"; exit 1 
-				}
-			}
-		}
+		eof { send_user \"\nEOF1\n\"; exit 1 }
 	}
 	expect {
 		*isSecurebootEnabled* { send_user \"\r\n\r\nState: SECURE_BOOT_MSG\r\n\r\n\" }
@@ -6020,89 +6869,115 @@ function getNANOBootMsg () {
 	}
 	expect {
 		*Loading\ Usb\ Lens* { send_user \"\r\n\r\nState: USB_LOAD_MSG\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout3\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF3\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
 		*Installing\ Usb\ Lens* { send_user \"\r\n\r\nState: USB_INSTALL_MSG\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout4\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF4\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
 		*Mapping\ table* { send_user \"\r\n\r\nState: MAPPING_TABLE_MSG\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout5\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF5\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
-		*Locking\ SPI* { send_user \"\r\n\r\nState: SPI_LOCK\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
+		*Pci(0x1C* { send_user \"\r\n\r\nState: EFI_MMC_DETECT\r\n\r\n\"; exp_continue }
+		*USB(0x6* { send_user \"\r\n\r\nState: EFI_USB_DETECT\r\n\r\n\"; exp_continue }
+		*Locking\ SPI* { send_user \"\r\n\r\nState: EFI_DEVS_END\r\n\r\n\" }
+		timeout { send_user \"\nTimeout6\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Lock\ flash* { send_user \"\r\n\r\nState: SPI_LOCK\r\n\r\n\" }
 		timeout { send_user \"\nTimeout9\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF6\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
 		*Boot\ Manager\ Menu* { send_user \"\r\n\r\nState: BOOT_MGR_MSG\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout11\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF7\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
-		*Pci(0x1C* { send_user \"\r\n\r\nState: EFI_FS_MMC_DETECT\r\n\r\n\" }
-		*USB(0x6* { send_user \"\r\n\r\nState: EFI_FS_USB_DETECT\r\n\r\n\" }
-		*Shell>* { send_user \"\r\n\r\nState: EFI_FS_NO_DEVS\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
+		*Mapping\ table* { send_user \"\r\n\r\nState: MAPPING_TABLE_MSG\r\n\r\n\" }
+		timeout { send_user \"\nTimeout5\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF5\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Pci(0x1C,0x0)/Msg(29,00)/Ctrl(0x0)/HD(1C* { 
+			send_user \"\r\n\r\nState: EFI_FS_MMC_DETECT\r\n\r\n\"
+			exp_continue 
+		}
+		*USB(0x6,0x0)/HD(1* { 
+			send_user \"\r\n\r\nState: EFI_FS_USB_DETECT\r\n\r\n\"
+			exp_continue 
+		}
+		*Shell>* { }
 		timeout { send_user \"\nTimeout6\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
+		*BootOrder0000* { 
+			send_user \"\r\n\r\nState: BOOT_ORDER_DUMP\r\n\r\n\" 
+			send_user \"\r\n\r\nState: BOOT_OPT_0_DETECT\r\n\r\n\" 
+		}
+		*BootOrder0001* { 
+			send_user \"\r\n\r\nState: BOOT_ORDER_DUMP\r\n\r\n\" 
+			send_user \"\r\n\r\nState: BOOT_OPT_0_DETECT\r\n\r\n\" 
+		}
 		*bcfg\ boot\ dump* { 
 			send_user \"\r\n\r\nState: BOOT_ORDER_DUMP\r\n\r\n\" 
-			set timeout 3
+			set timeout 5
 			expect {
-				*BootOrder0000* { 
+				*Option:\ 00* { 
 					send_user \"\r\n\r\nState: BOOT_OPT_0_DETECT\r\n\r\n\" 
 					expect {
+						*not\ recognized* { send_user \"\r\n\r\nState: BOOT_OPT_0_ND\r\n\r\n\" }
 						*Pci(0x1C* { send_user \"\r\n\r\nState: BOOT_OPT_0_MMC\r\n\r\n\" }
 						*USB(0x6* { send_user \"\r\n\r\nState: BOOT_OPT_0_USB\r\n\r\n\" }
-						*BootOrder0001* { send_user \"\r\n\r\nState: BOOT_OPT_0_UNKNOWN_DEV\r\n\r\n\" }
-						*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 						timeout { send_user \"\nTimeout6.1\n\" }
 					}
 				}
-				*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 				timeout { send_user \"\r\n\r\nState: BOOT_OPT_NOT_DETECTED\r\n\r\n\" }
 				eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
 			}
 			set timeout $timeout
 		}
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout8\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
-		*echo\ %BootOrder* { send_user \"\r\n\r\nState: BOOT_OPTION_LOAD\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
+		*Shell\\>\ \\%Boot* { send_user \"\r\n\r\nState: BOOT_OPTION_LOAD\r\n\r\n\" }
+		*echo\ \\%BootOrder* { send_user \"\r\n\r\nState: BOOT_OPTION_LOAD\r\n\r\n\" }
+		*0000\\]* { send_user \"\r\n\r\nState: NO_GRUB_LINUX_LOAD\r\n\r\n\" }
 		timeout { send_user \"\nTimeout12\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
 		*will\ be\ started\ automatically* { send_user \"\r\n\r\nState: GRUB_MENU\r\n\r\n\" }
 		*0000\]* { send_user \"\r\n\r\nState: NO_GRUB_LINUX_LOAD\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout13\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
 		*SMBIOS* { send_user \"\r\n\r\nState: LINUX_BOOT_SCREEN\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
+		*ACPI:* { send_user \"\r\n\r\nState: LINUX_BOOT_SCREEN\r\n\r\n\" }
+		*ogin:* { 
+			send_user \"\r\n\r\nState: LINUX_LOGIN_PROMPT_NOLOAD\r\n\r\nPROMPT_OK1\"
+			sleep 5
+			send $termExitSeq
+			expect {
+				$discMsg { send_user \"\r\n\r\n\r\nDisconnected, ok\r\n\r\n\r\n\" ; exit 1 }
+				timeout { send_user \"\nTimeout4\n\"; send $termExitSeq; exit 1 }
+				eof { send_user \"\nEOF\n\";send $termExitSeq; exit 1 }
+			}
+		}
 		timeout { send_user \"\nTimeout14\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
 	}
 	expect {
 		*pci_bus\ 0000:00* { send_user \"\r\n\r\nState: LINUX_BOOT_PCI_INIT\r\n\r\n\" }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout15\n\"; send $termExitSeq ; exit 1 }
 		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
 	}
@@ -6111,7 +6986,6 @@ function getNANOBootMsg () {
 		*Started\ OpenSSH* { send_user \"\r\n\r\nState: LINUX_BOOT_EMMC_NOT_FOUND\r\n\r\n\"  }
 		*Stopped\ Plymouth* { send_user \"\r\n\r\nState: LINUX_BOOT_EMMC_NOT_FOUND\r\n\r\n\"  }
 		*Starting\ Hostname* { send_user \"\r\n\r\nState: LINUX_BOOT_EMMC_NOT_FOUND\r\n\r\n\"  }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout16\n\"; send $termExitSeq ; exit 1 }
 		eof { 
 			send_user \"\r\n\r\nEOF, reloading TIO\r\n\r\n\"
@@ -6123,7 +6997,6 @@ function getNANOBootMsg () {
 	set x 0
 	expect {
 		*login:* { send_user \"\r\n\r\nState: LINUX_LOGIN_PROMPT\r\n\r\nPROMPT_OK1\"; sleep 5; send $termExitSeq }
-		*isSecurebootEnabled* { send_user \"\r\n\r\nState: UNEXPECTED_RESET\r\n\r\n\"; send $termExitSeq ; exit 1 }
 		timeout { send_user \"\nTimeout2\n\"; send $termExitSeq ; exit 1 }
 		eof { 
 			while {$x <= 10} {
@@ -6169,6 +7042,167 @@ function getNANOBootMsg () {
 	}
 	expect {
 		$discMsg { send_user \"\r\n\r\n\r\nDisconnected, ok\r\n\r\n\r\n\" ; exit 1 }
+		timeout { send_user \"\nTimeout4\n\"; send $termExitSeq; exit 1 }
+		eof { send_user \"\nEOF\n\";send $termExitSeq; exit 1 }
+	}
+	" 2>&1
+}
+
+function getNANOBootMsgFromLog () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ttyN baud timeout cmd serStateRes termCmd fileName
+	privateVarAssign "${FUNCNAME[0]}" "fileName" "$1"; shift
+
+	which expect > /dev/null || except "expect not found by which!"
+	termExitSeq='\x03'
+
+	expect -c "
+	set timeout 360
+	log_user 1
+	exp_internal 0
+	spawn tail -f $fileName
+
+	send_user \"\r\n\r\nState: WAIT_FOR_SERIAL_INIT\r\n\r\n\"
+
+	expect {
+		*isSecurebootEnabled* { send_user \"\r\n\r\nState: SECURE_BOOT_MSG\r\n\r\n\" }
+		timeout { send_user \"\nTimeout2\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF2\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Loading\ Usb\ Lens* { send_user \"\r\n\r\nState: USB_LOAD_MSG\r\n\r\n\" }
+		timeout { send_user \"\nTimeout3\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF3\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Installing\ Usb\ Lens* { send_user \"\r\n\r\nState: USB_INSTALL_MSG\r\n\r\n\" }
+		timeout { send_user \"\nTimeout4\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF4\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Mapping\ table* { send_user \"\r\n\r\nState: MAPPING_TABLE_MSG\r\n\r\n\" }
+		timeout { send_user \"\nTimeout5\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF5\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Pci(0x1C* { send_user \"\r\n\r\nState: EFI_MMC_DETECT\r\n\r\n\"; exp_continue }
+		*USB(0x6* { send_user \"\r\n\r\nState: EFI_USB_DETECT\r\n\r\n\"; exp_continue }
+		*Locking\ SPI* { send_user \"\r\n\r\nState: EFI_DEVS_END\r\n\r\n\" }
+		timeout { send_user \"\nTimeout6\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Lock\ flash* { send_user \"\r\n\r\nState: SPI_LOCK\r\n\r\n\" }
+		timeout { send_user \"\nTimeout9\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF6\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Boot\ Manager\ Menu* { send_user \"\r\n\r\nState: BOOT_MGR_MSG\r\n\r\n\" }
+		timeout { send_user \"\nTimeout11\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF7\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Mapping\ table* { send_user \"\r\n\r\nState: MAPPING_TABLE_MSG\r\n\r\n\" }
+		timeout { send_user \"\nTimeout5\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF5\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Pci(0x1C,0x0)/Msg(29,00)/Ctrl(0x0)/HD(1C* { 
+			send_user \"\r\n\r\nState: EFI_FS_MMC_DETECT\r\n\r\n\"
+			exp_continue 
+		}
+		*USB(0x6,0x0)/HD(1* { 
+			send_user \"\r\n\r\nState: EFI_FS_USB_DETECT\r\n\r\n\"
+			exp_continue 
+		}
+		*Shell>* { }
+		timeout { send_user \"\nTimeout6\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*BootOrder0000* { 
+			send_user \"\r\n\r\nState: BOOT_ORDER_DUMP\r\n\r\n\" 
+			send_user \"\r\n\r\nState: BOOT_OPT_0_DETECT\r\n\r\n\" 
+		}
+		*BootOrder0001* { 
+			send_user \"\r\n\r\nState: BOOT_ORDER_DUMP\r\n\r\n\" 
+			send_user \"\r\n\r\nState: BOOT_OPT_0_DETECT\r\n\r\n\" 
+		}
+		*bcfg\ boot\ dump* { 
+			send_user \"\r\n\r\nState: BOOT_ORDER_DUMP\r\n\r\n\" 
+			set timeout 5
+			expect {
+				*Option:\ 00* { 
+					send_user \"\r\n\r\nState: BOOT_OPT_0_DETECT\r\n\r\n\" 
+					expect {
+						*not\ recognized* { send_user \"\r\n\r\nState: BOOT_OPT_0_ND\r\n\r\n\" }
+						*Pci(0x1C* { send_user \"\r\n\r\nState: BOOT_OPT_0_MMC\r\n\r\n\" }
+						*USB(0x6* { send_user \"\r\n\r\nState: BOOT_OPT_0_USB\r\n\r\n\" }
+						timeout { send_user \"\nTimeout6.1\n\" }
+					}
+				}
+				timeout { send_user \"\r\n\r\nState: BOOT_OPT_NOT_DETECTED\r\n\r\n\" }
+				eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+			}
+			set timeout $timeout
+		}
+		timeout { send_user \"\nTimeout8\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*Shell\\>\ \\%Boot* { send_user \"\r\n\r\nState: BOOT_OPTION_LOAD\r\n\r\n\" }
+		*echo\ \\%BootOrder* { send_user \"\r\n\r\nState: BOOT_OPTION_LOAD\r\n\r\n\" }
+		*0000\\]* { send_user \"\r\n\r\nState: NO_GRUB_LINUX_LOAD\r\n\r\n\" }
+		timeout { send_user \"\nTimeout12\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*will\ be\ started\ automatically* { send_user \"\r\n\r\nState: GRUB_MENU\r\n\r\n\" }
+		*0000\]* { send_user \"\r\n\r\nState: NO_GRUB_LINUX_LOAD\r\n\r\n\" }
+		timeout { send_user \"\nTimeout13\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*SMBIOS* { send_user \"\r\n\r\nState: LINUX_BOOT_SCREEN\r\n\r\n\" }
+		*ACPI:* { send_user \"\r\n\r\nState: LINUX_BOOT_SCREEN\r\n\r\n\" }
+		*ogin:* { 
+			send_user \"\r\n\r\nState: LINUX_LOGIN_PROMPT_NOLOAD\r\n\r\nPROMPT_OK1\"
+			sleep 5
+			send $termExitSeq
+			expect {
+				$discMsg { send_user \"\r\n\r\n\r\nDisconnected, ok\r\n\r\n\r\n\" ; exit 1 }
+				timeout { send_user \"\nTimeout4\n\"; send $termExitSeq; exit 1 }
+				eof { send_user \"\nEOF\n\";send $termExitSeq; exit 1 }
+			}
+		}
+		timeout { send_user \"\nTimeout14\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*pci_bus\ 0000:00* { send_user \"\r\n\r\nState: LINUX_BOOT_PCI_INIT\r\n\r\n\" }
+		timeout { send_user \"\nTimeout15\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*mmc0* { send_user \"\r\n\r\nState: LINUX_BOOT_EMMC_INIT\r\n\r\n\"  }
+		*Started\ OpenSSH* { send_user \"\r\n\r\nState: LINUX_BOOT_EMMC_NOT_FOUND\r\n\r\n\"  }
+		*Stopped\ Plymouth* { send_user \"\r\n\r\nState: LINUX_BOOT_EMMC_NOT_FOUND\r\n\r\n\"  }
+		*Starting\ Hostname* { send_user \"\r\n\r\nState: LINUX_BOOT_EMMC_NOT_FOUND\r\n\r\n\"  }
+		timeout { send_user \"\nTimeout16\n\"; send $termExitSeq ; exit 1 }
+		eof { send_user \"\nEOF\n\"; send $termExitSeq ; exit 1 }
+	}
+	expect {
+		*login:* { send_user \"\r\n\r\nState: LINUX_LOGIN_PROMPT\r\n\r\nPROMPT_OK1\" }
+		timeout { send_user \"\nTimeout2\n\"; send $termExitSeq ; exit 1 }
+		eof { 
+				send_user \"\r\n\r\nEOF on reload\r\n\r\n\"
+				send $termExitSeq
+				exit 1
+				break
+			}
+	}
+	expect {
+		** { send_user \"\r\n\r\n\r\nClosed, ok\r\n\r\n\r\n\" ; exit 1 }
 		timeout { send_user \"\nTimeout4\n\"; send $termExitSeq; exit 1 }
 		eof { send_user \"\nEOF\n\";send $termExitSeq; exit 1 }
 	}
@@ -6563,9 +7597,9 @@ ipPowerInit() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	acquireVal "IPPower IP address" ippIP ippIP
 	verifyIp "${FUNCNAME[0]}" $ippIP
+	sshWaitForPing 30 $ippIP 2
 	acquireVal "IPPower user" ippUsr ippUsr
 	acquireVal "IPPower password" ippPsw ippPsw
-
 }
 
 ipPowerSetPowerUP() {
@@ -6580,6 +7614,29 @@ ipPowerSetPowerDOWN() {
 	ipPowerSetPowerHttp $ippIP $ippUsr $ippPsw 2 0
 }
 
+ipPowerSetPortPowerDOWN() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	privateNumAssign "ippPortNum" "$1"
+	if [ $ippPortNum -lt 1 -o $ippPortNum -gt 4 ]; then except "illegal port number: $ippPortNum"; fi
+	ipPowerSetPortPower $ippPortNum 0
+}
+
+ipPowerSetPortPowerUP() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	privateNumAssign "ippPortNum" "$1"
+	if [ $ippPortNum -lt 1 -o $ippPortNum -gt 4 ]; then except "illegal port number: $ippPortNum"; fi
+	ipPowerSetPortPower $ippPortNum 1
+}
+
+ipPowerSetPortPower() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	privateNumAssign "ippPortNum" "$1"
+	privateNumAssign "ippPortTargState" "$2"
+	if [ $ippPortNum -lt 1 -o $ippPortNum -gt 4 ]; then except "illegal port number: $ippPortNum"; fi
+	if [ $ippPortNum -lt 0 -o $ippPortTargState -gt 1 ]; then except "illegal port target state: $ippPortTargState"; fi
+	ipPowerSetPowerHttp $ippIP $ippUsr $ippPsw $ippPortNum $ippPortTargState
+}
+
 ipPowerSetPowerHttp() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ipPowerIP ipPowerUser ipPowerPass targPort targState cmdRes
@@ -6589,7 +7646,8 @@ ipPowerSetPowerHttp() {
 	privateVarAssign "${FUNCNAME[0]}" "ipPowerPass" "$3"
 	privateVarAssign "${FUNCNAME[0]}" "targPort" "$4"
 	privateVarAssign "${FUNCNAME[0]}" "targState" "$5"
-	cmdRes=$(wget "http://$ipPowerIP/set.cmd?user=$ipPowerUser+pass=$ipPowerPass+cmd=setpower+p6$targPort=$targState" 2>&1)
+	cmdRes=$(wget --timeout=20 "http://$ipPowerIP/set.cmd?user=$ipPowerUser+pass=$ipPowerPass+cmd=setpower+p6$targPort=$targState" 2>&1)
+	rm -f './set.cmd?user=$ipPowerUser+pass=$ipPowerPass+cmd='*
 	# cmdRes=$(wget "http://172.30.4.207/set.cmd?user=admin+pass=12345678+cmd=setpower+p61=1" 2>&1)
 }
 
@@ -6661,6 +7719,284 @@ ipmiPowerDOWN() {
 		addSQLLogRecord $syncSrvIp $ipmiIP --ipmi-connection-failed
 		addSQLLogRecord $syncSrvIp $ipmiIP --ipmi-power-down-failed
 		except "Unable to connect to $ipmiUser@$ipmiIP"
+	fi
+}
+
+printTPLinkHub() {
+	local hubIdx
+	privateNumAssign "hubIdx" "$1"
+	printUsbDevsOnHub $hubIdx bda:411 bda:5411 | { head -1; sort; }
+}
+
+getUsbHubs() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local hubDevId hubKeyw hubList hubDevsList hubDev hubOk hubArr hubHWPath
+	hubDevId="005a"
+	hubKeyw="0x0024"
+	hubList="$(lsusb -d :$hubDevId 2>/dev/null)"
+	if [ ! -z "$hubList" ]; then
+		hubDevsList=$(awk '{print $4}'<<<"$hubList" |cut -d: -f1)
+		for hubDev in $hubDevsList; do
+			hubOk=$(timeout 2s lsusb -vs :$hubDev 2>/dev/null |grep "$hubKeyw")
+			if [ ! -z "$hubOk" ]; then
+				hubBus=$(lsusb -s :$hubDev 2>/dev/null |awk '{print $2}' |cut -d: -f1)
+				hubHWPath=$(udevadm info --query=all -n /dev/bus/usb/$hubBus/$hubDev 2>&1 |grep DEVPATH |awk -F/ '{print $NF}')
+				if [ ! -z "$hubHWPath" ]; then hubArr+=("$hubHWPath"); fi
+			fi
+		done
+	fi
+	if [ ! -z "$hubArr" ]; then echo -n "${hubArr[*]}"; fi
+}
+
+getUsbHubsByID() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local hubDevId hubKeyw hubList hubDevsList hubDev hubOk hubPathArr hubBusArr hubDevsArr hub hubArrIdx hubHWPath
+	privateVarAssign "${FUNCNAME[0]}" "hubDevQuery" "$1"
+	hubKeyw="Compound device"
+	hubList="$(lsusb -d $hubDevQuery 2>/dev/null)"
+	if [ ! -z "$hubList" ]; then
+		while read hub; 
+		do 		
+			if isDefined hub; then
+				dmsg inform "processing hub: $hub"
+				hubBusArr+=("$(awk '{print $2}'<<<"$hub" |cut -d: -f1)")
+				hubDevsArr+=("$(awk '{print $4}'<<<"$hub" |cut -d: -f1)")
+			fi
+		done <<< "$hubList"	
+		for ((hubArrIdx=0;hubArrIdx<${#hubDevsArr[@]};hubArrIdx++)); do
+			unset hubDevPathOk
+			dmsg inform "processing dev: ${hubDevsArr[$hubArrIdx]}"
+			hubDevPathOk=$(udevadm info --query=all -n /dev/bus/usb/${hubBusArr[$hubArrIdx]}/${hubDevsArr[$hubArrIdx]} 2>/dev/null |grep DEVPATH)
+			if isDefined hubDevPathOk; then
+				dmsg inform "hubDevPathOk: $hubDevPathOk"
+				hubOk=$(timeout 2s lsusb -vs ${hubBusArr[$hubArrIdx]}:${hubDevsArr[$hubArrIdx]} 2>/dev/null | grep "$hubKeyw")
+				if isDefined hubOk; then
+					dmsg inform "hubOk: $hubOk"
+					hubHWPath=$(udevadm info --query=all -n /dev/bus/usb/${hubBusArr[$hubArrIdx]}/${hubDevsArr[$hubArrIdx]} 2>&1 |grep DEVPATH |awk -F/ '{print $NF}')
+					dmsg inform "getting hubHWPath: $hubHWPath"
+					if [ ! -z "$hubHWPath" ]; then hubPathArr+=("$hubHWPath"); fi
+				fi
+			fi
+		done
+	fi
+	if [ ! -z "$hubPathArr" ]; then echo -n "${hubPathArr[*]}"; fi
+}
+
+getUsbDevsOnHub() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local hubList hubNum hubIdx hubHWAddr hub devBus hubDevIDList hubDevId hubsInList
+	local devName devParentPath devPath devUevent devInfo devId devSubId devBusnum devDevnum devVerbName
+	local busSpeed busGen devIsSecondary hubHWAddrArr
+	local devPort usbDir usbDirsOnParent maxChld maxChildren devRemovable portIdx portEval
+	local ARG KEY VALUE minimalMode delimSym
+
+	for ARG in "$@"
+	do
+		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
+		VALUE=$(echo $ARG |cut -f2 -d=)
+		case "$KEY" in
+			hub-number) privateNumAssign "hubNum" "${VALUE}" ;;
+			hub-dev-id) 
+				if isDefined VALUE; then
+					hubDevIDList+="${VALUE} "
+				else
+					except "--hub-dev-id should be provided with Device ID!"
+				fi
+			;;
+			delim) 
+				if isDefined VALUE; then
+					delimSym=${VALUE:0:1}
+				else
+					except "--delim should be provided with delimeter symbol"
+				fi
+			;;
+			minimal) minimalMode=1 ;;
+			margs)
+				if isDefined VALUE; then
+					margsList="${VALUE}"
+					local chrIdx
+					for (( chrIdx=0; chrIdx<${#margsList}; chrIdx++ )); do
+						chrArg=${margsList:$chrIdx:1}
+						case "$chrArg" in
+							d) local noDevId=1;;
+							g) local noUsbGen=1;;
+							b) local noBusAdr=1;;
+							c) local noSerCrc=1;;
+							*) except "illegal minimal mode argument: $chrArg";;
+						esac
+					done
+				else
+					except "--margs should be provided with minimal mode arguments!"
+				fi
+			;;
+			*) dmsg inform "Unknown arg: $ARG"
+		esac
+	done
+
+	if ! isDefined delimSym; then delimSym=';'; fi
+	let maxChildren=0
+	
+	for hubDevId in $hubDevIDList; do
+		let hubIdx=0
+		dmsg inform "processing: $hubDevId"
+		hubList="$(getUsbHubsByID $hubDevId)"
+		for hub in $hubList; do
+			let hubIdx++
+			if [ $hubNum -eq $hubIdx ]; then 
+				hubHWAddrArr+=($hub)
+				dmsg inform "hub arr: ${hubHWAddrArr[*]}"
+				break
+			fi
+		done
+	done
+
+	if ! isDefined minimalMode; then
+		printf "$blb%*s %*s %*s %*s %*s %*s %*s$ec\n" 5 "Port" 6 "Speed" 8 "Bus:Dev" 10 "ID:SubID" 21 "Name" 21 "Serial CRC"
+	fi
+	
+	for hubHWAddr in ${hubHWAddrArr[*]}; do
+		devBus=$(cut -d '-' -f1 <<<"$hubHWAddr")
+		hubDevPath="/sys/bus/usb/devices/usb$devBus/$hubHWAddr"
+		#devsOnHub="$(ls -l /sys/bus/usb/devices/ |grep "$hubHWAddr\..*:1\..$\|$hubHWAddr\.1\..*:1\..$" |grep -v "$hubHWAddr\.1:1\.0" |awk -F/ '{print $NF}')"
+		
+		devsOnHub="$(find `find $hubDevPath/* -name authorized |rev |cut -d/ -f2- |rev` -maxdepth 1 -name bInterfaceClass |rev |cut -d/ -f2- |rev)"
+		hubsInList=$(grep DRIVER=hub $(sed -e 's|$|/uevent|' <<<"$devsOnHub") |rev |cut -d/ -f2- |rev)
+		devsOnHub="$(grep -vF "$hubsInList" <<<"$devsOnHub" |awk -F/ '{print $NF}')" #removing hubs from list
+
+		dmsg inform "devsOnHub: $devsOnHub"
+
+		if [ -e "/sys/bus/usb/devices/usb$devBus/" ]; then
+			dmsg inform "Device exist> /sys/bus/usb/devices/usb$devBus/"
+			busSpeed=$(cat /sys/bus/usb/devices/usb$devBus/speed 2>/dev/null)
+
+			if isNumber busSpeed; then
+				if ! isDefined minimalMode; then
+					if [ $busSpeed -gt 3000 ]; then busGen=" ${gr}USB3$ec"; else busGen=" ${org}USB2$ec"; fi
+				else
+					if [ $busSpeed -gt 3000 ]; then busGen="USB3"; else busGen="USB2"; fi
+				fi
+			else
+				busGen=" ${rd} N/A$ec"
+			fi
+			
+			for dev in $devsOnHub; do
+				dmsg inform "Processing dev> $dev"
+				devName=$(cut -d: -f1 <<<$dev)
+				devPort=$(awk -F'.' '{print $NF}' <<<$devName)
+				devPath="$(find "/sys/bus/usb/devices/usb$devBus/" -name dev |grep -m1 "$devName/dev" |rev |cut -d/ -f2- |rev)"
+				devParentPath="$(find "/sys/bus/usb/devices/usb$devBus/" -name dev |grep -m1 "$devName/dev" |rev |cut -d/ -f3- |rev)"
+				if [ "$hubDevPath" = "$devParentPath" ]; then devIsSecondary=1; else unset devIsSecondary; fi
+				devsOnParent="$(find `ls -l -d $devParentPath/*/ |awk '{print $NF}'` -maxdepth 1 -name dev |awk -F/ '{print $(NF-1)}')"
+				usbDirsOnParent="$(find `ls -l -d $devParentPath/*/ |awk '{print $NF}'` -maxdepth 1 -name dev |rev |cut -d/ -f2- |rev)"
+				parentMaxChildren=$(cat $devParentPath/maxchild 2>/dev/null)
+				if ! isNumber parentMaxChildren; then
+					except "Parent cant have children, aborting"
+				fi
+
+				# dmsg inform "devPath: $devPath"
+				dmsg inform "devsOnParent: $devsOnParent"
+				dmsg inform "usbDirsOnParent: $usbDirsOnParent"
+
+				let usbDevIdx=0
+				let portIdx=0
+				let fixedIdx=0
+				for usbDir in $usbDirsOnParent; do 
+					if [ -e "$usbDir/removable" ]; then 
+						let usbDevIdx++
+						devRemovable=$(grep "removable" $usbDir/removable 2>/dev/null)
+						if isDefined devRemovable; then
+							let portIdx++
+						else
+							if [ -e "$usbDir/maxchild" ]; then 
+								dmsg inform "Checking maxchild of $usbDir: "$(cat $usbDir/maxchild)
+								maxChld=$(cat $usbDir/maxchild 2>/dev/null)
+								if isNumber maxChld; then
+									if [ $maxChld -eq 0 ]; then
+										let portIdx++
+									else
+										let fixedIdx++
+										unset devRemovable
+									fi
+								else
+									unset devRemovable
+								fi
+							else
+								let fixedIdx++
+							fi
+						fi
+					else
+						unset devRemovable
+					fi
+					dmsg inform " $usbDir > PORTIdx: $portIdx devRemovable: $devRemovable"
+					if [ "$devName" = "$usbDir" ]; then
+						dmsg inform " port found, breaking loop.."
+						break
+					else
+						dmsg inform "$devName is not equial to $usbDir"
+					fi
+				done
+				if isDefined devIsSecondary; then
+					let devPort+=$parentMaxChildren
+				fi
+				devUevent="$(cat $devPath/uevent)"
+				devBusnum=$(grep 'BUSNUM=' <<<"$devUevent" |cut -d= -f2-)
+				devDevnum=$(grep 'DEVNUM=' <<<"$devUevent" |cut -d= -f2-)
+				devInfo=$(udevadm info -q property -n /dev/bus/usb/$devBusnum/$devDevnum)
+				devId=$(grep -oE 'PRODUCT=([0-9a-zA-Z]+)/' <<<"$devInfo" | cut -d'=' -f2 | cut -d'/' -f1 |printf "%04X" "$((16#$(cat)))")
+				devSubId=$(grep -oE 'PRODUCT=([0-9a-zA-Z]+)/([0-9a-zA-Z]+)/' <<<"$devInfo" | cut -d'=' -f2 | cut -d'/' -f2 |printf "%04X" "$((16#$(cat)))")
+				devVerbName=$(grep 'ID_MODEL=' <<<"$devInfo" | cut -d'=' -f2 |sed "s/_/ /")
+				devSerCrc=$(grep 'ID_SERIAL_SHORT=' <<<"$devInfo"| cut -d'=' -f2 | cksum | awk '{print $1}'| printf "%08X\n" "$(cat)" | tr '[:lower:]' '[:upper:]')
+				dmsg inform "devPort=$devPort  usbDevIdx=$usbDevIdx  fixedIdx=$fixedIdx"
+				portEval=$(($devPort-$fixedIdx))
+				dmsg inform "  PORTIdx: $portIdx evalCnt: $portEval"
+				if isDefined minimalMode; then
+					if ! isDefined noDevId; then local devIdMsg=$devId:$devSubId$delimSym; fi
+					if ! isDefined noUsbGen; then local busGenMsg=$busGen$delimSym; fi
+					if ! isDefined noBusAdr; then local devBusMsg=$devBusnum:$devDevnum$delimSym; fi
+					if ! isDefined noSerCrc; then local devSerCrcMsg=$devSerCrc; fi
+					echo "$portEval$delimSym$busGenMsg$devBusMsg$devIdMsg${devVerbName:0:30}$delimSym$devSerCrcMsg"
+				else
+					printf "%-5s %b $blp%*s$ec $blp%-11s$ec $cyg%-30s$ec  $pr%-8s$ec\n" "  $portEval" "$busGen" 10 "[$devBusnum:$devDevnum]" "[$devId:$devSubId]" "${devVerbName:0:30}" "$devSerCrc"
+				fi
+			done
+		fi
+	done
+}
+
+getUsbTTYOnHub() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local hubPortNumReq hubList hubNum hubIdx hubHWAddr hub devBus
+	privateNumAssign "hubNum" "$1"
+	privateNumAssign "hubPortNumReq" "$2"
+
+	let hubIdx=0
+	hubList="$(getUsbHubs)"
+	for hub in $hubList; do
+		let hubIdx++
+		if [ $hubNum -eq $hubIdx ]; then hubHWAddr=$hub; fi
+	done
+
+	devBus=$(cut -d '-' -f1 <<<"$hubHWAddr")
+	devsOnHub="$(ls -l /sys/bus/usb/devices/ |grep "$hubHWAddr\..*:1\..$\|$hubHWAddr\.4\..*:1\..$" |grep -v "$hubHWAddr\.4:1\.0" |awk -F/ '{print $NF}')"
+	#devsOnHub="$(ls -l /sys/bus/usb/devices/ |grep "$hubHWAddr\..:1\|$hubHWAddr\.4\..:1\.0" |grep -v "$hubHWAddr\.4:1\.0" |awk -F/ '{print $NF}')"
+	if [ -e "/sys/bus/usb/devices/usb$devBus/" ]; then
+		dmsg inform "Device exist> /sys/bus/usb/devices/usb$devBus/"
+		for dev in $devsOnHub; do
+			dmsg inform "Processing dev> $dev"
+			ttyOnDev=$(find /sys/bus/usb/devices/usb$devBus/ -name dev |grep "$dev" |grep -m1 tty |awk -F/ '{print $(NF-1)}')
+			if [ ! -z "$ttyOnDev" ]; then
+				dmsg inform "TTY exist> $ttyOnDev"
+				privateNumAssign "hubPortNum" "$(cut -d. -f2 <<<"$dev" |cut -d: -f1)"
+				if [ $hubPortNum -gt 3 ]; then #second part of hub, address have to be adjusted
+					privateNumAssign "hubPortNum" "$(cut -d. -f3 <<<"$dev" |cut -d: -f1)"
+					let hubPortNum=$(($hubPortNum+3))
+				fi
+				dmsg inform "  Found dev on port $hubPortNum: $ttyOnDev"
+				if [ $hubPortNumReq -eq $hubPortNum ]; then
+					echo -n "$ttyOnDev"
+				fi
+			fi
+		done
 	fi
 }
 
@@ -6843,6 +8179,118 @@ setupInternet() {
 			echo "  Skipped internet setup, not in down state"
 		fi
 	fi
+}
+
+bindSlotToBridge() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local slotList maxSlots brSlot brSlots dmiSlotBusList brSlotBusList brDev brDevs brSlotBus brName brIp brNets
+	privateVarAssign "${FUNCNAME[0]}" "slotList" "$*"
+	privateVarAssign "${FUNCNAME[0]}" "dmiSlotBusList" "$(getDmiSlotBuses)"
+	privateNumAssign "maxSlots" "$(getMaxSlots)"
+
+	for slotNum in $slotList; do
+		if isNumber slotNum; then
+			if [ $slotNum -ge 1 ] && [ $slotNum -le $maxSlots ]; then 
+				brSlots+="$slotNum "
+			else
+				except "illegal slot number: $slotNum, not in slot range 1 - $maxSlots"
+			fi
+		else
+			except "provided slot: $slotNum in slotList: $slotList is not a number"
+		fi
+	done
+
+	echo -e "  Binding Ifaces on slots: $slotList"
+	brName="Slot"$(sed 's/ /_/g'<<<$slotList)"_BR"
+	brIp="192.168.$(sed 's/[^0-9]*//g'<<<$slotList |cut -c1-2).1"
+
+	for brSlot in $brSlots; do
+		brNets+=$(getIfacesOnSlot $brSlot)" "
+	done
+	brNets=$(awk '$1=$1'<<<$brNets)
+
+	if isDefined brNets; then
+		echo -e "    Net list: $brNets"
+		
+		ip link del dev Slot1_3_BR >/dev/null 2>&1
+		echo -e "    Checking nets.."
+		checkIfacesExist $brNets
+		echo -e "    Setting UP"
+		setIfaceLinks -up $brNets
+		echo -e "    Setting channels setting"
+		setIfaceChannels -target-qty=3 $brNets
+		echo -e "    Setting IRQ"
+		setIrq $brNets
+		# echo -e "    Setting pause parameters"
+		# setIfaceParams -flow -on $brNets
+		echo -e "    Binding ifaces to bridge $yl$brName$ec with IP $org$brIp$ec"
+		bindIfacesToBridge $brName $brIp $brNets
+		printNetsStats --nets-req="$brNets"
+		echo -e "  Done."
+	else
+		except "No nets could be gathered"
+	fi
+}
+
+bindIfacesToBridge() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local bridgeName bridgeIP ethIface ethIfaceList
+	privateVarAssign "${FUNCNAME[0]}" "bridgeName" "$1" ;shift
+	privateVarAssign "${FUNCNAME[0]}" "bridgeIP" "$1" ;shift
+	privateVarAssign "${FUNCNAME[0]}" "ethIfaceList" "$*"
+	verifyIp "${FUNCNAME[0]}" $bridgeIP
+
+	echo -e "  Binding interfaces: $yl$ethIfaceList$ec to bridge: $gr$bridgeName$ec"
+	checkIfacesExist $ethIfaceList
+
+	if [ ! -e "/sys/class/net/$bridgeName/" ]; then
+		echo -e "  Creating bridge $gr$bridgeName$ec"
+		ip link add name $bridgeName type bridge
+		echo -e "  Setting bridge $yl$bridgeName$ec to ${gr}UP$ec"
+		ip link set $bridgeName up
+		echo -e "   Assign IP address to the bridge: $yl$bridgeName$ec"
+		ip addr add $bridgeIP/8 dev $bridgeName
+	fi
+
+	for ethIface in $ethIfaceList; do
+		echo -e "  Setting iface $yl$ethIface$ec to ${yl}DOWN$ec"
+		ip link set $ethIface down
+		echo -e "  Flushing iface $yl$ethIface$ec"
+		ip a flush dev $ethIface
+		echo -e "  Adding iface $yl$ethIface$ec to $yl$bridgeName$ec"
+		ip link set $ethIface master $bridgeName
+		echo -e "  Setting iface $yl$ethIface$ec to ${gr}UP$ec"
+		ip link set $ethIface up
+	done
+	echo "  Bridge setup done."
+}
+
+createVirtualIfaces() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ethIface ethIfaceList curPortIdx ifaceIdx ifaceQty virtPortName virtIfaceList
+	privateVarAssign "${FUNCNAME[0]}" "ethIfaceList" "$*"
+
+	checkIfacesExist $ethIfaceList
+
+	let ifaceIdx=0
+	let ifaceQty=$(wc -w<<<"$ethIfaceList")-1
+	echo "  Creating virtual interfaces for ifaces: ${gr}$ethIfaceList$ec"
+	for ethIface in $ethIfaceList; do
+		echo -e "  $yl$ethIface$ec> Processing.."
+		for ((curPortIdx=0; curPortIdx<=$ifaceQty; ++curPortIdx)) ; do
+			if [ $ifaceIdx -ne $curPortIdx ]; then
+				virtPortName=${ethIface}P$curPortIdx
+				echo -e "    Adding virtual interface $yl$virtPortName$ec on $org$ethIface$ec"
+				ip link add $virtPortName link $ethIface type macvlan mode bridge
+				echo -e "    Setting virtual interface $yl$virtPortName$ec ${gr}UP$ec"
+				ip link set dev $virtPortName up
+				virtIfaceList+=("$virtPortName")
+			fi
+		done
+		let ifaceIdx++
+	done
+	echo "   Created ifaces: ${virtIfaceList[*]}"
+	echo "  Virtual interface setup done."
 }
 
 sshSendCmd() {
@@ -7207,9 +8655,7 @@ getSfpVPDInfo() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local slcmCmdRes sfpVen sfpVenPn sfpVenSn sfpVenManufDate sfpWL busAddr
 	privateVarAssign "${FUNCNAME[0]}" "ethIfaceList" "$*"
-	for ethName in $ethIfaceList; do
-		testFileExist "/sys/class/net/$ethName/"
-	done
+	checkIfacesExist $ethIfaceList
 
 	for ethName in $ethIfaceList; do
 		slcmCmdRes="$(slcm_util $ethName get_sfp_info)"
@@ -7229,6 +8675,90 @@ getSfpVPDInfo() {
 		fi
 		echo -e "\n"
 	done
+}
+
+
+function dumpSfpRegsToFile() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local busAddrList busAddr fileArg currVal
+	privateVarAssign "${FUNCNAME[0]}" "fileName" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "busAddrList" "$*"
+
+	lsmod |grep slcm &> /dev/null || slcm_start &> /dev/null
+
+	if [ -d "$fileName" ]; then
+		except "file name $fileName is actualy a direrctory, cant be used."
+	else
+		local haveDots=$(grep '.'<<<"$fileName")
+		# if isDefined haveDots; then
+		# 	except "illegal file name $fileName , cant have dots in name"
+		# fi
+	fi
+
+	for busAddr in $busAddrList; do
+		testFileExist "/sys/bus/pci/devices/0000:$busAddr/"
+	done
+	let dumpStat=0
+
+	mkdir -p "./EEPROM_dumps/"
+	for busAddr in $busAddrList; do
+		busPort=$(cut -d. -f2<<<"$busAddr")
+		dumpFullPath="./EEPROM_dumps/${fileName}_p$busPort.EEPDMP"
+		crcFullPath="./EEPROM_dumps/${fileName}_p$busPort.EEPDMP.crc"
+		rm -f $dumpFullPath >/dev/null 2>&1
+		rm -f $crcFullPath >/dev/null 2>&1
+
+		tput civis
+		echo -e "\n\n\n\tDumping bus: ${blw}$busAddr$ec\n"
+		echo -e "\t${cy}Reading page 0xa0 on $busAddr..$ec"
+		pageAddr="0xa0"
+		for ((byteNum=0;byteNum<=127;byteNum++)); do  #excluding SN zone, and date code
+			echo -e -n "\t  Reg:$byteNum : "
+			currVal=$(readSfpAddr $busAddr $pageAddr $byteNum; exit $?)
+			if [ $? -eq 0 ]; then
+				echo -e "${gr}$currVal$ec"
+				echo "$pageAddr $byteNum $currVal">>$dumpFullPath
+				echo -ne '\e[A'
+			else
+				echo "$pageAddr $byteNum 0xEE">>$dumpFullPath
+				echo -e "${rd}Dump failed.$ec"
+				let dumpStat+=1
+				echo -ne '\e[A'
+			fi
+		done	
+
+		echo -e "\n\n\t${cy}Reading page 0xa2 on $busAddr..$ec"
+		pageAddr="0xa2"
+		for ((byteNum=0;byteNum<=127;byteNum++)); do   #excluding sensors and status bits
+			echo -e -n "\t  Reg:$byteNum : "
+			if (( $byteNum <= 95 || $byteNum >= 120)); then	
+				currVal=$(readSfpAddr $busAddr $pageAddr $byteNum; exit $?)
+				if [ $? -eq 0 ]; then
+					echo -e "${gr}$currVal$ec"
+					echo "$pageAddr $byteNum $currVal">>$dumpFullPath
+				else
+					echo "$pageAddr $byteNum 0xEE">>$dumpFullPath
+					echo -e "${rd}Dump failed.$ec"
+					let dumpStat+=1
+				fi
+				echo -ne '\e[A'
+			else
+				if (( $byteNum >= 96 && $byteNum <= 109)); then	
+					echo -e "${pr}A/D Values region, skipping$ec"; sleep 0.05
+				else
+					echo -e "${bl}Status Bits and Flags region, skipping$ec"; sleep 0.05
+				fi
+				echo -ne '\e[A\e[K\e[0;30m\n\e[m\e[A\e[K'
+			fi
+		done
+		echo -e "\n\t${yl}Creating CRC file for the dump..$ec"
+		makeFileCrc "$dumpFullPath"
+		echo -e "\t${gr}Done.$ec"
+		if [ ! -e "$crcFullPath" ]; then except "CRC file could not be created for the dump file: $dumpFullPath"; fi
+		tput cnorm
+	done
+
+	return $dumpStat
 }
 
 writeSfpEEPROMFromFile() {
@@ -7563,6 +9093,356 @@ stsTransData() {
 	done
 }
 
+diskWriteTest() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local diskDev skipBlockSizeMB writeBlockSizeMB testStatus
+	privateVarAssign "${FUNCNAME[0]}" "diskDev" "$1"
+	skipBlockSizeMB=$2
+	writeBlockSizeMB=$3
+
+	if [ -z "$skipBlockSizeMB" -o -z "$writeBlockSizeMB" ]; then
+		let skipBlockSizeMB=128
+		let writeBlockSizeMB=16
+	else
+		privateNumAssign "skipBlockSizeMB" "$2"
+		privateNumAssign "writeBlockSizeMB" "$3"
+	fi
+
+	let testStatus=0
+	testFile="/tmp/random_data_file.bin"
+	mountedDev="$(mount |grep "$diskDev")"
+
+	echo -ne "\tDevice path: $yl$diskDev$ec "
+	if [ ! -e "$diskDev" ]; then 
+		echo -e "${rd}FAIL$ec"
+	else
+		echo -e "${gr}OK$ec"
+		if [ -z "$mountedDev" ]; then 
+			privateNumAssign "totalSpaceMB" $(($(blockdev --getsize64 $diskDev)/1024/1024))
+			let totalSpaceMB=$(($totalSpaceMB-$writeBlockSizeMB)) #for safety
+
+			if [ $totalSpaceMB -lt 145 ]; then
+				except "Device $diskDev size is $totalSpaceMB and is less than 161MB so cannot be used"
+			fi
+
+			echo -e "\tTotal device size: $gr$(($totalSpaceMB+$writeBlockSizeMB))MB$ec"
+			echo -e "\tSeek block size: $yl${skipBlockSizeMB}MB$ec"
+			echo -e "\tWrite block size: $yl${writeBlockSizeMB}MB$ec"
+			echo -e "\tTotal test write count: $yl$(($totalSpaceMB/$skipBlockSizeMB))$ec\n\n"
+
+			createRandomFile "$testFile" $writeBlockSizeMB
+			sourceChecksum=$(calculateChecksum "$testFile")
+
+			for ((startAddr = $skipBlockSizeMB; startAddr < totalSpaceMB; startAddr += $skipBlockSizeMB)); do
+				endAddr=$((startAddr + $writeBlockSizeMB))
+
+				backupFilePath="/tmp/backup_${startAddr}-${endAddr}MB.bin"
+				backupBlock "$diskDev" "$startAddr" "$endAddr" "$backupFilePath" $writeBlockSizeMB
+				writeZeros "$diskDev" "$startAddr" "$endAddr" $writeBlockSizeMB
+				verifyZeros "$diskDev" "$startAddr" "$endAddr" $writeBlockSizeMB
+				writeRandomData "$diskDev" "$startAddr" "$endAddr" "$testFile" $writeBlockSizeMB
+				exec 3>&1
+				dumpedChecksum=$(dumpAndCalculateChecksum "$diskDev" "$startAddr" "$endAddr" $writeBlockSizeMB 4>&1)
+				exec 3>&-
+
+				# The prompts are displayed using file descriptor 3 (>&3), 
+				# and the actual results of the calculation are redirected to file descriptor 4 (>&4). 
+				# By using >&3- in the subshell command grouping, 
+				# we close file descriptor 3 for the calculation output, ensuring that 
+				# only the prompts are displayed there. The resultsOfCalc variable captures 
+				# only the contents of file descriptor 4, which contains the calculation results.
+
+				printf '\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K'
+				echo -ne "\tWrite test on ${startAddr}-${endAddr}MB "
+				if [ "$sourceChecksum" = "$dumpedChecksum" ]; then
+					echo -e "\t${gr}OK$ec"
+				else
+					echo -e "\t${rd}FAIL$ec"
+					let testStatus++
+				fi
+
+				restoreBlock "$diskDev" "$startAddr" "$endAddr" "$backupFilePath" $writeBlockSizeMB
+				printf '\e[A\e[K'
+				
+			done
+			if [ $testStatus -eq 0 ]; then
+				echo -e "\e[A\e[K\tResult: Write test PASSED\t\t\t\t\t\t\t\t"
+			else
+				echo -e "\e[A\e[K\tResult: Write test FAILED\t\t\t\t\t\t\t\t"
+			fi
+			rm -f "$testFile"
+		else
+			echo -e "\t${rd}Mount list:$yl\n$mountedDev$ec\n"
+			except "Device $diskDev is in use and cannot be tested, unmount it first"
+		fi
+	fi
+}
+
+calculateChecksum() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local file
+	privateVarAssign "${FUNCNAME[0]}" "file" "$1"
+	checkPkgExist md5sum
+	if [ -e "$file" ]; then
+		md5sum "$file" |awk '{print $1}'
+	else
+		except "File $filePath does not exist"
+	fi
+}
+
+function execWithTimeout() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local timeout exitStatus cmdLine
+	timeout=$1; shift
+	if isNumber timeout; then
+		if [ $timeout -lt 1 ]; then
+			except "Timeout: $timeout cant be less than 1 second or decimal"
+		fi
+	else
+		except "provided: $timeout is not a number, should be whole number more than 1"
+	fi
+	cmdLine="$*"
+	if isDefined cmdLine; then
+		eval timeout -k5 -s9 $timeout "${cmdLine}"
+		let exitStatus=$?
+	else
+		except "Undefined command"
+	fi
+	if isDefined exitStatus; then
+		let exitCode=$exitStatus
+		case $exitStatus in
+			124) except "Command: ${cmdLine} has timed out." ;;
+			125) except "Timeout command has failed." ;;
+			126) except "Command: ${cmdLine} is found but cannot be invoked." ;;
+			127) except "Command: ${cmdLine} is not found." ;;
+			137) except "Command: ${cmdLine} (or timeout itself) is sent the KILL (9) signal." ;;
+			0|1) ;;
+			*) except "Command: ${cmdLine} produced unexpected exit code: $exitStatus"
+		esac
+	else
+		except "Exit code is undefined"
+	fi
+	return $exitCode
+}
+
+createRandomFile() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local filePath mbCount timeoutN cmdL
+	privateVarAssign "${FUNCNAME[0]}" "filePath" "$1"
+	privateNumAssign "mbCount" "$2"
+
+	if isDefined ddTimeout; then let timeoutN=$ddTimeout; else let timeoutN=240; fi
+	cmdL='dd if=/dev/urandom of="'"$filePath"'" bs=1M count='"$mbCount"' status=none'
+	execWithTimeout $timeoutN "$cmdL"
+	if [ $? -ne 0 ]; then except "Failed to create random file"; fi
+	if [ ! -e "$filePath" ]; then
+		except "Random file $filePath does not exist"
+	fi
+}
+
+backupBlock() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local devPath startAddr endAddr mbCount timeoutN cmdL
+	privateVarAssign "${FUNCNAME[0]}" "devPath" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "startAddr" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "endAddr" "$3"
+	privateVarAssign "${FUNCNAME[0]}" "backupFile" "$4"
+	privateNumAssign "mbCount" "$5"
+
+	if [ -e "$devPath" ]; then
+		rm -f "$backupFile" &>/dev/null
+		if [ ! -e "$backupFile" ]; then
+			echo -ne "\tBacking up block from region ${startAddr}-${endAddr}MB.."
+			if isDefined ddTimeout; then let timeoutN=$ddTimeout; else let timeoutN=240; fi
+			cmdL='dd if="'"$devPath"'" skip="'"$startAddr"'" bs=1M count='"$mbCount"' of="'"$backupFile"'" status=none'
+			isDefined ddVerbose && echo -n "dumping->"
+			execWithTimeout $timeoutN "$cmdL"
+			if [ $? -ne 0 ]; then except "Backing up of the block failed"; fi
+			isDefined ddVerbose && echo "dumped." || echo
+		else
+			except "Backup file: $backupFile was not removed"
+		fi
+	else
+		except "Device $devPath does not exist"
+	fi
+}
+
+writeZeros() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local devPath startAddr endAddr mbCount timeoutN
+	privateVarAssign "${FUNCNAME[0]}" "devPath" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "startAddr" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "endAddr" "$3"
+	privateNumAssign "mbCount" "$4"
+
+	if [ -e "$devPath" ]; then
+		echo -ne "\tWriting zeros to block from region ${startAddr}-${endAddr}MB.."
+		if isDefined ddTimeout; then let timeoutN=$ddTimeout; else let timeoutN=240; fi
+		cmdL='dd if=/dev/zero of="'"$devPath"'" seek="'"$startAddr"'" bs=1M count='"$mbCount"' conv=notrunc status=none'
+		isDefined ddVerbose && echo -n "writing->"
+		execWithTimeout $timeoutN "$cmdL"
+		if [ $? -ne 0 ]; then except "Zero write to the region failed"; fi
+		isDefined ddVerbose && echo "written." || echo
+	else
+		except "Device $devPath does not exist"
+	fi
+}
+
+verifyZeros() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local devPath startAddr endAddr mbCount byteCount cmdL timeoutN compareFilePath dumpByteSize cmpRes
+	privateVarAssign "${FUNCNAME[0]}" "devPath" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "startAddr" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "endAddr" "$3"
+	privateNumAssign "mbCount" "$4"
+	privateNumAssign "byteCount" "$(($mbCount*1048576))"
+	compareFilePath="/tmp/$(xxd -u -l 4 -p /dev/urandom).dump"
+	if isDefined ddTimeout; then let timeoutN=$ddTimeout; else let timeoutN=240; fi
+
+	if [ -e "$devPath" ]; then
+		echo -ne "\tVerifying zeros in block from region ${startAddr}-${endAddr}MB.."
+		if [ ! -e "$compareFilePath" ]; then
+			cmdL='dd if="'"$devPath"'" of="'"$compareFilePath"'" skip="'"$startAddr"'" bs=1M count='"$mbCount"' status=none'
+			isDefined ddVerbose && echo -n "dumping->"
+			execWithTimeout $timeoutN "$cmdL"
+			if [ $? -ne 0 ]; then except "Dump of the region failed"; fi
+			isDefined ddVerbose && echo -n "dumped.."
+			if [ -e "$compareFilePath" ]; then
+				privateNumAssign dumpByteSize $(du -b "$compareFilePath" |cut -d/ -f1 |tr -cd '[:digit:]')
+				if [ $dumpByteSize -eq $byteCount ]; then
+					cmdL='cmp -n '"$byteCount"' /dev/zero "'"$compareFilePath"'" &>/dev/null'
+					isDefined ddVerbose && echo -n "comparing->"
+					execWithTimeout $timeoutN "$cmdL"; cmpRes=$?
+					isDefined ddVerbose && echo "compared." || echo
+					if [ $cmpRes -eq 0 ]; then
+						echo -e "\t${gr}Block verified as zeros$ec"
+					else
+						except "Block verification failed"
+					fi
+					
+				else
+					except "Dump size does not match, dump: $dumpByteSize, target count: $byteCount"
+				fi
+			else
+				except "Dump failed"
+			fi
+		else
+			except "Temporary compare file already exist"
+		fi
+	else
+		except "Device $devPath does not exist"
+	fi
+
+	rm -f "$compareFilePath" &>/dev/null
+}
+
+writeRandomData() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local devPath startAddr endAddr mbCount byteCount timeoutN cmdL
+	privateVarAssign "${FUNCNAME[0]}" "devPath" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "startAddr" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "endAddr" "$3"
+	privateVarAssign "${FUNCNAME[0]}" "inputFile" "$4"
+	privateNumAssign "mbCount" "$5"
+	if isDefined ddTimeout; then let timeoutN=$ddTimeout; else let timeoutN=240; fi
+
+	if [ -e "$devPath" -a -e "$inputFile" ]; then
+		echo -ne "\tWriting random data to block from region ${startAddr}-${endAddr}MB.."
+		cmdL='dd if="'"$inputFile"'" of="'"$devPath"'" seek='"$startAddr"' bs=1M count='"$mbCount"' conv=notrunc status=none'
+		isDefined ddVerbose && echo -n "writing->"
+		execWithTimeout $timeoutN "$cmdL"
+		if [ $? -ne 0 ]; then except "Writing to the region failed"; fi
+		isDefined ddVerbose && echo "written." || echo
+	else
+		except "Device $devPath or file path $inputFile does not exist"
+	fi
+}
+
+function dumpAndCalculateChecksum () {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local devPath startAddr endAddr mbCount resRet checksum timeoutN cmdL dumpByteSize byteCount dumpPath
+	privateVarAssign "${FUNCNAME[0]}" "devPath" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "startAddr" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "endAddr" "$3"
+	privateNumAssign "mbCount" "$4"
+	# The prompts are displayed using file descriptor 3 (>&3), 
+	# and the actual results of the calculation are redirected to file descriptor 4 (>&4). 
+	# By using >&3- in the subshell command grouping, 
+	# we close file descriptor 3 for the calculation output, ensuring that 
+	# only the prompts are displayed there. The resultsOfCalc variable captures 
+	# only the contents of file descriptor 4, which contains the calculation results.
+	let resRet=1
+	privateNumAssign "byteCount" "$(($mbCount*1048576))"
+	if isDefined ddTimeout; then let timeoutN=$ddTimeout; else let timeoutN=240; fi
+
+	if [ -e "$devPath" ]; then
+		dumpPath="/tmp/dump_${startAddr}-${endAddr}MB.bin"; rm -f "$dumpPath" &>/dev/null
+		echo -ne "\tDumping block from region ${startAddr}-${endAddr}MB.." >&3
+		if [ ! -e "$dumpPath" ]; then
+			cmdL='dd if="'"$devPath"'" of="'"$dumpPath"'" skip='"$startAddr"' bs=1M count='"$mbCount"' status=none'
+			isDefined ddVerbose && echo -n "dumping->" >&3
+			execWithTimeout $timeoutN "$cmdL"
+			if [ $? -ne 0 ]; then except "Dump of the region failed"; fi
+			isDefined ddVerbose && echo -n "dumped.." >&3
+			if [ -e "$dumpPath" ]; then
+				privateNumAssign dumpByteSize $(du -b "$dumpPath" |cut -d/ -f1 |tr -cd '[:digit:]')
+				if [ $dumpByteSize -eq $byteCount ]; then
+					isDefined ddVerbose && echo -n "chksum->" >&3
+					local checksum=$(calculateChecksum "$dumpPath")
+					isDefined ddVerbose && echo "done." >&3 || echo >&3
+					if [ ! -z "$checksum" ]; then
+						echo -e "\tChecksum of dumped block: ${checksum}" >&3
+						echo -n "${checksum}" >&4
+						let resRet=0
+					else
+						except "Checksum of dumped block is empty!"
+					fi
+					rm -f "$dumpPath" &>/dev/null
+				else
+					except "Dump size does not match, dump: $dumpByteSize, target count: $byteCount"
+				fi
+			else
+				except "Dump failed"
+			fi
+		else
+			except "Dump file: $dumpPath already exist"
+		fi
+	else
+		except "Device $devPath does not exist"
+	fi
+	return $resRet
+}
+
+restoreBlock() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local devPath startAddr endAddr mbCount timeoutN
+	privateVarAssign "${FUNCNAME[0]}" "devPath" "$1"
+	privateVarAssign "${FUNCNAME[0]}" "startAddr" "$2"
+	privateVarAssign "${FUNCNAME[0]}" "endAddr" "$3"
+	privateVarAssign "${FUNCNAME[0]}" "backupFile" "$4"
+	privateNumAssign "mbCount" "$5"
+	if isDefined ddTimeout; then let timeoutN=$ddTimeout; else let timeoutN=240; fi
+
+	if [ -e "$devPath" -a -e "$backupFile" ]; then
+		echo -ne "\tRestoring backed up block to region ${startAddr}-${endAddr}MB from file.."
+		cmdL='dd if="'"$backupFile"'" of="'"$devPath"'" seek='"$startAddr"' bs=1M count='"$mbCount"' conv=notrunc status=none'
+		isDefined ddVerbose && echo -n "writing->"
+		execWithTimeout $timeoutN "$cmdL"
+		if [ $? -ne 0 ]; then except "Writing to the region failed"; fi
+		isDefined ddVerbose && echo "written." || echo
+		echo -ne "\tRemoving backup file.."
+		isDefined ddVerbose && echo -n "removing->"
+		rm -f "$backupFile"
+		if [ -e "$backupFile" ]; then 
+			except "Backup file $backupFile cant be removed"
+		else
+			isDefined ddVerbose && echo "removed." || echo
+		fi
+	else
+		except "Device $devPath or backup file path $backupFile does not exist"
+	fi
+}
+
 libs() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	echo -e "\nSourcing graphics.."
@@ -7588,7 +9468,7 @@ checkPathVar(){
 makeLibSymlinks() {
 	local lib fileName
 	local LIB_PATH="/root/multiCard"
-	local libsList=( "arturLib.sh" "graphicsLib.sh" "sqlLib.sh" )
+	local libsList=( "arturLib.sh" "graphicsLib.sh" "sqlLib.sh" "trafficLib.sh" )
 	for lib in ${libsList[*]}; do
 		if [ -e "${LIB_PATH}/$lib" ]; then
 			fileName=$(echo -n $lib|cut -d. -f1)
