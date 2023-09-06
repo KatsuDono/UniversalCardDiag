@@ -8,18 +8,23 @@ declareVars() {
 	let exitExec=0
 	let debugBrackets=0
 	let debugShowAssignations=0
-	ippIP=172.30.7.26
-	ippUsr=admin
-	ippPsw=12345678
+	if [ -z "${ippIP}" ]; then ippIP=172.30.7.26; fi
+	if [ -z "${ippUsr}" ]; then ippUsr=admin; fi
+	if [ -z "${ippPsw}" ]; then ippPsw=12345678; fi
+	if [ -z "${usbHubNum}" ]; then usbHubNum=1; fi
+	bootLogPath="/root/multiCard/boot_log.csv"
 	pnArr=(
 		"80500-0150-G02"
 		"80500-0224-G02"
 	)
 	declare -ga ipmiSensReqArr=("null" "null")
+	declare -ga PIDStackArr=("$$")
+	statusCheckLogName="statusChk_$(xxd -u -l 4 -p /dev/urandom).log"
 }
 
 parseArgs() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	echo " Parsing args.."
 	for ARG in "$@"
 	do
 		KEY=$(echo $ARG|cut -c3- |cut -f1 -d=)
@@ -29,34 +34,80 @@ parseArgs() {
 			uut-tn) tnArg=${VALUE} ;;
 			uut-rev) revArg=${VALUE} ;;
 			test-sel) 
-				inform "Launch key: Selected test: ${VALUE}"
 				testSelArg=${VALUE}
+				inform "  Launch key: Selected test: $testSelArg"
+			;;
+			test-sel-idx) 
+				privateNumAssign "testSelIdxArg" "${VALUE}"
+				inform "  Launch key: Selected test index: $testSelIdxArg"
+			;;
+			no-log) 
+				noLogMode=1 
+				inform "  Launch key: No log mode"
 			;;
 			skip-info-fail) 
 				skpInfoFail=1 
-				inform "Launch key: Skip info fail, HW info is in low priority now"
+				inform "  Launch key: Skip info fail, HW info is in low priority now"
+			;;
+			minor-launch) 
+				inform "  Launch key: Minor priority launch mode"
+				minorLaunch=1
+			;;
+			auto-poweroff) 
+				inform "  Launch key: Minor priority launch mode"
+				autoPoweroff=1
+			;;
+			ipp-port) 
+				privateNumAssign "ippPort" "${VALUE}"
+				inform "  Launch key: IPPower port number ($ippPort)"
+				if [ $ippPort -lt 1 -o $ippPort -gt 4 ]; then except "illegal port number: $ippPort"; fi
+			;;
+			ipp-ip) 
+				ippIP=${VALUE}
+				inform "  Launch key: IPPower IP address ($ippIP)"
+			;;
+			tty-hub-port) 
+				privateNumAssign "ttyHubPortNumArg" "${VALUE}"
+				inform "  Launch key: TTY connection port number on hub ($ttyHubPortNumArg)"
+				if [ $ttyHubPortNumArg -lt 1 -o $ttyHubPortNumArg -gt 7 ]; then except "illegal port number: $ttyHubPortNumArg"; fi
+			;;
+			usb-bp-hub) 
+				privateNumAssign "usbBpHubNum" "${VALUE}"
+				inform "  Launch key: USBBP tty connection hub number ($usbBpHubNum)"
+				if [ $usbBpHubNum -lt 1 -o $usbBpHubNum -gt 99 ]; then except "illegal hub number: $usbBpHubNum"; fi
+			;;
+			usb-bp-hub-port) 
+				privateNumAssign "usbBpHubPortNum" "${VALUE}"
+				inform "  Launch key: USBBP tty connection port number on hub ($usbBpHubPortNum)"
+				if [ $usbBpHubPortNum -lt 1 -o $usbBpHubPortNum -gt 7 ]; then except "illegal port number: $usbBpHubPortNum"; fi
+			;;
+			run-tmux)
+				privateNumAssign "tmuxSession" "${VALUE}"
+				inform "  Launch key: Required to run in tmux, session number: $tmuxSession"
+				if [ $tmuxSession -lt 1 ]; then except "illegal session number: $tmuxSession"; fi
 			;;
 			silent) 
 				silentMode=1 
-				inform "Launch key: Silent mode, no beeps allowed"
+				inform "  Launch key: Silent mode, no beeps allowed"
 			;;
 			debug) 
 				debugMode=1 
-				inform "Launch key: Debug mode"
+				inform "  Launch key: Debug mode"
 			;;
 			debug-show-assign) 
 				let debugShowAssignations=1
 				debugMode=1 
-				inform "Launch key: Debug mode, visible assignations"
+				inform "  Launch key: Debug mode, visible assignations"
 			;;
 			dbg-brk) 
 				debugBrackets=1
-				inform "Launch key: Debug mode arg: no debug brackets"
+				inform "  Launch key: Debug mode arg: no debug brackets"
 			;;
 			help) showHelp ;;
 			*) echo "Unknown arg: $ARG"; showHelp
 		esac
 	done
+	echo -e " Done.\n"
 }
 
 showHelp() {
@@ -82,6 +133,28 @@ showHelp() {
 	exit
 }
 
+loadCfg() {
+	local cfgPath srcRes
+	echo -e "  Loading config file.."
+	cfgPath="$(readlink -f ${0} |cut -d. -f1).cfg"
+	if [[ -e "$cfgPath" ]]; then 
+		echo -e "   Config file $cfgPath found."
+		cfgSize=$(stat -c%s "$cfgPath")
+		echo -n "   Checking size.. "
+		if [ $cfgSize -gt 0 ]; then
+			echo "Validated."
+			echo -n "   Sourcing CFG: "
+			source "$cfgPath" 3>&1 1>&2 2>&3 3>&- 1> /dev/null
+			if [ $? -eq 0 ]; then echo "config loaded"; else critWarn "config file is corrupted"; fi
+		else
+			warn "Invalid, empty file, skipping"
+		fi
+	else
+		warn "  Config file not found by path: $cfgPath"
+	fi
+	echo -e "  Done."
+}
+
 setEmptyDefaults() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	echo -e " Setting defaults.."
@@ -98,6 +171,14 @@ function ctrl_c()
 		*) warn "Trap is undefined for baseModel: $baseModel"
 	esac
 	exit 
+}
+
+killAndRemovePID() {
+  local pidKill="$1"
+
+  kill "$pidKill"
+  # Remove the PID from the array
+  PIDStackArr=("${PIDStackArr[@]/$pidKill}")
 }
 
 sshCheckServer() {
@@ -122,12 +203,14 @@ startupInit() {
 			*) except "init sequence unknown baseModel: $baseModel"
 		esac
 	}
-	echo "  Clearing temp log"; rm -f /tmp/statusChk.log 2>&1 > /dev/null
+	echo "  Clearing temp log"; rm -f /tmp/$statusCheckLogName 2>&1 > /dev/null
 	echo -e " Done.\n"
 }
 
 graniteINIT() {
+	checkDefined ippPort
 	ipPowerInit
+	replugRequired="0"
 }
 
 checkRequiredFiles() {
@@ -175,7 +258,7 @@ defineRequirments() {
 		dmsg inform "DEBUG1: ${pciArgs[@]}"
 		case "$uutPn" in 
 			"80500-0150-G02")
-				baseFamily="ATT"
+				baseFamily="ATTxS"
 				baseModel="80500-0150-G02"
 
 				blkChip="${cy}U60$ec on HOST"
@@ -221,7 +304,91 @@ defineRequirments() {
 				i210MACQtyReq=1
 				i210VerReq="3.25"
 
-				i2cDevQty=2
+				i2cDevQtyReq=2
+				i2cChipsetNameReq="I801"
+				i2cHostFruEepChip="${cy}U13$ec on HOST"
+				i2cHostFruEepAddr="56"
+				i2cClockBuffChip="${cy}U33$ec on HOST"
+				i2cClockBuffAddr="6d"
+				i2cDDRSpdEepChip="${cy}U12$ec on HOST"
+				i2cDDRSpdEepAddr="50"
+				i2cIR38062MChip="${cy}U86$ec on HOST"
+				i2cIR38062MAddr="44"
+				i2cIOFprIDEepChip="${cy}U51$ec on I/O"
+				i2cIOFprIDEepAddr="57"
+				i2cVoltMonChip="${cy}U78$ec on HOST"
+				i2cVoltMonAddr="14"
+				i2cGPIOExpChip="${cy}U27$ec on I/O"
+				i2cGPIOExpAddr="74"
+				i2cNMIDEepChip="${cy}U54$ec on I/O"
+				i2cNMIDEepAddr="54"
+				i2cPICEepChip="${cy}U64$ec on HOST"
+				i2cPICEepAddr="5b"
+				ncsiIoChips="${cy}Y7, U12, NCSI_RX, NCSI_TX$ec on I/O"
+				ncsiHostChips="${cy}Y7, U12, NCSI_RX, NCSI_TX$ec on I/O"
+				ipmiSensReqArr=(
+					"Host CPU Temperature" "TEMP_HOST_CPU"
+					"Host PCB Temperature" "TEMP_HOST_PCB"
+					"Host air inlet Temperature" "TEMP_INLET_AMB"
+					"FAN1 Speed" "FAN1_TACH"
+					"Host 5V Voltage" "CPU_BRD 5V"
+					"Host 3.3V Voltage" "CPU_BRD 3.3V"
+					"Host VCCSRAM Voltage" "CPU_BRD VCCSRAM"
+					"Host VCCP Voltage" "CPU_BRD VCCP"
+					"Host 1.05V Voltage" "CPU_BRD 1.05V"
+					"Host MEMVDDQ Voltage" "CPU_BRD MEMVDDQ"
+					"Host VNN Voltage" "CPU_BRD VNN"
+					"Host 1.8V Voltage" "CPU_BRD 1.8V"
+				)
+			;;
+			"80500-0179-G10")
+				baseFamily="ATT_S"
+				baseModel="80500-0150-G02"
+
+				blkChip="${cy}U60$ec on HOST"
+				blkQtyReq="3"
+				blkSizeReq="58.2G"
+
+				biosChip="${cy}U47$ec on I/O"
+				biosVerReq="ATTXS-02.00.00.02e"
+				biosChipNameReq="W25Q128"
+				biosChipSizeReq="16384"
+				
+				cpuChip="${cy}U21$ec on HOST"
+				cpuModelReq="C3558"
+				cpuCoreReq=4
+				cpuMicrocodeReq="0x2e"
+
+				ramChip="${cy}U2-U10$ec on HOST"
+				ramSizeReq="8.1"
+
+				usbChip="${cy}U22$ec on I/O"
+				usbChipNameReq="TUSB8041"
+				usb2HubQtyReq=1
+				usb2HubDevIdReq="0451:8140"
+				usb3HubQtyReq=1
+				usb3HubDevIdReq="0451:8142"
+				usbImgRelVerReq="Sep 22 2019"
+
+				x553SwChip="${cy}U23$ec on I/O"
+				x553EEPChip="${cy}U14$ec on I/O"
+				x553PciSpeedReq="2.5GT/s"
+				x553PciWidthReq="x1"
+				x553QtyReq=2
+				x553MACQtyReq=2
+				x553VerReq="0.58"
+
+				mgntPciAddr="03:00.0"
+				mgntSpeedReq="1000"
+				i210SwChip="${cy}U12$ec on I/O"
+				i210EEPChip="${cy}U59$ec on I/O"
+				i210PciSpeedReq="2.5GT/s"
+				i210PciWidthReq="x1"
+				i210QtyReq=1
+				i210MACQtyReq=1
+				i210VerReq="3.25"
+
+				i2cDevQtyReq=2
 				i2cChipsetNameReq="I801"
 				i2cHostFruEepChip="${cy}U13$ec on HOST"
 				i2cHostFruEepAddr="56"
@@ -287,14 +454,34 @@ defineRequirments() {
 				lteUsbQtyReq=1
 				lteUsbDevIdReq="2c7c:0125"
 
+				mmcCtrlQtyReq=1
+
+				i225_1EthChip="${cy}U49$ec"
+				i225_1EthEEPChip="${cy}U31$ec"
+				i225_2EthChip="${cy}U50$ec"
+				i225_2EthEEPChip="${cy}U39$ec"
+				i225_3EthChip="${cy}U51$ec"
+				i225_3EthEEPChip="${cy}U40$ec"
+				i225_4EthChip="${cy}U52$ec"
+				i225_4EthEEPChip="${cy}U42$ec"
+
+				i225_EthPciSpeedReq="5GT/s"
+				i225_EthPciWidthReq="x1"
+				i225_EthQtyReq=4
+				i225_EthMACQtyReq=4
+				i225_EthVerReq="1.73"
+
 				i2cDevQty=2
 				i2cChipsetNameReq="I801"
-				i2cRanges=("0x08" "0x30" "0x33" "0x77")
 
 				i2cBuckBoostChargerChip="${cy}U19$ec"
 				i2cBuckBoostChargerAddr="09"
 				i2cSocChip=$cpuChip
 				i2cSocAddr="08"
+				i2cLedControllerChip1="${cy}U30$ec"
+				i2cLedControllerAddr1="31"
+				i2cLedControllerChip2="${cy}U33$ec"
+				i2cLedControllerAddr2="32"
 				i2cDDRSpdEepChip="${cy}U12$ec"
 				i2cDDRSpdEepAddr="5c"
 				i2cFruEepChip="${cy}U13$ec"
@@ -303,22 +490,20 @@ defineRequirments() {
 				i2cuCAddr="74"
 
 				gpioArr=(
-					"10,MFG_MODE,1"
-					"66,SOC-SIM1-DET-N,1"
-					"67,SOC-SIM2-DET-N,1"
-					"86,SOC-SIM-SEL,0"
-					"87,PMU_PLTRST_N,0"
-					"88,SUS_STAT_N,1"
-					"90,SOC-BUF-M2E-EN,1"
-					"91,SOC-BUF-SLOT-EN,1"
-					"92,M2E-W-DISABLE2#,1"
-					"93,SOC_SATA_PDETECT1,1"
+					"10,MFG_MODE,1,crit"
+					"66,SOC-SIM1-DET-N,0,warn"
+					"67,SOC-SIM2-DET-N,0,warn"
+					"86,SOC-SIM-SEL,0,crit"
+					"87,PMU_PLTRST_N,0,crit"
+					"88,SUS_STAT_N,1,crit"
+					"92,M2E-W-DISABLE2#,1,crit"
+					"93,SOC_SATA_PDETECT1,1,crit"
 				)
 			;;
 			*) except "$uutPn cannot be processed, requirements not defined for the case"
 		esac
 		case $baseFamily in
-			"ATT") 
+			"ATTxS") 
 				uutBdsUser="root"
 				uutBdsPass="sil7644"
 				uutBMCUser="is_admin"
@@ -352,13 +537,21 @@ initialSetup(){
 	defineRequirments
 	
 	case $baseFamily in
-		"ATT") 
+		"ATTxS") 
 			selectSerial "  Select UUT serial device"
 			publicVarAssign silent uutSerDev ttyUSB$?
 		;;
 		"GRANITE")
 			echo -n "  Checking serial device is connected:"
-			publicVarAssign silent uutSerDev $(dmesg |grep 'USB ACM device' |tail -n1 |awk '{print $4}' |cut -d: -f1)
+			if [ -z "$ttyHubPortNumArg" -o -z "$usbHubNum" ]; then
+				publicVarAssign fatal uutSerDev $(dmesg |grep 'USB ACM device' |tail -n1 |sed 's/\ /\n/g' |grep ttyA |cut -d: -f1)
+			else
+				echo -n "   Getting from Hub:$usbHubNum - Port:$ttyHubPortNumArg"
+				publicVarAssign fatal uutSerDev $(getUsbTTYOnHub $usbHubNum $ttyHubPortNumArg)
+			fi
+			if isDefined usbBpHubNum usbBpHubPortNum; then
+				publicVarAssign fatal uutUsbCycleDev $(getUsbTTYOnHub $usbBpHubNum $usbBpHubPortNum)
+			fi
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
@@ -441,7 +634,7 @@ boxATTHWCheck() {
 	checkIfContains "Checking TI USB hub 2.0 device quantity ($usbChip)" "--$usb2HubQtyReq" "$(echo -n "$usb2HubQty"|grep -m 1 "$usb2HubQtyReq")"
 	checkIfContains "Checking TI USB hub 3.0 device quantity ($usbChip)" "--$usb3HubQtyReq" "$(echo -n "$usb3HubQty"|grep -m 1 "$usb3HubQtyReq")"
 	checkIfContains "Checking USB image realease version (${cy}USB Drive$ec)" "--$usbImgRelVerReq" "$(echo -n "$usbImgRelVer"|grep -m 1 "$usbImgRelVerReq")"; echo -ne "\n"
-	checkIfContains "Checking I2C controller device quantity ($cpuChip)" "--$i2cDevQty" "$(echo -n "$i2cDevQty"|grep -m 1 "$i2cDevQty")"
+	checkIfContains "Checking I2C controller device quantity ($cpuChip)" "--$i2cDevQtyReq" "$(echo -n "$i2cDevQty"|grep -m 1 "$i2cDevQtyReq")"
 	checkIfContains "Checking I2C controller name ($cpuChip)" "--$i2cChipsetNameReq" "$(echo -n "$i2cChipsetName"|grep -m 1 "$i2cChipsetNameReq")"
 	checkIfContains "Checking I2C Host FRU EEPROM present ($i2cHostFruEepChip)" "--$i2cHostFruEepAddr" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cHostFruEepAddr")"
 	checkIfContains "Checking I2C PCIe clock buffer present ($i2cClockBuffChip)" "--$i2cClockBuffAddr" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cClockBuffAddr")"
@@ -729,11 +922,45 @@ denvertonPingTest() {
 	fi
 }
 
+boxNANOGPIOTest(){
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local gpioInfo cnt gpioAddr gpioName gpioValReq
+
+	echo "   Checking GPIO addresess:"
+	for gpioLine in ${gpioArr[*]}; do
+		gpioAddr=$(cut -d, -f1 <<<$gpioLine)
+		gpioName=$(cut -d, -f2 <<<$gpioLine)
+		gpioValReq=$(cut -d, -f3 <<<$gpioLine)
+		gpioValSeverity=$(cut -d, -f4 <<<$gpioLine)
+
+		echo -n "    GPIO pin $gpioAddr: "
+		gpioCmd="gpioget 0 $gpioAddr"
+		gpioVal=$(getNANOBlock $uutSerDev "$gpioCmd" |grep -v 'a\|e\|o' | sed 's/[^0-9]//g')
+		echo -n "$gpioName = $gpioVal "|tr -d '\n'
+		if [ -z "$gpioVal" ]; then
+			echo -e "${yl}EMPTY - ${rd}FAIL$ec"
+		else
+			if [ $gpioValReq -eq $gpioVal ]; then 
+				echo -e "${gr}OK$ec"
+			else 
+				if [ "$gpioValSeverity" = "warn" ]; then
+					echo -e "${yl}WARN$ec (should be: $gpioValReq)"
+				else
+					echo -e "${rd}FAIL$ec (should be: $gpioValReq)"
+				fi
+				
+			fi
+		fi
+		let cnt++
+	done
+}
+
 boxNANOHWCheck() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	local devInfoRes devInfoCmd sendCmd
+	local devInfoRes devInfoCmd sendCmd nic
 	case $baseModel in
 		"80500-0224-G02")  
+			echo -n "  >Getting MMC conctroller qty.. "; mmcCtrlQty=$(getNANOQty $uutSerDev "lspci -nnd :19db |wc -l"); echo "done."
 			echo -n "  >Getting block qty.. "; blkQty=$(getNANOQty $uutSerDev "lsblk |grep mmc |grep disk |wc -l"); echo "done."
 			echo -n "  >Getting block size.. "; blkSize="$(getNANOString $uutSerDev "lsblk |grep -m1 mmc |awk '{print \\\$4}'")"; echo "done."
 			echo -n "  >Getting BIOS version.. "; biosVer="$(getNANOString $uutSerDev "dmidecode |grep Version |head -n 1 |cut -d' ' -f2-")"; echo "done."
@@ -744,11 +971,32 @@ boxNANOHWCheck() {
 			echo -n "  >Getting Internal USB hub 2.0 device quantity.. "; usb2HubQty=$(getNANOQty $uutSerDev "lsusb -d $usb2HubDevIdReq |wc -l"); echo "done."
 			echo -n "  >Getting Internal USB hub 3.0 device quantity.. "; usb3HubQty=$(getNANOQty $uutSerDev "lsusb -d $usb3HubDevIdReq |wc -l"); echo "done."
 			echo -n "  >Getting LTE USB device quantity.. "; lteUsbQty="$(getNANOQty $uutSerDev "lsusb -d $lteUsbDevIdReq |wc -l")"; echo "done."
+			echo -n "  >Getting I225 PCI info dev 1.. "; i225_1PciInfo="$(getNANOString $uutSerDev "lspci -vvnns 04:00.0 |grep LnkCap: |cut -d, -f2-3")"; echo "done."
+			echo -n "  >Getting I225 PCI info dev 2.. "; i225_2PciInfo="$(getNANOString $uutSerDev "lspci -vvnns 05:00.0 |grep LnkCap: |cut -d, -f2-3")"; echo "done."
+			echo -n "  >Getting I225 PCI info dev 3.. "; i225_3PciInfo="$(getNANOString $uutSerDev "lspci -vvnns 06:00.0 |grep LnkCap: |cut -d, -f2-3")"; echo "done."
+			echo -n "  >Getting I225 PCI info dev 4.. "; i225_4PciInfo="$(getNANOString $uutSerDev "lspci -vvnns 07:00.0 |grep LnkCap: |cut -d, -f2-3")"; echo "done."
+			echo -n "  >Getting I225 Device qty.. "; let i225DevQty=$(getNANOQty $uutSerDev "lspci -d :15f3 |wc -l"); echo "done."
+			echo -n "  >Getting I225 initialized device qty.. "; i225LoadedDevQty=$(getNANOQty $uutSerDev "lspci -kd :15f3 |grep 'in use' |wc -l"); echo "done."
+			echo -n "  >Getting I225 burned MAC qty.. "; i225MacQty=$(getNANOQty $uutSerDev "ip a |grep 90:ec:77 |wc -l"); echo "done."
+
+			echo -n "  >Getting I225 NIC numbers.. "; i225EthNicArr=$(getNANOBlock $uutSerDev "eeupdate64e" |grep '15F3' |awk '{print $1}'); echo "done."
+			for nic in $i225EthNicArr; do
+				nic=$(sed 's/[^0-9]*//g'<<<$nic)
+				echo -n "  >Getting I225 EEPROM Version of $nic interface.. "; i225EepVer=$(getNANOString --resp-timeout=10 $uutSerDev "eeupdate64e /nic=$nic /eepromver |grep EEPROM |awk '{print \\\$5}'"); echo "done."
+				i225EepVerArr+=("$i225EepVer")
+			done
+
+
+			echo -n "  >Getting I2C controller device quantity.. "; i2cDevQty=$(getNANOQty $uutSerDev "i2cdetect -l |wc -l"); echo "done."
+			echo -n "  >Getting I2C controller name.. "; i2cChipsetName=$(getNANOString $uutSerDev "i2cdetect -l |grep 'I801'"); echo "done."
+			echo -n "  >Getting I2C device list.. "; i2cDevList="$(getNANOString $uutSerDev "echo \\\$(i2cdetect -q -y 1|grep : |cut -d: -f2- |tr -d '-')")"; echo "done."
 		;;
 		*) except "$uutPn cannot be processed, boxHWCheck not defined for the case"
 	esac
 	echo -e "\n\n"
-	checkIfContains "Checking MMC block qty ($blkChip)" "--$blkQtyReq" "$(echo -n"$blkQty"|grep -m 1 "$blkQtyReq")"
+	
+	checkIfContains "Checking MMC controller qty ($cpuChip)" "--$mmcCtrlQtyReq" "$(echo -n"$mmcCtrlQty"|grep -m 1 "$mmcCtrlQtyReq")"
+	checkIfContains "Checking MMC block qty ($blkChip)" "--$blkQtyReq" "$(echo -n"$blkQty"|grep -m 1 "$blkQtyReq")" "warn"
 	checkIfContains "Checking MMC size ($blkChip)" "--$blkSizeReq" "$(echo -n "$blkSize"|grep -m 1 "$blkSizeReq")"; echo -ne "\n"
 	checkIfContains "Checking BIOS version ($biosChip)" "--$biosVerReq" "$(echo -n "$biosVer"|grep -m 1 "$biosVerReq")"; echo -ne "\n"
 	checkIfContains "Checking CPU model ($cpuChip)" "--$cpuModelReq" "$(echo -n "$cpuModel"|grep -m 1 "$cpuModelReq")"
@@ -757,15 +1005,39 @@ boxNANOHWCheck() {
 	checkIfContains "Checking RAM size ($ramChip)" "--$ramSizeReq" "$(echo -n "$ramSize"|grep -m 1 "$ramSizeReq")"; echo -ne "\n"
 	checkIfContains "Checking Internal USB hub 2.0 device quantity ($usbChip)" "--$usb2HubQtyReq" "$(echo -n "$usb2HubQty"|grep -m 1 "$usb2HubQtyReq")"
 	checkIfContains "Checking Internal USB hub 3.0 device quantity ($usbChip)" "--$usb3HubQtyReq" "$(echo -n "$usb3HubQty"|grep -m 1 "$usb3HubQtyReq")"
-	checkIfContains "Checking LTE USB device quantity ($lteUsbChip)" "--$lteUsbQtyReq" "$(echo -n "$lteUsbQty"|grep -m 1 "$lteUsbQtyReq")"
+	checkIfContains "Checking LTE USB device quantity ($lteUsbChip)" "--$lteUsbQtyReq" "$(echo -n "$lteUsbQty"|grep -m 1 "$lteUsbQtyReq")"; echo -ne "\n"
+
+	i225ChipArr=($i225_1EthChip $i225_2EthChip $i225_3EthChip $i225_4EthChip)
+	i225EEPChipArr=($i225_1EthEEPChip $i225_2EthEEPChip $i225_3EthEEPChip $i225_4EthEEPChip)
+	i225PciInfoArr=("i225_1PciInfo" "i225_2PciInfo" "i225_3PciInfo" "i225_4PciInfo")
+	for ((devIdx=0; devIdx<=3; devIdx++)); do
+		pciInfoVar=${i225PciInfoArr[$devIdx]}
+		checkIfContains "Checking I225-$(($devIdx+1)) PCI lane Speed (${i225ChipArr[$devIdx]})" "--$i225_EthPciSpeedReq" "$(echo -n "${!pciInfoVar}"|grep -m 1 "$i225_EthPciSpeedReq")"
+		checkIfContains "Checking I225-$(($devIdx+1)) PCI lane Width (${i225ChipArr[$devIdx]})" "--$i225_EthPciWidthReq" "$(echo -n "${!pciInfoVar}"|grep -m 1 "$i225_EthPciWidthReq")"
+		checkIfContains "Checking I225-$(($devIdx+1)) EEPROM FW version (${i225EEPChipArr[$devIdx]})" "--$i225_EthVerReq" "$(echo -n "${i225EepVerArr[$devIdx]}"|grep -m 1 "$i225_EthVerReq")" "warn"
+	done
+	checkIfContains "Checking I225 device qty (${i225ChipArr[*]})" "--$i225_EthQtyReq" "$(echo -n "$i225DevQty"|grep -m 1 "$i225_EthQtyReq")"
+	checkIfContains "Checking I225 loaded device qty (${i225ChipArr[*]})" "--$i225_EthQtyReq" "$(echo -n "$i225LoadedDevQty"|grep -m 1 "$i225_EthQtyReq")"
+	checkIfContains "Checking I225 burned MAC qty (${i225EEPChipArr[*]})" "--$i225_EthMACQtyReq" "$(echo -n "$i225MacQty"|grep -m 1 "$i225_EthMACQtyReq")" "warn"; echo -ne "\n"
+
+
+	checkIfContains "Checking I2C controller device quantity ($cpuChip)" "--$i2cDevQtyReq" "$(echo -n "$i2cDevQty"|grep -m 1 "$i2cDevQtyReq")"
+	checkIfContains "Checking I2C controller name ($cpuChip)" "--$i2cChipsetNameReq" "$(echo -n "$i2cChipsetName"|grep -m 1 "$i2cChipsetNameReq")"
+	checkIfContains "Checking I2C Buck boost charger present ($i2cBuckBoostChargerChip)" "--$i2cBuckBoostChargerAddr" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cBuckBoostChargerAddr")"
+	checkIfContains "Checking I2C SOC chip present ($i2cSocChip)" "--$i2cSocAddr" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cSocAddr")"
+	checkIfContains "Checking I2C LED controller 1 ($i2cLedControllerChip1)" "--$i2cLedControllerAddr1" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cLedControllerAddr1")"
+	checkIfContains "Checking I2C LED controller 2 ($i2cLedControllerChip2)" "--$i2cLedControllerAddr2" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cLedControllerAddr2")"
+	checkIfContains "Checking I2C DDR4 SPD EEPROM present ($i2cDDRSpdEepChip)" "--$i2cDDRSpdEepAddr" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cDDRSpdEepAddr")"
+	checkIfContains "Checking I2C FRU EEPROM present ($i2cFruEepChip)" "--$i2cFruEepAddr" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cFruEepAddr")"
+	checkIfContains "Checking I2C microcontroller present ($i2cuCChip)" "--$i2cuCAddr" "$(echo -n "$i2cDevList"|grep -m 1 "$i2cuCAddr")"; echo -ne "\n"
 }
 
 
 checkIfFailed() {
 	curStep="$1"
 	severity="$2"
-	if [[ -e "/tmp/statusChk.log" ]]; then
-		errMsg="$(cat /tmp/statusChk.log | tr '[:lower:]' '[:upper:]' |grep -e 'EXCEPTION\|FAIL')"
+	if [[ -e "/tmp/$statusCheckLogName" ]]; then
+		errMsg="$(cat /tmp/$statusCheckLogName | tr '[:lower:]' '[:upper:]' |grep -e 'EXCEPTION\|FAIL')"
 		dmsg inform "checkIfFailed debug:\n=========================================================="
 		dmsg inform ">$errMsg<"
 		dmsg inform "\n==========================================================\ncheckIfFailed debug END"
@@ -773,64 +1045,184 @@ checkIfFailed() {
 			if [[ "$severity" = "warn" ]]; then
 				warn "$curStep" 
 			else
+				if [ ! -z "$autoPoweroff" ]; then 
+					rm -f /tmp/$statusCheckLogName
+					critWarn "$curStep, executing shutdown"
+					failShutdown=1
+					powerOffUUT
+				fi
+				if [ ! -z "$minorLaunch" ]; then 
+					echo -e "TestStepFailed: $curStep"
+				fi
 				exitFail "$curStep"
 			fi
 		fi
 	fi
 }
 
+boxNANOEmmcTest() {
+	local eMMCCmdRes cpuCmdRes dmiSystemInfoCmdRes dmiBIOSInfoCmdRes eMMCChipInfo cpuName cpuCoreCount dmiRevision dmiBIOSVersion
+	local emmc_cid emmc_date emmc_fwrev emmc_hwrev emmc_life_time emmc_erase_size emmc_name emmc_manfid emmc_serial emmc_rev emmc_type
+
+	echo "  Getting eMMC info from UUT"
+	eMMCCmdRes="$(getNANOBlock $uutSerDev 'cd /sys/class/mmc_host/mmc0/mmc0:0001 ; cat cid date fwrev hwrev life_time erase_size name manfid serial rev type')"
+
+	emmc_cid=$(sed '1q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_date=$(sed '2q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_fwrev=$(sed '3q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_hwrev=$(sed '4q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_life_time=$(sed '5q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_erase_size=$(sed '6q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_name=$(sed '7q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_manfid=$(sed '8q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_serial=$(sed '9q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_rev=$(sed '10q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+	emmc_type=$(sed '11q;d' <<< "$eMMCCmdRes" | tr -dc '[:print:]')
+
+	echo -e "\teMMC chip info: "
+	emmcVarList="emmc_cid emmc_date emmc_fwrev emmc_hwrev emmc_life_time emmc_erase_size emmc_name emmc_manfid emmc_serial emmc_rev emmc_type"
+	emmcHexVarArr=("emmc_fwrev" "emmc_hwrev" "emmc_life_time" "emmc_manfid" "emmc_serial" "emmc_rev")
+	emmcStrVarArr=("emmc_cid" "emmc_date" "emmc_erase_size" "emmc_name" "emmc_type")
+
+	for varN in $emmcVarList; do
+		if [[ " ${emmcStrVarArr[*]} " =~ " ${varN} " ]]; then
+			if [ ! -z "${!varN}" ]; then varMsg="${gr} OK $ec"; else varMsg="${rd} FAIL $ec"; fi
+		else
+			if [[ " ${emmcHexVarArr[*]} " =~ " ${varN} " ]]; then
+				if [ ! -z "$(grep '0x'<<<${!varN})" ]; then varMsg="${gr} OK $ec"; else varMsg="${rd} FAIL $ec"; fi
+			else
+				except "Illegal variable $varN is not in any array"
+			fi
+		fi
+		echo -e "\t $varN=${!varN} $varMsg"
+	done
+
+	mmcWriteTestNANO
+}
+
+mmcWriteTestNANO() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local testCmd cmdRes writeRes
+	testCmd="cd /root/multiCard/; source ./arturLib.sh nolib &>/dev/null; source ./graphicsLib.sh &>/dev/null; diskWriteTest /dev/mmcblk0 256 16"
+	echo -e "\n\t${yl}Starting eMMC write test..$ec\n"
+	cmdRes="$(getNANOBlock --resp-timeout=320 $uutSerDev "$testCmd")"
+	echo -e "$cmdRes"
+	writeRes="$(grep "Result: Write test"<<<"$cmdRes" |awk '{print $1=$1}')"
+	if [ -z "$writeRes" ]; then
+		echo -e "\t${rd}eMMC write test FAIL, returned incomplete.$ec"
+	else
+		echo -e "\t${yl}eMMC write test DONE.$ec"
+	fi
+}
+
+createBootLog() {
+	local logPath ln1 ln2
+	privateVarAssign fatal logPath "$1"
+	if [[ -e "$logPath" ]]; then
+		ln1=$(cat $logPath |head -n1 |grep 'sep=;')
+		ln2=$(cat $logPath |head -n2 |tail -n1 |grep 'UUT_PN;UUT_TN;BOOT_RES')
+		if [ -z "$ln1" -o -z "$ln2" ]; then
+			if [ -z "$(cat $logPath)" ]; then
+				echo "empty, corrected."
+				echo -e "sep=;\nUUT_PN;UUT_TN;BOOT_RES" 2>&1 |& tee -a "$logPath" >/dev/null
+			else
+				critWarn "log: $logPath exists and is corrupted or formatted wrong"
+			fi
+		else
+			echo "validated, not empty"
+		fi
+	else
+		echo "non existent, created."
+		echo -e "sep=;\nUUT_PN;UUT_TN;BOOT_RES" 2>&1 |& tee -a "$logPath" >/dev/null
+	fi
+}
+
 bootMonitor() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	local resCmd
+	local resCmd bootMode
+	bootMode=$1
+	if [ -z "$bootMode" ]; then bootMode="fullBoot"; fi
+
 	case $baseFamily in
-		"ATT") 
+		"ATTxS") 
 			warn "${FUNCNAME[0]} not defined for $baseFamily family"
 		;;
 		"GRANITE")
+			if [ -z "$noLogMode" ]; then 
+				getTracking $tnArg
+				case "$?" in
+					0) echo -e "  TN: $trackNum - ok." ;;
+					1) except "Incorrect tracking number ($trackNum)" ;;
+					2) except "Empty tracking number" ;;
+					*) except "Get tracking unknown exception" 
+				esac
+				echo -n " Checking boot log: "
+				createBootLog "$bootLogPath"
+			fi
 			echo  " Sending poweroff"
 			poweroffRes="$(sendNANO $uutSerDev --power-off 2>&1 |grep 'null')"
 
 			echo -e "$cy Killing writers on serial port$ec"
 			killSerialWriters $uutSerDev
 			
-			echo -e "$cy Unloading cdc_acm$ec"
-			rmmod cdc_acm || except "Unload failed"
-			echo -e "$yl Reloading USB device by id 05cd:0800 $ec"
-			reloadUSBPortByHandle "5cd/800" 1
-			# echo -e "$cy Setting sTTY settings$ec"
-			# stty -F /dev/$uutSerDev 115200
+			# echo -e "$cy Unloading cdc_acm$ec"
+			# rmmod cdc_acm || except "Unload failed"
+			# echo -e "$yl Reloading USB device by id 05cd:0800 $ec"
+			# reloadUSBPortByHandle "5cd/800" 1
+			# # echo -e "$cy Setting sTTY settings$ec"
+			# # stty -F /dev/$uutSerDev 115200
 
-			countDownDelay 5 " Waiting for services.."
+			# countDownDelay 5 " Waiting for services.."
 
 			for ((retCnt=0;retCnt<=12;retCnt++)); do
 				srvAct=$(getACMttyServices $uutSerDev)
 				if [ -z "$srvAct" ]; then
-					echo -e " Services$gr down.$ec"
+					echo -e " Services are $gr down.$ec"
 					break
 				else
 					if [ retCnt > 0 ]; then printf '\e[A\e[K'; fi
 					countDownDelay 10 " Waiting for services to go down.."
 				fi
 			done
-			publicVarAssign silent uutSerDev $(dmesg |grep 'USB ACM device' |tail -n1 |awk '{print $4}' |cut -d: -f1)
+			# if [ -z "$ttyHubPortNumArg" -o -z "$usbHubNum" ]; then
+			# 	publicVarAssign fatal uutSerDev $(dmesg |grep 'USB ACM device' |tail -n1 |sed 's/\ /\n/g' |grep ttyA |cut -d: -f1)
+			# else
+			# 	echo -n "   Getting from Hub:$usbHubNum - Port:$ttyHubPortNumArg"
+			# 	publicVarAssign fatal uutSerDev $(getUsbTTYOnHub $usbHubNum $ttyHubPortNumArg)
+			# fi
 			killActiveSerialWriters $uutSerDev
 
 			if [ -z "$poweroffRes" ]; then
 				countDownDelay 20 " Waiting for power down.."
+			else
+				echo "$poweroffRes"
 			fi
 			echo  " Powering down IPPower"
-			ipPowerSetPowerDOWN
-			countDownDelay 3 " Waiting for power down.."
+			ipPowerSetPortPowerDOWN $ippPort
+			countDownDelay 10 " Waiting for power down.."
 			echo  " Powering up IPPower"
-			ipPowerSetPowerUP
-			countDownDelay 1 " Waiting for power up.."
+			ipPowerSetPortPowerUP $ippPort
+			# countDownDelay 1 " Waiting for power up.."
 
 
-			echo -e "$cy Initializing serial port$ec"
-			initSerialNANO $uutSerDev $uutBaudRate
+			# echo -e "$cy Initializing serial port$ec"
+			# initSerialNANO $uutSerDev $uutBaudRate
 
-			echo -e "$cy Starting boot monitor.$ec"
-			NANObootMonitor $uutSerDev
+			echo -e "$cy Starting boot monitor.$ec ($bootMode)"
+			NANObootMonitor $uutSerDev "$bootMode"
+			case $bootMode in
+				"fullBoot") ;;
+				"shortBoot") countDownDelay 120 " Waiting for system to go up..";;
+				*) except "illegal bootMode: $bootMode"
+			esac
+			if [ -z "$noLogMode" ]; then 
+				if [ -z "$lastBootState" ]; then lastBootState="N/A"; fi
+				logLine="$uutPn;$trackNum;$lastBootState"
+				echo -e "\n\nAdding log line: \n$logLine"
+				echo "$logLine" >> "$bootLogPath"
+				mkdir -p "/root/multiCard/boot_logs/"
+				cp -f "/tmp/${ttyN}_serial_log.txt" "/root/multiCard/boot_logs/${trackNum}_serial_log.txt"
+			fi
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
@@ -839,7 +1231,7 @@ bootMonitor() {
 boxHWCheck (){
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	case $baseFamily in
-		"ATT") 
+		"ATTxS") 
 			boxATTHWCheck
 		;;
 		"GRANITE")
@@ -852,11 +1244,11 @@ boxHWCheck (){
 boxGPIOTest (){
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	case $baseFamily in
-		"ATT") 
+		"ATTxS") 
 			boxATTGPIOTest
 		;;
 		"GRANITE")
-			warn "${FUNCNAME[0]} not defined for $baseFamily family"
+			boxNANOGPIOTest
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
@@ -865,7 +1257,7 @@ boxGPIOTest (){
 boxMGMTTest (){
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	case $baseFamily in
-		"ATT") 
+		"ATTxS") 
 			boxATTMGMTTest
 		;;
 		"GRANITE")
@@ -875,11 +1267,24 @@ boxMGMTTest (){
 	esac
 }
 
+boxEmmcTest (){
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	case $baseFamily in
+		"ATTxS") 
+			warn "${FUNCNAME[0]} not defined for $baseFamily family"
+		;;
+		"GRANITE")
+			boxNANOEmmcTest
+		;;
+		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
+	esac
+}
+
 powerOffUUT() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	local poweroffRes
 	case $baseFamily in
-		"ATT") 
+		"ATTxS") 
 			sendATT --resp-timeout=10 $uutSerDev "poweroff"
 		;;
 		"GRANITE")
@@ -890,7 +1295,11 @@ powerOffUUT() {
 				countDownDelay 20 " Waiting for power down.."
 			fi
 			echo  " Powering down IPPower"
-			ipPowerSetPowerDOWN
+			ipPowerSetPortPowerDOWN $ippPort
+			if isDefined failShutdown uutUsbCycleDev; then
+				echo  " Replug devices is defined, sending usb replug command"
+				USBBPsyclePort $uutUsbCycleDev 3
+			fi
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
@@ -898,17 +1307,19 @@ powerOffUUT() {
 
 function mainTest() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	local boxHWInfoTest powerOff credVar
+	local boxHWInfoTest powerOff credVar optionSelected
 	
 	if [ -z "$testSelArg" ]; then
 		if [[ ! -z "$untestedPn" ]]; then untestedPnWarn; fi
 
 		case $baseFamily in
-			"ATT") 
+			"ATTxS") 
 				for credVar in uutBdsUser uutBdsPass uutBMCUser uutBMCPass uutBMCShellUser uutBMCShellPass; do
 					checkDefined $credVar
 				done
 				bootMonitorTest=-1
+				bootMonitorLoopTest=-1
+				emmcTest=-1
 				boxHWInfoTest=0
 				managementTest=0
 				gpioTest=0
@@ -916,7 +1327,13 @@ function mainTest() {
 				powerOff=0
 				echo -e "\n  Select tests for $baseFamily:"
 				options=("Full test" "Box HW Info test" "Management port test" "I/O GPIO Test" "Denverton Ping Test" "Power off UUT")
-				case `select_opt "${options[@]}"` in
+				if [ -z "$testSelIdxArg" ]; then 
+					optionSelected=`select_opt "${options[@]}"`
+				else
+					optionSelected=$testSelIdxArg
+					echo -e "  Preselected test: ${yl}${options[$optionSelected]}$ec"
+				fi
+				case $optionSelected in
 					0) 
 						boxHWInfoTest=1
 						managementTest=1
@@ -937,29 +1354,41 @@ function mainTest() {
 					checkDefined $credVar
 				done
 				bootMonitorTest=0
+				bootMonitorLoopTest=0
 				boxHWInfoTest=0
 				managementTest=-1
 				gpioTest=0
 				denvertonTest=-1
 				powerOff=0
+				emmcTest=0
 				echo -e "\n  Select tests for $baseFamily:"
-				options=("Full test" "Full test (with boot)" "Box HW Info test" "I/O GPIO Test" "Power off UUT" "Boot Monitor")
-				case `select_opt "${options[@]}"` in
+				options=("Full test" "Full test (with boot)" "Box HW Info test" "I/O GPIO Test" "eMMC Test" "Power off UUT" "Boot Monitor" "Boot Monitor Loop")
+				if [ -z "$testSelIdxArg" ]; then 
+					optionSelected=`select_opt "${options[@]}"`
+				else
+					optionSelected=$testSelIdxArg
+					echo -e "  Preselected test: ${yl}${options[$optionSelected]}$ec"
+				fi
+				case $optionSelected in
 					0) 
 						boxHWInfoTest=1
 						gpioTest=1
+						emmcTest=1
 						powerOff=1
 					;;
 					1) 
 						bootMonitorTest=1
 						boxHWInfoTest=1
 						gpioTest=1
+						emmcTest=1
 						powerOff=1
 					;;
 					2) boxHWInfoTest=1;;
 					3) gpioTest=1;;
-					4) powerOff=1;;
-					5) bootMonitorTest=1;;
+					4) emmcTest=1;;
+					5) powerOff=1;;
+					6) bootMonitorTest=1;;
+					7) bootMonitorLoopTest=1;;
 					*) except "unknown option";;
 				esac
 			;;
@@ -969,12 +1398,20 @@ function mainTest() {
 		privateVarAssign "${FUNCNAME[0]}" "$testSelArg" "1"
 	fi
 
+	if [ -z "$ttyHubPortNumArg" ]; then
+		newStatus=$(echo -n ' ['"$toolName $ver"']'" $baseFamily"'> Test: '"${options[$optionSelected]}")
+	else
+		newStatus=$(echo -n ' ['"$toolName $ver"']'" $baseFamily"'> Test: '"${options[$optionSelected]}"'  TTY Port: '"$ttyHubPortNumArg")
+	fi
+	updateTopStatusBarTMUX $newStatus
+
 	case $bootMonitorTest in
 		"-1") ;;
 		"0") inform "\tBoot Monitor test skipped" ;;
 		"1")
 			echoSection "Boot Monitor"
-				bootMonitor |& tee /tmp/statusChk.log
+				replugRequired="0"
+				bootMonitor "fullBoot" |& tee /tmp/$statusCheckLogName
 			if [ -z "$skpInfoFail" ]; then
 				checkIfFailed "Boot Monitor failed!" crit; let retStatus+=$?
 			else
@@ -984,12 +1421,38 @@ function mainTest() {
 		*) critWarn "unknown case for bootMonitorTest"
 	esac
 
+	if [ "$replugRequired" = "1" ]; then 
+		replugUSBMsg
+		countDownDelay 5 " Waiting serial detection.."
+	fi
+
+	case $bootMonitorLoopTest in
+		"-1") ;;
+		"0") inform "\tBoot Monitor test skipped" ;;
+		"1")
+			echoSection "Boot Monitor Loop"
+				replugRequired="0"
+				bootMonitorLoop "fullBoot" |& tee /tmp/$statusCheckLogName
+			if [ -z "$skpInfoFail" ]; then
+				checkIfFailed "Boot Monitor loop failed!" crit; let retStatus+=$?
+			else
+				checkIfFailed "Boot Monitor loop failed!" warn
+			fi
+		;;
+		*) critWarn "unknown case for bootMonitorLoopTest"
+	esac
+
+	if [ "$replugRequired" = "1" ]; then 
+		replugUSBMsg
+		countDownDelay 5 " Waiting serial detection.."
+	fi
+
 	case $boxHWInfoTest in
 		"-1") ;;
 		"0") inform "\tBox HW Info test skipped" ;;
 		"1")
 			echoSection "Box HW Info test"
-				boxHWCheck |& tee /tmp/statusChk.log
+				boxHWCheck |& tee /tmp/$statusCheckLogName
 			if [ -z "$skpInfoFail" ]; then
 				checkIfFailed "Box HW Info test failed!" crit; let retStatus+=$?
 			else
@@ -1004,7 +1467,7 @@ function mainTest() {
 		"0") inform "\tManagement port test skipped" ;;
 		"1")
 			echoSection "Management port test"
-				boxMGMTTest |& tee /tmp/statusChk.log
+				boxMGMTTest |& tee /tmp/$statusCheckLogName
 			checkIfFailed "Management port test failed!" crit; let retStatus+=$?
 		;;
 		*) critWarn "unknown case for managementTest"
@@ -1012,11 +1475,22 @@ function mainTest() {
 
 	case $gpioTest in
 		"-1") ;;
-		"0") inform "\tI/O GPIO test skipped" ;;
+		"0") inform "\tGPIO test skipped" ;;
 		"1")
-			echoSection "I/O GPIO test"
-				boxGPIOTest |& tee /tmp/statusChk.log
-			checkIfFailed "I/O GPIO test failed!" crit; let retStatus+=$?
+			echoSection "GPIO test"
+				boxGPIOTest |& tee /tmp/$statusCheckLogName
+			checkIfFailed "GPIO test failed!" crit; let retStatus+=$?
+		;;
+		*) critWarn "unknown case for gpioTest"
+	esac
+
+	case $emmcTest in
+		"-1") ;;
+		"0") inform "\teMMC test skipped" ;;
+		"1")
+			echoSection "eMMC test"
+				boxEmmcTest |& tee /tmp/$statusCheckLogName
+			checkIfFailed "eMMC test failed!" crit; let retStatus+=$?
 		;;
 		*) critWarn "unknown case for gpioTest"
 	esac
@@ -1026,22 +1500,26 @@ function mainTest() {
 		"0") inform "\tDenverton ping test skipped" ;;
 		"1")
 			echoSection "Denverton ping test"
-				denvertonPingTest |& tee /tmp/statusChk.log
+				denvertonPingTest |& tee /tmp/$statusCheckLogName
 			checkIfFailed "Denverton ping test failed!" crit; let retStatus+=$?
 		;;
 		*) critWarn "unknown case for denvertonTest"
 	esac
 	
-	if [ ! -z "$powerOff" ]; then
+	if [ ! -z "$powerOff" -o ! -z "$autoPoweroff" ]; then
 		echoSection "Shutting down UUT"
-			echo -e "\n  Shutdown UUT?"
-			ynOpts=("Yes" "No")
-			case `select_opt "${ynOpts[@]}"` in
-				0) powerOffUUT ;;
-				1) ;;			
-				*) except "unknown opt in case"
-			esac
-		checkIfFailed "Shutting down UUT failed!" crit; let retStatus+=$?
+			if [ -z "$autoPoweroff" ]; then
+				echo -e "\n  Shutdown UUT?"
+				ynOpts=("Yes" "No")
+				case `select_opt "${ynOpts[@]}"` in
+					0) powerOffUUT ;;
+					1) ;;			
+					*) except "unknown opt in case"
+				esac
+			else
+				powerOffUUT
+			fi
+		checkIfFailed "Shutting down UUT failed!" warn; let retStatus+=$?
 	fi
 	return $retStatus
 }
@@ -1056,7 +1534,7 @@ main() {
 			trap ctrl_c SIGQUIT
 			let modSelect=-1
 			publicVarAssign silent internalTTY $(find /sys/bus/usb/devices/usb3/ -name dev |grep '3-7:1.0' |cut -d/ -f9)
-			if [ -z "$(echo $internalTTY |grep ttyUSB)" ]; then
+			if contains "$internalTTY" "ttyUSB"; then
 				except "internal COM cable is not connected to MB header. Check internal cable and try again"
 			else
 				if [ "$uutSerDev" = "$internalTTY" ]; then except "invalid COM selected"; fi 
@@ -1067,7 +1545,12 @@ main() {
 	esac
 	
 	mainTest
-	if [ -z "$minorLaunch" ]; then passMsg "\n\tDone!\n"; else echo "  Returning to caller"; fi
+	if [ ! -z "$minorLaunch" ]; then 
+		passMsg "\tDone!"
+		echo "  Returning to caller"
+	else
+		passMsg "\n\tDone!\n"
+	fi
 }
 
 
@@ -1077,6 +1560,7 @@ else
 	echo -e '\n# arturd@silicom.co.il\n\n'
 	trap "exit 1" 10
 	PROC="$"
+	loadCfg
 	declareVars
 	source /root/multiCard/arturLib.sh; let status+=$?
 	source /root/multiCard/graphicsLib.sh; let status+=$?
@@ -1085,11 +1569,35 @@ else
 		exit 1
 	fi
 	echoHeader "$toolName" "$ver"
+	sendToKmsg "\n\n\n\t$toolName $ver has ${gr}started$ec!"
 	echoSection "Startup.."
 	parseArgs "$@"
-	setEmptyDefaults
-	initialSetup
-	startupInit
-	main
-	if [ -z "$minorLaunch" ]; then echo -e "See $yl--help$ec for available parameters\n"; fi
+
+	if [ ! -z "$tmuxSession" -a ! -n "$TMUX" ]; then
+		echo '  TMUX required..'
+		if [[ ! -n "$TMUX" ]]; then
+			echo '  Not in TMUX, starting..'
+			tmuxExist="$(tmux list-sessions 2>&1 |grep boxSession_$tmuxSession |cut -d: -f1)"
+			if [ ! -z "$tmuxExist" ]; then 
+				except "tmux for the session $tmuxSession exists!"
+			else
+				echo '  Starting TMUX session '$tmuxSession
+				echo '  cmd line: '${0}
+				echo '  cmd args: '$@
+				bashLine="${0} $@"
+				tmux new-session -s "boxSession_$tmuxSession" "bash $bashLine"
+				echo '  Killing TMUX session '$tmuxSession
+				tmux kill-session -t "boxSession_$tmuxSession"
+				exit
+			fi
+		else
+			echo '  Already in TMUX, skipping..'
+		fi
+	else
+		setEmptyDefaults
+		initialSetup
+		startupInit
+		main
+		if [ -z "$minorLaunch" ]; then echo -e "See $yl--help$ec for available parameters\n"; fi
+	fi
 fi
