@@ -16,6 +16,7 @@ declareVars() {
 	pnArr=(
 		"80500-0150-G02"
 		"80500-0224-G02"
+		"80200-0214-STABILITY"
 	)
 	declare -ga ipmiSensReqArr=("null" "null")
 	declare -ga PIDStackArr=("$$")
@@ -199,6 +200,7 @@ startupInit() {
 		case "$baseModel" in
 			"80500-0150-G02") ;;
 			"80500-0224-G02") graniteINIT;;
+			"80200-0214-STABILITY") ;;
 			"nop") sshCheckServer;;
 			*) except "init sequence unknown baseModel: $baseModel"
 		esac
@@ -225,7 +227,7 @@ checkRequiredFiles() {
 	)
 	
 	case "$baseModel" in
-		"80500-0150-G02"|"80500-0224-G02") 
+		"80500-0150-G02"|"80500-0224-G02"|"80200-0214-STABILITY") 
 			echo "  File list: $baseModel"
 			declare -a filesArr=(
 				${filesArr[@]}				
@@ -500,6 +502,10 @@ defineRequirments() {
 					"93,SOC_SATA_PDETECT1,1,crit"
 				)
 			;;
+			"80200-0214-STABILITY")
+				baseFamily="CORDOBA"
+				baseModel="80200-0214-STABILITY"
+			;;
 			*) except "$uutPn cannot be processed, requirements not defined for the case"
 		esac
 		case $baseFamily in
@@ -513,6 +519,11 @@ defineRequirments() {
 				uutBaudRate=115200
 			;;
 			"GRANITE")
+				uutBdsUser="root"
+				uutBdsPass="admin"
+				uutBaudRate=115200
+			;;
+			"CORDOBA")
 				uutBdsUser="root"
 				uutBdsPass="admin"
 				uutBaudRate=115200
@@ -547,11 +558,17 @@ initialSetup(){
 				publicVarAssign fatal uutSerDev $(dmesg |grep 'USB ACM device' |tail -n1 |sed 's/\ /\n/g' |grep ttyA |cut -d: -f1)
 			else
 				echo -n "   Getting from Hub:$usbHubNum - Port:$ttyHubPortNumArg"
+				except "have to be rewritten, function getUsbTTYOnHub has changed"
 				publicVarAssign fatal uutSerDev $(getUsbTTYOnHub $usbHubNum $ttyHubPortNumArg)
 			fi
-			if isDefined usbBpHubNum usbBpHubPortNum; then
+			if isDefined usbBpHubNum usbBpHubPortNum; then.
+				except "have to be rewritten, function getUsbTTYOnHub has changed"
 				publicVarAssign fatal uutUsbCycleDev $(getUsbTTYOnHub $usbBpHubNum $usbBpHubPortNum)
 			fi
+		;;
+		"CORDOBA") 
+			selectSerial "  Select UUT serial device"
+			publicVarAssign silent uutSerDev ttyUSB$?
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
@@ -1188,6 +1205,7 @@ bootMonitor() {
 			# 	publicVarAssign fatal uutSerDev $(dmesg |grep 'USB ACM device' |tail -n1 |sed 's/\ /\n/g' |grep ttyA |cut -d: -f1)
 			# else
 			# 	echo -n "   Getting from Hub:$usbHubNum - Port:$ttyHubPortNumArg"
+			#	except "have to be rewritten, function getUsbTTYOnHub has changed"
 			# 	publicVarAssign fatal uutSerDev $(getUsbTTYOnHub $usbHubNum $ttyHubPortNumArg)
 			# fi
 			killActiveSerialWriters $uutSerDev
@@ -1224,6 +1242,9 @@ bootMonitor() {
 				cp -f "/tmp/${ttyN}_serial_log.txt" "/root/multiCard/boot_logs/${trackNum}_serial_log.txt"
 			fi
 		;;
+		"CORDOBA") 
+			warn "${FUNCNAME[0]} not defined for $baseFamily family"
+		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
 }
@@ -1236,6 +1257,9 @@ boxHWCheck (){
 		;;
 		"GRANITE")
 			boxNANOHWCheck
+		;;
+		"CORDOBA") 
+			warn "${FUNCNAME[0]} not defined for $baseFamily family"
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
@@ -1250,6 +1274,9 @@ boxGPIOTest (){
 		"GRANITE")
 			boxNANOGPIOTest
 		;;
+		"CORDOBA") 
+			warn "${FUNCNAME[0]} not defined for $baseFamily family"
+		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
 }
@@ -1261,6 +1288,9 @@ boxMGMTTest (){
 			boxATTMGMTTest
 		;;
 		"GRANITE")
+			warn "${FUNCNAME[0]} not defined for $baseFamily family"
+		;;
+		"CORDOBA") 
 			warn "${FUNCNAME[0]} not defined for $baseFamily family"
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
@@ -1275,6 +1305,9 @@ boxEmmcTest (){
 		;;
 		"GRANITE")
 			boxNANOEmmcTest
+		;;
+		"CORDOBA") 
+			warn "${FUNCNAME[0]} not defined for $baseFamily family"
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
@@ -1300,6 +1333,9 @@ powerOffUUT() {
 				echo  " Replug devices is defined, sending usb replug command"
 				USBBPsyclePort $uutUsbCycleDev 3
 			fi
+		;;
+		"CORDOBA") 
+			sendCordoba --resp-timeout=10 $uutSerDev "poweroff"
 		;;
 		*) except "$baseFamily family cannot be processed, ${FUNCNAME[0]} not defined for the case"
 	esac
@@ -1389,6 +1425,31 @@ function mainTest() {
 					5) powerOff=1;;
 					6) bootMonitorTest=1;;
 					7) bootMonitorLoopTest=1;;
+					*) except "unknown option";;
+				esac
+			;;
+			"CORDOBA") 
+				for credVar in uutBdsUser uutBdsPass; do
+					checkDefined $credVar
+				done
+				bootMonitorTest=-1
+				bootMonitorLoopTest=-1
+				boxHWInfoTest=-1
+				managementTest=-1
+				gpioTest=-1
+				denvertonTest=-1
+				powerOff=0
+				emmcTest=-1
+				echo -e "\n  Select tests for $baseFamily:"
+				options=("Power off UUT")
+				if [ -z "$testSelIdxArg" ]; then 
+					optionSelected=`select_opt "${options[@]}"`
+				else
+					optionSelected=$testSelIdxArg
+					echo -e "  Preselected test: ${yl}${options[$optionSelected]}$ec"
+				fi
+				case $optionSelected in
+					0) powerOff=1;;
 					*) except "unknown option";;
 				esac
 			;;
@@ -1540,7 +1601,7 @@ main() {
 				if [ "$uutSerDev" = "$internalTTY" ]; then except "invalid COM selected"; fi 
 			fi
 		;;
-		"80500-0150-G02"|"80500-0224-G02") ;;
+		"80500-0150-G02"|"80500-0224-G02"|"80200-0214-STABILITY") ;;
 		*) except "invalid baseModel: $baseModel";;
 	esac
 	

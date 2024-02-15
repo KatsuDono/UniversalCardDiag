@@ -102,6 +102,7 @@ main() {
 		"sfpD11" 	"| PE3100G2DBIR"
 		"sfpD12"	"| PE425G4I71L"
 		"sfpD12"	"| PE425G4I71L-XR-CX"
+		"sfpD13"	"| 80200-0234-G00"
 		"delim" 	"========================================"
 		"delim" 	"|  RJ45 CARDS"
 		"rjD1" 		"| PE210G2BPI40-T* (universal)"
@@ -201,6 +202,7 @@ main() {
 		"sfpD11" 	"| PE3100G2DBIR"
 		"sfpD12"	"| PE425G4I71L"
 		"sfpD12"	"| PE425G4I71L-XR-CX"
+		"sfpD13"	"| 80200-0234-G00"
 		"delim" 	"========================================"
 		"delim" 	"|  Settings"
 		"sett1" 	"| Ignore dump fails [ $ignoreDumpFail ]"
@@ -347,6 +349,7 @@ main() {
 		sfpD10) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE340G2DBIR-QS41" $@$addArgs;;
 		sfpD11) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE3100G2DBIR" $@$addArgs;;
 		sfpD12)		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE425G4I71L" $@$addArgs;;
+		sfpD12)		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="80200-0234-G00" $@$addArgs;;
 		sfpBI1) 	${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="P410G8TS81-XR" --noMasterMode --slDupSkp --test-sel=pciTrfTest $@$addArgs;;
 		rjD1) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE210G2BPI40-T" $@$addArgs;;
 		rjD2) 		${MC_SCRIPT_PATH}/sfpLinkTest.sh --uut-pn="PE310G4BPI40-T" $@$addArgs;;

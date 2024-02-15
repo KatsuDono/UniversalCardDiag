@@ -40,6 +40,7 @@ declareVars() {
 		"PE3100G2DBIR"
 		"PE425G4I71L"
 		"PE425G4I71L-XR-CX"
+		"80200-0234-G00"
 		"P410G8TS81-XR"
 		"IBSGP-T-MC-AM"
 		"IBS10GP-LR-RW"
@@ -105,6 +106,7 @@ parseArgs() {
 			noMasterMode) 
 				inform "Launch key: No master mode"
 				noMasterMode=1
+				ignoreSlotDuplicate=1
 			;;
 			minor-launch) 
 				inform "Launch key: Minor priority launch mode"
@@ -121,7 +123,7 @@ parseArgs() {
 			retest-on-fail) 
 				inform "Launch key: Retesting on fail of the test"
 				retestOnFail=1
-				let retestQty=3
+				if ! isDefined retestQty; then let retestQty=3; fi
 			;;
 			retest-qty) 
 				inform "Launch key: Retest amount on fail of the test"
@@ -816,6 +818,8 @@ pe310g4bpi9Init() {
 	echo "  Reseting all BP switches"
 	bpctl_util all set_bp_manuf  2>&1 > /dev/null
 	bpctl_util all set_bypass off 2>&1 > /dev/null
+	inform "  Raising global link up delay to 5 seconds"
+	publicVarAssign warn globLnkUpDel "5"
 }
 
 pe325g2i71Init() {
@@ -844,6 +848,11 @@ pe2gi35Init() {
 
 	inform "  Raising global link up delay to 5 seconds"
 	publicVarAssign warn globLnkUpDel "5"
+}
+
+valenciaInit() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	checkBcmDriver
 }
 
 startupInit() {
@@ -875,7 +884,7 @@ startupInit() {
 			P425G410G8TS81) warn "  Special case, init outside of executed script";;
 			PE2G2I35) pe2gi35Init;;
 			PE2G4I35) pe2gi35Init;;
-
+			80200-0234-G00) valenciaInit;;
 			*) except "unknown baseModel: $baseModel"
 		esac
 	}
@@ -1159,7 +1168,7 @@ checkRequiredFiles() {
 				"/root/PE2G4I35/loadmod.sh"
 			)	
 		;;
-		
+		80200-0234-G00) echo "  No files to check..";;
 		*) except "unknown baseModel: $baseModel"
 	esac
 
@@ -2225,6 +2234,32 @@ defineRequirments() {
 		
 		}
 
+		test ! -z $(echo -n $uutPn |grep "80200-0234-G00") && {
+			ethKern="bnxt_en"
+			ethMaxSpeed="10000"
+			let physEthDevQty=2
+			baseModel="80200-0234-G00"
+			syncPn="80200-0234-G00"
+			physEthDevId="16D6"
+			slcmMode="bnxt"
+			
+			let physEthDevSpeed=8
+			let physEthDevWidth=4
+			
+			assignBuses eth
+			dmsg inform "DEBUG1: ${pciArgs[@]}"
+			pciArgs=(
+				"--target-bus=$uutBus"
+				"--eth-buses=$ethBuses"
+				"--eth-dev-id=$physEthDevId"
+				"--eth-kernel=$ethKern"
+				"--eth-dev-qty=$physEthDevQty"
+				"--eth-dev-speed=$physEthDevSpeed"
+				"--eth-dev-width=$physEthDevWidth"
+			)
+			dmsg inform "DEBUG2: ${pciArgs[@]}"
+		}
+
 		test ! -z $(echo -n $uutPn |grep "IBSGP-T-MC-AM") && {
 			uutPortMatch="1 1 2 2 3 3 4 4"
 			uutDRates=("100" "1000" "10000")
@@ -2433,142 +2468,144 @@ defineRequirments() {
 		except "$uutPn cannot be processed, requirements not defined"
 	fi
 	
-	echo -e "  Defining requirements for the master"
+	if ! isDefined noMasterMode; then
+		echo -e "  Defining requirements for the master"
 
-	mastSfpSrDefine(){
-		mastDefiner="${FUNCNAME[0]}"
-		ibsRjRequired=1
-		let mastPciSpeedReq=8
-		let mastPciWidthReq=8
-		if [ -z "$mastDevQty" ]; then let mastDevQty=4; fi
-		if [ -z "$mastBpDevQty" ]; then let mastBpDevQty=2; fi
-		if [ -z "$mastNetQty" ]; then let mastNetQty=4; fi		
-		verDumpOffset_mast="0x817"
-		let verDumpLen_mast=5
-		pnDumpOffset_mast="0x850"
-		let pnDumpLen_mast=28
-		pnRevDumpOffset_mast="0x86C"
-		let pnRevDumpLen_mast=4
-		tnDumpOffset_mast="0x880"
-		let tnDumpLen_mast=13
-		tdDumpOffset_mast="0x872"
-		let tdDumpLen_mast=6
-		
-		if [ -z "$mastBaseModel" ]; then mastBaseModel="PE310G4BPI71"; fi
-		mastDevId=1572
-		mastKern="i40e"
-		mastSlcmMode="slcm"
-		
-		mastPciArgs=("--target-bus=$mastBus"
-				"--eth-buses=$mastEthBuses"
+		mastSfpSrDefine(){
+			mastDefiner="${FUNCNAME[0]}"
+			ibsRjRequired=1
+			let mastPciSpeedReq=8
+			let mastPciWidthReq=8
+			if [ -z "$mastDevQty" ]; then let mastDevQty=4; fi
+			if [ -z "$mastBpDevQty" ]; then let mastBpDevQty=2; fi
+			if [ -z "$mastNetQty" ]; then let mastNetQty=4; fi		
+			verDumpOffset_mast="0x817"
+			let verDumpLen_mast=5
+			pnDumpOffset_mast="0x850"
+			let pnDumpLen_mast=28
+			pnRevDumpOffset_mast="0x86C"
+			let pnRevDumpLen_mast=4
+			tnDumpOffset_mast="0x880"
+			let tnDumpLen_mast=13
+			tdDumpOffset_mast="0x872"
+			let tdDumpLen_mast=6
+			
+			if [ -z "$mastBaseModel" ]; then mastBaseModel="PE310G4BPI71"; fi
+			mastDevId=1572
+			mastKern="i40e"
+			mastSlcmMode="slcm"
+			
+			mastPciArgs=("--target-bus=$mastBus"
+					"--eth-buses=$mastEthBuses"
+					"--eth-dev-id=$mastDevId"
+					"--eth-kernel=$mastKern"
+					"--eth-dev-qty=$mastDevQty"
+					"--eth-dev-speed=$mastPciSpeedReq"
+					"--eth-dev-width=$mastPciWidthReq"
+					"--bp-buses=$mastBpBuses"
+					"--bp-dev-id=$mastDevId"
+					"--bp-dev-qty=$mastBpDevQty"
+					"--bp-kernel=$mastKern"
+					"--bp-dev-speed=$mastPciSpeedReq"
+					"--bp-dev-width=$mastPciWidthReq")
+		}
+		mastRjDefine(){
+			mastDefiner="${FUNCNAME[0]}"
+			assignBuses plx
+			mastKern="ixgbe"
+
+			if [ -z "$mastDevQty" ]; then let mastDevQty=4; fi
+			if [ -z "$mastBpDevQty" ]; then let mastBpDevQty=2; fi
+			mastBaseModel="PE310G4BPI40"
+			# syncPn="PE310G4BPI40"
+			inform "potential collision with UUT syncPn, need to investigate"
+			# fwSyncPn="Pe310g4bpi71.LR"
+			# baseModelPath="/root/PE310G4BPI40"
+			mastDevId="1572"
+					
+
+			let mastPciSpeedReq=5
+			let mastPciWidthReq=8
+			
+			mastPlxKern="pcieport"
+			let mastPlxDevQty=1
+			let mastPlxDevSubQty=2
+			let mastPlxDevEmptyQty=1
+			mastPlxDevId="8724"
+			let mastPlxDevSpeed=8
+			let mastPlxDevWidth=8
+			let mastPlxDevSubSpeed=5
+			let mastPlxDevSubWidth=8
+			mastPlxDevEmptySpeed="2.5"
+			let mastPlxDevEmptyWidth=0
+			mastPciArgs=(
+				"--target-bus=$mastBus"
+				"--plx-buses=$plxBuses"
+				"--eth-buses=$ethBuses"
+				"--bp-buses=$mastBpBuses"
+
+				"--plx-dev-id=$mastPlxDevId"
 				"--eth-dev-id=$mastDevId"
+
+				"--plx-kernel=$mastPlxKern"
 				"--eth-kernel=$mastKern"
+				"--bp-kernel=$mastKern"
+
+				"--plx-dev-qty=$mastPlxDevQty"
+				"--plx-dev-sub-qty=$mastPlxDevSubQty"
+				"--plx-dev-empty-qty=$mastPlxDevEmptyQty"
 				"--eth-dev-qty=$mastDevQty"
+				"--bp-dev-qty=$mastBpDevQty"
+
 				"--eth-dev-speed=$mastPciSpeedReq"
 				"--eth-dev-width=$mastPciWidthReq"
-				"--bp-buses=$mastBpBuses"
-				"--bp-dev-id=$mastDevId"
-				"--bp-dev-qty=$mastBpDevQty"
-				"--bp-kernel=$mastKern"
 				"--bp-dev-speed=$mastPciSpeedReq"
-				"--bp-dev-width=$mastPciWidthReq")
-	}
-	mastRjDefine(){
-		mastDefiner="${FUNCNAME[0]}"
-		assignBuses plx
-		mastKern="ixgbe"
+				"--bp-dev-width=$mastPciWidthReq"
+				"--plx-dev-speed=$mastPlxDevSpeed"
+				"--plx-dev-width=$mastPlxDevWidth"
+				"--plx-dev-sub-speed=$mastPlxDevSubSpeed"
+				"--plx-dev-sub-width=$mastPlxDevSubWidth"
+				"--plx-dev-empty-speed=$mastPlxDevEmptySpeed"
+				"--plx-dev-empty-width=$mastPlxDevEmptyWidth"
+				"--plx-keyw=Physical Slot:"
+				"--plx-virt-keyw=ABWMgmt+"
+			)
+		}
 
-		if [ -z "$mastDevQty" ]; then let mastDevQty=4; fi
-		if [ -z "$mastBpDevQty" ]; then let mastBpDevQty=2; fi
-		mastBaseModel="PE310G4BPI40"
-		# syncPn="PE310G4BPI40"
-		inform "potential collision with UUT syncPn, need to investigate"
-		# fwSyncPn="Pe310g4bpi71.LR"
-		# baseModelPath="/root/PE310G4BPI40"
-		mastDevId="1572"
-				
-
-		let mastPciSpeedReq=5
-		let mastPciWidthReq=8
-		
-		mastPlxKern="pcieport"
-		let mastPlxDevQty=1
-		let mastPlxDevSubQty=2
-		let mastPlxDevEmptyQty=1
-		mastPlxDevId="8724"
-		let mastPlxDevSpeed=8
-		let mastPlxDevWidth=8
-		let mastPlxDevSubSpeed=5
-		let mastPlxDevSubWidth=8
-		mastPlxDevEmptySpeed="2.5"
-		let mastPlxDevEmptyWidth=0
-		mastPciArgs=(
-			"--target-bus=$mastBus"
-			"--plx-buses=$plxBuses"
-			"--eth-buses=$ethBuses"
-			"--bp-buses=$mastBpBuses"
-
-			"--plx-dev-id=$mastPlxDevId"
-			"--eth-dev-id=$mastDevId"
-
-			"--plx-kernel=$mastPlxKern"
-			"--eth-kernel=$mastKern"
-			"--bp-kernel=$mastKern"
-
-			"--plx-dev-qty=$mastPlxDevQty"
-			"--plx-dev-sub-qty=$mastPlxDevSubQty"
-			"--plx-dev-empty-qty=$mastPlxDevEmptyQty"
-			"--eth-dev-qty=$mastDevQty"
-			"--bp-dev-qty=$mastBpDevQty"
-
-			"--eth-dev-speed=$mastPciSpeedReq"
-			"--eth-dev-width=$mastPciWidthReq"
-			"--bp-dev-speed=$mastPciSpeedReq"
-			"--bp-dev-width=$mastPciWidthReq"
-			"--plx-dev-speed=$mastPlxDevSpeed"
-			"--plx-dev-width=$mastPlxDevWidth"
-			"--plx-dev-sub-speed=$mastPlxDevSubSpeed"
-			"--plx-dev-sub-width=$mastPlxDevSubWidth"
-			"--plx-dev-empty-speed=$mastPlxDevEmptySpeed"
-			"--plx-dev-empty-width=$mastPlxDevEmptyWidth"
-			"--plx-keyw=Physical Slot:"
-			"--plx-virt-keyw=ABWMgmt+"
-		)
-	}
-
-	case "$baseModel" in
-		PE310G4BPI71) mastSfpSrDefine;;
-		PE310G2BPI71) mastSfpSrDefine;;
-		PE310G2BPI71-SR) mastSfpSrDefine;;
-		PE310G4I71) mastSfpSrDefine;;
-		P410G8TS81-XR) mastSfpSrDefine;;
-		PE340G2BPI71) 
-			inform "${FUNCNAME[0]}: mastBaseModel is cloned from baseModel of UUT" 
-			mastBaseModel=$baseModel
-			mastSfpSrDefine
-		;;
-		PE210G2BPI40) mastRjDefine;;
-		PE310G4BPI40) mastRjDefine;;
-		PE310G4I40) mastRjDefine;;
-		PE310G4DBIR) mastSfpSrDefine;;
-		PE310G4DBIR-T) mastRjDefine;;
-		PE340G2DBIR) inform "Master req definement skipped, special case";;
-		PE3100G2DBIR) inform "Master req definement skipped, special case";;
-		PE425G4I71L) inform "Master req definement skipped, undifinede";;
-		PE310G4BPI9) mastSfpSrDefine;;
-		PE210G2BPI9) mastSfpSrDefine;;
-		PE210G2SPI9A) mastSfpSrDefine;;
-		PE325G2I71) mastSfpSrDefine;;
-		PE31625G4I71L) mastSfpSrDefine;;
-		M4E310G4I71) mastSfpSrDefine;;
-		IBSGP-T) mastRjDefine;;
-		IBSGP-T-MC-AM) mastRjDefine;;
-		IBS10GP) mastSfpSrDefine;;
-		P425G410G8TS81) ;;
-		PE2G2I35) mastRjDefine;;
-		PE2G4I35) mastRjDefine;;
-		*) except "unknown baseModel for master definition: $baseModel"
-	esac
+		case "$baseModel" in
+			PE310G4BPI71) mastSfpSrDefine;;
+			PE310G2BPI71) mastSfpSrDefine;;
+			PE310G2BPI71-SR) mastSfpSrDefine;;
+			PE310G4I71) mastSfpSrDefine;;
+			P410G8TS81-XR) mastSfpSrDefine;;
+			PE340G2BPI71) 
+				inform "${FUNCNAME[0]}: mastBaseModel is cloned from baseModel of UUT" 
+				mastBaseModel=$baseModel
+				mastSfpSrDefine
+			;;
+			PE210G2BPI40) mastRjDefine;;
+			PE310G4BPI40) mastRjDefine;;
+			PE310G4I40) mastRjDefine;;
+			PE310G4DBIR) mastSfpSrDefine;;
+			PE310G4DBIR-T) mastRjDefine;;
+			PE340G2DBIR) inform "Master req definement skipped, special case";;
+			PE3100G2DBIR) inform "Master req definement skipped, special case";;
+			PE425G4I71L) inform "Master req definement skipped, undifinede";;
+			PE310G4BPI9) mastSfpSrDefine;;
+			PE210G2BPI9) mastSfpSrDefine;;
+			PE210G2SPI9A) mastSfpSrDefine;;
+			PE325G2I71) mastSfpSrDefine;;
+			PE31625G4I71L) mastSfpSrDefine;;
+			M4E310G4I71) mastSfpSrDefine;;
+			IBSGP-T) mastRjDefine;;
+			IBSGP-T-MC-AM) mastRjDefine;;
+			IBS10GP) mastSfpSrDefine;;
+			P425G410G8TS81) ;;
+			PE2G2I35) mastRjDefine;;
+			PE2G4I35) mastRjDefine;;
+			*) except "unknown baseModel for master definition: $baseModel"
+		esac
+	fi
 
 	if [ ! -z "$physEthDevQty" -a -z "$(echo $baseModel |grep DBIR)" ]; then
 		# echo 1 > /sys/bus/pci/rescan
@@ -2772,9 +2809,11 @@ checkBpFw() {
 
 setupLinks() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	local allNets linkSetup baseModelLocal
+	local allNets linkSetup baseModelLocal net netInfonetInfo netInfo
 	allNets=$1
 	test -z "$allNets" && warn "No nets were detected! Is firmware flashed?" || {
+		netInfo="$(printNetsTree)"
+		for net in $allNets; do grep "$net"$'\t'<<<"$netInfo"; done
 		echo -e "  Initializing nets: "$allNets
 		test ! -z "$(echo -n "$mastNets" |grep "$allNets")" && baseModelLocal="$mastBaseModel" || baseModelLocal="$baseModel"
 		case "$baseModelLocal" in
@@ -2798,6 +2837,7 @@ setupLinks() {
 			P425G410G8TS81) warn "  Special case, init outside of executed script";;
 			PE2G2I35) linkSetup=$(link_setup $allNets);;
 			PE2G4I35) linkSetup=$(link_setup $allNets);;
+			80200-0234-G00) linkSetup=$(link_setup $allNets);;
 			*) except "Unknown baseModelLocal: $baseModelLocal"
 		esac		
 		test -z "$(echo $linkSetup |grep "Failed")" || echo -e "\e[0;31m   Link setup failed!\e[m" && echo -e "\e[0;32m   Link setup passed.\e[m"	
@@ -2807,12 +2847,13 @@ setupLinks() {
 trafficTest() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	local pcktCnt dropAllowed slotNum pn portQty sendDelay queryCnt orderFile execFile sourceDir rootDir buffSize sendMode taskCount srcPort trgPort trfMode
-	local uutModel pnLocal
+	local uutModel pnLocal exitStatus
 	privateVarAssign "trafficTest" "slotNum" "$1"
 	shift
 	privateVarAssign "trafficTest" "pcktCnt" "$1"
 	shift 
 	privateVarAssign "trafficTest" "pn" "$1"
+	let exitStatus=0
 	
 	echo -e "\tTraffic tests (profile $pn, packet count: $pcktCnt): \n"
 
@@ -3903,6 +3944,80 @@ trafficTest() {
 				execScript "$execFile" "1000000 $sendDelay $buffSize $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Txgen Test Passed"
 				test "$?" = "0" && echo -e "\tTests summary: \e[0;32mPASSED\e[m\n" || echo -e "\tTests summary: \e[0;31mFAILED\e[m\n"
 			;;
+			PE425G4I71L)
+				portQty=4
+				sendDelay=0x0
+				rootDir="/root/PE425G4I71L"
+				orderFile="order"
+				
+				
+				privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
+				case "$mbType" in
+					X10DRi) 
+						setIfaceLinks -up $uutNets
+						setIfaceChannels -target-qty=3 $uutNets 
+						setIrq $uutNets
+						setIfaceParams -flow -on $uutNets
+						allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel"; exitStatus+=$?
+						allNetAct "$uutNets" "Check Data rates on UUT" "getEthRates" "25000" "$baseModel"; exitStatus+=$?
+						if [ $exitStatus -gt 0 ]; then
+							except "Link/Rate test failed."
+						else
+							sendMode=0x3
+							sendDelay=0x0
+							sourceDir="$(pwd)"
+							cd "$rootDir"
+							dmsg inform "pwd=$(pwd)"
+							# echo -n "1 2 3 4" >$rootDir/$orderFile
+							# execFile="./8x8_anagenohup1_slotIPmod.sh"
+							# echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA2_P1 <-> BGA2_P2)..\n"
+							# execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+							# let execRes+=$?
+							# echo -n "1 3 2 4" >$rootDir/$orderFile
+							# echo -e "\n\tSending traffic (BGA1_P1 <-> BGA2_P1, BGA1_P2 <-> BGA2_P2)..\n"
+							# execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+							# let execRes+=$?
+							echo -n "1 2 3 4 1 3 2 4" >$rootDir/$orderFile
+							execFile="./8x8_anagenohup1_slotIPmod_NETmode.sh"
+							testFileExist "$execFile"
+							if [ -z "$retestQty" ]; then let retestQty=10; fi
+							for ((rt=1; rt<=$retestQty; rt++)) ; do 
+								echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA1_P1 <-> BGA2_P1, BGA2_P1 <-> BGA2_P2, BGA1_P2 <-> BGA2_P2)\n"
+								updateIfaceStats $uutNets &>/dev/null
+								execScript "$execFile" "$sendMode $pcktCnt $sendDelay $(($portQty*2)) $orderFile $uutNets $uutNets" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+								let execRes+=$?
+								#updateIfaceStats $uutNets &>/dev/null
+								#compareIfaceStats $uutNets
+								if [ $execRes -gt 0 ]; then break; fi
+							done
+							if [ $execRes -eq 0 ]; then echo -e "\n\tTests summary: \e[0;32mPASSED\e[m"; else
+								echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+								if [ ! -z "$retestOnFail" ]; then
+									echo -n "1 2 3 4" >$rootDir/$orderFile
+									echo -e "\n\tRETEST: Sending traffic (BGA1_P1 <-> BGA1_P2, BGA2_P1 <-> BGA2_P2)\n"
+									execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+									echo -n "1 3 2 4" >$rootDir/$orderFile
+									echo -e "\n\tRETEST: Sending traffic (BGA1_P1 <-> BGA2_P1, BGA1_P2 <-> BGA2_P2)\n"
+									execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+									echo -n "1 2 3 4 1 3 2 4" >$rootDir/$orderFile
+									execFile="./8x8_anagenohup1_slotIPmod_NETmode.sh"
+									echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA1_P1 <-> BGA2_P1, BGA2_P1 <-> BGA2_P2, BGA1_P2 <-> BGA2_P2)\n"
+									execScript "$execFile" "$sendMode $pcktCnt $sendDelay $(($portQty*2)) $orderFile $uutNets $uutNets" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+								fi
+							fi
+						fi
+					;;
+					X12DAi-N6) 
+						warn "Traffic test is not defined for $baseModel in single mode on mbType: $mbType"
+					;;
+					X12SPA-TF) 
+						warn "Traffic test is not defined for $baseModel in single mode on mbType: $mbType"
+					;;
+					*) 
+						except "Unknown mbType: $mbType, no traffic is defined for it"
+					;;
+				esac
+			;;
 			PE325G2I71) 
 				portQty=2
 				sendDelay=0x0
@@ -3930,55 +4045,60 @@ trafficTest() {
 				privateVarAssign critical "mbType" "$(dmidecode -t baseboard | grep Name: |cut -d: -f2 |cut -d' ' -f2)"
 				case "$mbType" in
 					X10DRi) 
-						warn "Traffic test is not defined for $baseModel in single mode on mbType: $mbType"
 						setIfaceLinks -up $uutNets
 						setIfaceChannels -target-qty=3 $uutNets 
 						setIrq $uutNets
 						setIfaceParams -flow -on $uutNets
-						allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel"
-						allNetAct "$uutNets" "Check Data rates on UUT" "getEthRates" "25000" "$baseModel"
-						sendMode=0x3
-						sendDelay=0x0
-						sourceDir="$(pwd)"
-						cd "$rootDir"
-						dmsg inform "pwd=$(pwd)"
-						# echo -n "1 2 3 4" >$rootDir/$orderFile
-						# execFile="./8x8_anagenohup1_slotIPmod.sh"
-						# echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA2_P1 <-> BGA2_P2)..\n"
-						# execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
-						# let execRes+=$?
-						# echo -n "1 3 2 4" >$rootDir/$orderFile
-						# echo -e "\n\tSending traffic (BGA1_P1 <-> BGA2_P1, BGA1_P2 <-> BGA2_P2)..\n"
-						# execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
-						# let execRes+=$?
-						echo -n "1 2 3 4 1 3 2 4" >$rootDir/$orderFile
-						execFile="./8x8_anagenohup1_slotIPmod_NETmode.sh"
-						if [ -z "$retestQty" ]; then let retestQty=10; fi
-						for ((rt=1; rt<=$retestQty; rt++)) ; do 
-							echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA1_P1 <-> BGA2_P1, BGA2_P1 <-> BGA2_P2, BGA1_P2 <-> BGA2_P2)\n"
-							updateIfaceStats $uutNets &>/dev/null
-							execScript "$execFile" "$sendMode $pcktCnt $sendDelay $(($portQty*2)) $orderFile $uutNets $uutNets" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
-							let execRes+=$?
-							updateIfaceStats $uutNets &>/dev/null
-							compareIfaceStats $uutNets
-							if [ $execRes -gt 0 ]; then break; fi
-						done
-						if [ $execRes -eq 0 ]; then echo -e "\n\tTests summary: \e[0;32mPASSED\e[m"; else
-							echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
-							if [ ! -z "$retestOnFail" ]; then
-								echo -n "1 2 3 4" >$rootDir/$orderFile
-								echo -e "\n\tRETEST: Sending traffic (BGA1_P1 <-> BGA1_P2, BGA2_P1 <-> BGA2_P2)\n"
-								execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
-								echo -n "1 3 2 4" >$rootDir/$orderFile
-								echo -e "\n\tRETEST: Sending traffic (BGA1_P1 <-> BGA2_P1, BGA1_P2 <-> BGA2_P2)\n"
-								execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
-								echo -n "1 2 3 4 1 3 2 4" >$rootDir/$orderFile
-								execFile="./8x8_anagenohup1_slotIPmod_NETmode.sh"
+						allNetAct "$uutNets" "Check links are UP on UUT" "testLinks" "yes" "$baseModel"; exitStatus+=$?
+						allNetAct "$uutNets" "Check Data rates on UUT" "getEthRates" "25000" "$baseModel"; exitStatus+=$?
+						if [ $exitStatus -gt 0 ]; then
+							except "Link/Rate test failed."
+						else
+							sendMode=0x3
+							sendDelay=0x0
+							sourceDir="$(pwd)"
+							cd "$rootDir"
+							dmsg inform "pwd=$(pwd)"
+							# echo -n "1 2 3 4" >$rootDir/$orderFile
+							# execFile="./8x8_anagenohup1_slotIPmod.sh"
+							# echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA2_P1 <-> BGA2_P2)..\n"
+							# execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+							# let execRes+=$?
+							# echo -n "1 3 2 4" >$rootDir/$orderFile
+							# echo -e "\n\tSending traffic (BGA1_P1 <-> BGA2_P1, BGA1_P2 <-> BGA2_P2)..\n"
+							# execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+							# let execRes+=$?
+							echo -n "1 2 3 4 1 3 2 4" >$rootDir/$orderFile
+							execFile="./8x8_anagenohup1_slotIPmod_NETmode_noAdvanced.sh"
+							testFileExist "$execFile"
+							if [ -z "$retestQty" ]; then let retestQty=10; fi
+							echo -e "\n\tRunning dry run.."
+							dryRun=$(execScript "$execFile" "$sendMode 500000 $sendDelay $(($portQty*2)) $orderFile $uutNets $uutNets" 2>&1)
+							for ((rt=1; rt<=$retestQty; rt++)) ; do 
 								echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA1_P1 <-> BGA2_P1, BGA2_P1 <-> BGA2_P2, BGA1_P2 <-> BGA2_P2)\n"
+								#updateIfaceStats $uutNets &>/dev/null
 								execScript "$execFile" "$sendMode $pcktCnt $sendDelay $(($portQty*2)) $orderFile $uutNets $uutNets" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+								let execRes+=$?
+								#updateIfaceStats $uutNets &>/dev/null
+								#compareIfaceStats $uutNets
+								if [ $execRes -gt 0 ]; then break; fi
+							done
+							if [ $execRes -eq 0 ]; then echo -e "\n\tTests summary: \e[0;32mPASSED\e[m"; else
+								echo -e "\n\tTests summary: \e[0;31mFAILED\e[m"
+								if [ ! -z "$retestOnFail" ]; then
+									echo -n "1 2 3 4" >$rootDir/$orderFile
+									echo -e "\n\tRETEST: Sending traffic (BGA1_P1 <-> BGA1_P2, BGA2_P1 <-> BGA2_P2)\n"
+									execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+									echo -n "1 3 2 4" >$rootDir/$orderFile
+									echo -e "\n\tRETEST: Sending traffic (BGA1_P1 <-> BGA2_P1, BGA1_P2 <-> BGA2_P2)\n"
+									execScript "$execFile" "$sendMode $pcktCnt $sendDelay $portQty $orderFile $slotNum" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+									echo -n "1 2 3 4 1 3 2 4" >$rootDir/$orderFile
+									execFile="./8x8_anagenohup1_slotIPmod_NETmode.sh"
+									echo -e "\n\tSending traffic (BGA1_P1 <-> BGA1_P2, BGA1_P1 <-> BGA2_P1, BGA2_P1 <-> BGA2_P2, BGA1_P2 <-> BGA2_P2)\n"
+									execScript "$execFile" "$sendMode $pcktCnt $sendDelay $(($portQty*2)) $orderFile $uutNets $uutNets" "Failed" "Traffic test FAILED" --exp-kw="Bus Error Test Passed" --exp-kw="Txgen Test Passed" --exp-kw="PCI Test Passed"
+								fi
 							fi
 						fi
-
 					;;
 					X12DAi-N6) 
 						sendMode=3
@@ -4507,6 +4627,9 @@ netInfoDump() {
 		PE2G4I35) 
 			warn "  dumps not implemented for $baseModelLocal"
 		;;		
+		80200-0234-G00) 
+			warn "  dumps not implemented for $baseModelLocal"
+		;;
 		*) except "Unknown baseModelLocal: $baseModelLocal"
 	esac
 }
@@ -4539,71 +4662,6 @@ loadSlcmModule() {
 	echo -e "\t Done."
 }
 
-getEthTransInfo() {
-	local net nets transCmdRes
-	nets="$@"
-	if ! [ -z "$nets" ]; then
-		for net in ${nets[*]]}; do
-			echo -e "\n\tCheking net: [$gr$net$ec]"
-			echo -ne "\t$yl Gathering info..$ec"
-			transCmdRes="$(ethtool -m $net)"
-			venName=$(echo "$transCmdRes" |grep "Vendor name" |cut -d: -f2 |cut -c2-)
-			venPn=$(echo "$transCmdRes" |grep "Vendor PN" |cut -d: -f2 |cut -c2-)
-			venRev=$(echo "$transCmdRes" |grep "Vendor rev" |cut -d: -f2 |cut -c2-)
-			venSN=$(echo "$transCmdRes" |grep "Vendor SN" |cut -d: -f2 |cut -c2-)
-			transType=$(echo "$transCmdRes" |grep "Transceiver type" |cut -d: -f3 |cut -c2-)
-			transWL=$(echo "$transCmdRes" |grep "Laser wavelength" |cut -d: -f2 |cut -c2-)
-
-			biasCurr=$(echo "$transCmdRes" |grep "Laser bias current" |grep -v 'alarm\|warning' |cut -d: -f2 |cut -c2-)
-			txPW=$(echo "$transCmdRes" |grep "Laser output power" |grep -v 'alarm\|warning' |cut -d: -f2 |cut -c2- |cut -d/ -f1)
-			rxPW=$(echo "$transCmdRes" |grep "Receiver signal average optical power" |cut -d: -f2 |cut -c2- |cut -d/ -f1)
-			transVoltage=$(echo "$transCmdRes" |grep "Module voltage" |grep -v 'alarm\|warning' |cut -d: -f2 |cut -c2-)
-			
-			transWarn="$(echo "$transCmdRes" |grep 'warning' |grep ': On' |cut -d: -f1 | awk '$1=$1' |sed 's/warning//g')"
-			transAlarm="$(echo "$transCmdRes" |grep 'alarm' |grep ': On' |cut -d: -f1 | awk '$1=$1' |sed 's/alarm//g')"
-
-			if ! [ -z "$transAlarm" ]; then
-				if ! [ -z "$transWarn" ]; then
-					shopt -s lastpipe
-					echo "$transAlarm" | while read almN ; do
-						warnExist=$(echo "$transWarn" |grep "$almN")
-						if ! [ -z "$warnExist" ]; then
-							transWarn="$(echo "$transWarn" |sed "/$warnExist/d")"
-						fi
-					done
-				fi
-			fi
-
-			printf "\r%s" ""
-			echo -e "\t $transType ($transWL): $venName - $venPn (rev $venRev, SN: $venSN)"
-			echo -e "\t  Input voltage: $transVoltage"
-			echo -e "\t  Laser current: $biasCurr"
-			echo -e "\t  Tx Power: $txPW"
-			echo -e "\t  Rx Power: $rxPW"
-
-			if ! [ -z "$transWarn" ]; then
-				echo "$transWarn" | while read warnM ; do
-					warnTrsh=$(echo "$transCmdRes" |grep "$warnM" |grep 'warning threshold' |cut -d: -f2 |cut -c2- |cut -d/ -f1)
-					trshType=$(echo $warnM |awk '{print $NF}')
-					if [ "$trshType" = "low" ]; then trshMsg="lower"; else trshMsg="higher"; fi
-					echo -e "$yl\t  Warning: $warnM$ec (is $yl$trshMsg$ec than $warnTrsh)"
-				done
-			fi
-
-			if ! [ -z "$transAlarm" ]; then
-				echo "$transAlarm" | while read almM ; do
-					almTrsh=$(echo "$transCmdRes" |grep "$almM" |grep 'alarm threshold' |cut -d: -f2 |cut -c2- |cut -d/ -f1)
-					trshType=$(echo $almM |awk '{print $NF}')
-					if [ "$trshType" = "low" ]; then trshMsg="lower"; else trshMsg="higher"; fi
-					echo -e "$rd\t  Alarm: $almM$ec (is $rd$trshMsg$ec than $almTrsh)"
-				done
-			fi
-		done
-	else
-		warn "${FUNCNAME[0]}, no nets found, skipped"
-	fi
-}
-
 ethTransInfo() {
 	local nets
 	nets="$@"
@@ -4617,6 +4675,7 @@ ethTransInfo() {
 			PE325G2I71) 		getEthTransInfo "$@";;
 			PE31625G4I71L) 		getEthTransInfo "$@";;
 			M4E310G4I71) 		getEthTransInfo "$@";;
+			80200-0234-G00) 	getEthTransInfo "$@";;
 			*) warn "${FUNCNAME[0]}, not implemented for $baseModel"
 		esac
 	else
@@ -4627,23 +4686,31 @@ ethTransInfo() {
 transceiverCheck() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	local slcmModeLocal bus
-	if [[ -z "$(echo $* |grep slcm)" ]]; then warn "${FUNCNAME[0]}: skipped, slcmMode is not defined for $baseModel"
-	else
-		privateVarAssign "${FUNCNAME[0]}" "slcmModeLocal" "$1" ;shift
-		privateVarAssign "${FUNCNAME[0]}" "slcmBuses" "$*"
-		loadSlcmModule "$slcmModeLocal"
-		for bus in $slcmBuses; do
-			if [ "$slcmModeLocal" = "slcmi" ]; then
-				echo -e -n "\t Getting QSFP info on bus $bus\n\tTransceiver PN: "
-				transPn=$(slcmi_util $bus get_qsfp_info |grep PartNumber |cut -d ' ' -f2)
-				echo -e "$blw$transPn$ec"
-			else
-				echo -e -n "\t Getting SFP info on bus $bus\n\tTransceiver PN: "
-				transPn=$(slcm_util $bus get_sfp_info |grep "vendor PN:" |cut -d ' ' -f3)
-				echo -e "$blw$transPn$ec"
-			fi
-		done
-	fi
+	case $1 in 
+		slcmi|slcm|bnxt) 
+			privateVarAssign "${FUNCNAME[0]}" "slcmModeLocal" "$1" ;shift
+			privateVarAssign "${FUNCNAME[0]}" "slcmBuses" "$*"
+		;;&
+		slcmi|slcm) 
+			loadSlcmModule "$slcmModeLocal"
+			for bus in $slcmBuses; do
+				if [ "$slcmModeLocal" = "slcmi" ]; then
+					echo -e -n "\t Getting QSFP info on bus $bus\n\tTransceiver PN: "
+					transPn=$(slcmi_util $bus get_qsfp_info |grep PartNumber |cut -d ' ' -f2)
+					echo -e "$blw$transPn$ec"
+				else
+					echo -e -n "\t Getting SFP info on bus $bus\n\tTransceiver PN: "
+					transPn=$(slcm_util $bus get_sfp_info |grep "vendor PN:" |cut -d ' ' -f3)
+					echo -e "$blw$transPn$ec"
+				fi
+			done
+		;;
+		bnxt) 
+			for bus in $slcmBuses; do 
+				ethTransInfo $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep -v "virtual\|total" |cut -d/ -f5- |grep -x '^.*/....:'$bus'/net/.*$' |awk -F/ '{print $NF}')
+			done ;;
+		*) warn "${FUNCNAME[0]}: skipped, slcmMode is not defined for $baseModel"
+	esac
 }
 
 transDiag() {
@@ -5096,7 +5163,10 @@ trafficTests() {
 			sleep $globLnkUpDel
 			trafficTest "$uutSlotNum" 10000000 "PE3100G2DBIR"
 		;;
-		PE425G4I71L)  inform "Traffic tests are not defined for $baseModel";;
+		PE425G4I71L) 
+			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "inline"; fi
+			trafficTest "$uutSlotNum" 500000 "$baseModel"
+		;;
 		PE310G4BPI9) 
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "inline"; fi
 			allBPBusMode "$bpBuses" "inline"
@@ -5115,7 +5185,7 @@ trafficTests() {
 		;;
 		PE31625G4I71L) 
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "inline"; fi
-			trafficTest "$uutSlotNum" 5000000 "$baseModel"
+			trafficTest "$uutSlotNum" 500000 "$baseModel"
 		;;
 		M4E310G4I71) 
 			if [ -z "$noMasterMode" ]; then allBPBusMode "$mastBpBuses" "bp"; fi
@@ -5516,13 +5586,20 @@ function mainTest() {
 assignNets() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
 	local dev uutNetArr devNet
-	for dev in $devsOnUutSlotBus; do
-		devNet=$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $dev |awk -F/ '{print $NF}')
-		if [ ! -z "$devNet" ]; then
-			uutNetArr+=($devNet)
-		fi
-	done
-	publicVarAssign warn uutNets ${uutNetArr[*]}
+	
+	uutNetArr=$(getIfacesOnSlotBus "$uutSlotBus")
+	publicVarAssign warn uutNets "$uutNetArr"
+
+	#	VER 2
+	# for dev in $devsOnUutSlotBus; do
+	# 	devNet=$(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $dev |awk -F/ '{print $NF}')
+	# 	if [ ! -z "$devNet" ]; then
+	# 		uutNetArr+=($devNet)
+	# 	fi
+	# done
+	# publicVarAssign warn uutNets ${uutNetArr[*]}
+
+	#	VER 1
 	#publicVarAssign warn uutNets $(ls -l /sys/class/net |cut -d'>' -f2 |sort |grep $uutSlotBus |awk -F/ '{print $NF}')
 }
 
@@ -5656,8 +5733,8 @@ else
 	echoHeader "$toolName" "$ver"
 	sendToKmsg "\n\n\n\t$toolName $ver has ${gr}started$ec!"
 	echoSection "Startup.."
-	parseArgs "$@"
 	setEmptyDefaults
+	parseArgs "$@"
 	initialSetup
 	startupInit
 	source /root/PE310G4BPI71/library.sh &> /dev/null

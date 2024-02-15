@@ -23,6 +23,7 @@ defineColors() {
 	blb='\033[7;49;94m'
 	blp='\033[38;5;147m'
 	cyg='\033[38;5;195m'
+	yor='\033[1;41;33m' #yellow on red
 	ec='\033[m'
 }
 

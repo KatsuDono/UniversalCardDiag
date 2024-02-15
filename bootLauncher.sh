@@ -270,7 +270,7 @@ readDB() {
 
 writeSQLDB() {
 	local KEY VALUE sqlFunc sqlExecRes sshCmd cmdRes
-	local totalRunsSQLDB currentRunSQLDB runsLeftSQLDB passedRunsSQLDB failedRunsSQLDB statusSQLDB
+	local totalRunsSQLDB currentRunSQLDB runsLeftSQLDB passedRunsSQLDB failedRunsSQLDB statusSQLDB testNameSQLDB
 	local TNSQLDB PNSQLDB MACSQLDB slotNumSQLDB srvHexIDSQLDB JobHexID
 	privateVarAssign "${FUNCNAME[0]}" "JobHexID" "$1"; shift
 	for ARG in "$@"
@@ -301,14 +301,14 @@ writeSQLDB() {
 			;;
 
 			"slotNum"|"totalRuns"|"currentRun"|"runsLeft"|"passedRuns"|"failedRuns") 	privateNumAssign "${KEY}SQLDB" "${VALUE}" ;;
-			"TN"|"PN"|"MAC"|"status") 	privateVarAssign "${FUNCNAME[0]}" "${KEY}SQLDB" "${VALUE}" ;;
+			"TN"|"PN"|"MAC"|"status"|"testName") 	privateVarAssign "${FUNCNAME[0]}" "${KEY}SQLDB" "${VALUE}" ;;
 			"srvHexID") 	privateVarAssign "${FUNCNAME[0]}" "srvHexIDSQLDB" "${VALUE}" ;;
 			*) except "Unknown SQLDB key: $ARG"
 		esac
 	done
 	case "$sqlFunc" in
 		updJobCnt)	
-			echo "Updating SQL slot sounters: $totalRunsSQLDB,$currentRunSQLDB,$runsLeftSQLDB,$passedRunsSQLDB,$failedRunsSQLDB"
+			echo "  Updating SQL slot sounters: $totalRunsSQLDB,$currentRunSQLDB,$runsLeftSQLDB,$passedRunsSQLDB,$failedRunsSQLDB"
 			if [ -z "$totalRunsSQLDB" -o -z "$currentRunSQLDB" -o -z "$runsLeftSQLDB" -o -z "$passedRunsSQLDB" -o -z "$failedRunsSQLDB" ]; then
 				except "input parameters undefined for sqlFunc: $sqlFunc"
 			else
@@ -326,7 +326,7 @@ writeSQLDB() {
 			fi
 		;;
 		updJobSta)	
-			echo "Updating SQL slot status: $statusSQLDB"
+			echo "  Updating SQL slot status: $statusSQLDB"
 			if [ -z "$statusSQLDB" ]; then
 				except "input parameters undefined for sqlFunc: $sqlFunc"
 			else
@@ -344,12 +344,12 @@ writeSQLDB() {
 			fi
 		;;
 		addJob)	
-			echo "Adding SQL job: $TNSQLDB,$PNSQLDB,$MACSQLDB,$srvHexIDSQLDB,$slotNumSQLDB,$totalRunsSQLDB"
+			echo "  Adding SQL job: $TNSQLDB,$PNSQLDB,$MACSQLDB,$srvHexIDSQLDB,$slotNumSQLDB,$totalRunsSQLDB"
 			if [ -z "$TNSQLDB" -o -z "$PNSQLDB" -o -z "$srvHexIDSQLDB" -o -z "$slotNumSQLDB" -o -z "$totalRunsSQLDB" ]; then
 				if [ -z "$MACSQLDB" ]; then	MACSQLDB="-"; fi
 				except "input parameters undefined for sqlFunc: $sqlFunc"
 			else
-				sshCmd='source /root/multiCard/sqlLib.sh &>/dev/null; '"sqlCreateJob \"$JobHexID\" \"$TNSQLDB\" \"$PNSQLDB\" \"$MACSQLDB\" \"$srvHexIDSQLDB\" $slotNumSQLDB $totalRunsSQLDB"
+				sshCmd='source /root/multiCard/sqlLib.sh &>/dev/null; '"sqlCreateJob \"$JobHexID\" \"$TNSQLDB\" \"$PNSQLDB\" \"$MACSQLDB\" \"$srvHexIDSQLDB\" $slotNumSQLDB $totalRunsSQLDB \"$testNameSQLDB\""
 				cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
 				sqlExecRes="$cmdRes"
 				# sqlExecRes="$(sqlCreateJob "$JobHexID" "$TNSQLDB" "$PNSQLDB" "$MACSQLDB" "$srvHexIDSQLDB" $slotNumSQLDB $totalRunsSQLDB)"
@@ -588,7 +588,7 @@ closeJob() {
 }
 
 closeSlotJob() {
-	local targSlot closePrompt shareLink cmdRes
+	local targSlot closePrompt shareLink cmdRes printAgain cardSpec
 	local uutSlotNum uutPn uutTn jobIDDB failRunsDB passRunsDB dbID totalRunsDB runsLeftDB currentRunDB uutMac sshCmd curTTY syncFailRes
 	privateNumAssign targSlot $1
 	
@@ -631,8 +631,9 @@ closeSlotJob() {
 				echo "    Job did fail, syncing FailLogs folder"
 				sshCmd="/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/FailLogs/$jobIDDB\" --retry-count=480 --retry-timeout=1"
 			else
-				echo "    Job did not fail, syncing JobStorage folder"
-				sshCmd="/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/JobStorage/$jobIDDB\" --retry-count=480 --retry-timeout=1"
+				echo "    Job did not fail, NOT syncing JobStorage folder"
+				# echo "    Job did not fail, syncing JobStorage folder"
+				# sshCmd="/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/JobStorage/$jobIDDB\" --retry-count=480 --retry-timeout=1"
 			fi
 			syncFailRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
 			echo "$cmdRes"
@@ -646,14 +647,17 @@ closeSlotJob() {
 					echo "    Job did fail, sharing FailLogs folder"
 					echo "    Creating share link"
 					sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/FailLogs/$jobIDDB"
+					cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
+					echo "$cmdRes"
+					shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
 				else
-					echo "    Job did not fail, sharing JobStorage folder"
-					sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/JobStorage/$jobIDDB"
+					echo "    Job did not fail, NOT sharing JobStorage folder"
+					
+					# echo "    Job did not fail, sharing JobStorage folder"
+					# sshCmd='source /root/multiCard/arturLib.sh &>/dev/null; '"sharePathOnedrive /LogStorage/JobStorage/$jobIDDB"
 				fi
-				cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
-				echo "$cmdRes"
-				shareLink=$(echo -n "$cmdRes" |grep 'Created link:' |cut -d: -f2- | cut -c2- |grep http)
-				if [ -z "$shareLink" ]; then
+				
+				if [ -z "$shareLink" -a $failRunsDB -gt 0 ]; then
 					critWarn "Unable to create shared link!"
 					echo "   Rolling back slot status to finalized, as the sync failed"
 					changeSlotStatus $targSlot "FINALIZED" --rollback
@@ -667,6 +671,29 @@ closeSlotJob() {
 					echo "    Total runs: $totalRunsDB"
 					echo "    Failed runs: $failRunsDB"
 					echo "    Runs left: $runsLeftDB"
+					if [ $failRunsDB -eq 0 ]; then
+						let printAgain=1
+						case $uutPn in
+							PE31625G4I71L-XR-CX) cardSpec="2BGA-4PORT-NOPLX";;
+							PE425G4I71L|PE425G4I71L-XR-CX) cardSpec="2BGA-4PORT-wPLX";;
+							*) critWarn "PN: $uutPn is not implemented for printing, skipping.."; let printAgain=0
+						esac
+						
+						while [ $printAgain -gt 0 ]; do
+							echo "  Printing label for job: $jobIDDB"
+							sshCmd='source /root/multiCard/sqlLib.sh &>/dev/null; '"printSqlJob $jobIDDB $cardSpec"
+							cmdRes="$(sshSendCmd $syncSrvIp root "${sshCmd}")"
+							echo "$cmdRes"
+							echo "  Print label again?"
+							case `select_opt "${closePrompt[@]}"` in
+								0) ;;
+								1) let printAgain=0;;
+								*) except "closePrompt for print job unknown exception" 
+							esac
+						done
+					else
+						echo "  Auto-printing label for job: $jobIDDB is unavailable, job has failed"
+					fi
 					echo "  Remove slot job from DB?"
 					case `select_opt "${closePrompt[@]}"` in
 						0) 
@@ -734,7 +761,7 @@ createSlotJob() {
 		privateVarAssign "${FUNCNAME[0]}" dbID $(readDB 99 --db-id)
 		privateVarAssign "${FUNCNAME[0]}" slotNum $(readDB $targSlot --slot-num)
 
-		writeSQLDB "$randHexLong" --add-job --TN=$trackNum --PN=$pnInput --MAC=$macInput --srvHexID=$dbID --slotNum=$slotNum --totalRuns=$totalRunsTrg
+		writeSQLDB "$randHexLong" --add-job --TN=$trackNum --PN=$pnInput --MAC=$macInput --srvHexID=$dbID --slotNum=$slotNum --totalRuns=$totalRunsTrg --testName=$testSel
 		changeSlotStatus $targSlot "READY"
 	else
 		echo "DEBUG: pnArr: ${pnArr[*]} "
@@ -968,6 +995,8 @@ checkJobStates() {
 		# uploadSQLToSheetSyncServer $syncSrvIp "/tmp/SQL_$dbID.csvDB"
 		# uploadQueueSyncServer $syncSrvIp "$queueLogPathFull"
 	fi
+	sshSendCmdNohup $syncSrvIp $syncSrvUser '/root/multiCard/sheetsSyncUtility.sh --updDB'
+	if [ -e "/tmp/stopOnFinish" ]; then rm -f "/tmp/stopOnFinish"; unset rebootRequired; fi
 	checkHWkey
 	if [ $? -eq 0 ]; then 
 		if [ -z "$noReboot" ]; then 
@@ -981,6 +1010,8 @@ checkJobStates() {
 				publicVarAssign fatal ipmiPassDB $(readDB 99 --ipmi-pass)
 				countDownDelay 5 "  Sending request to reboot server ($rebootServerUser@$rebootServerIp) for a system reboot.."
 				sshSendCmdNohup $rebootServerIp $rebootServerUser '/root/multiCard/rebootUtility.sh '"--ssh-ip=$sshIPDB --ssh-user=$sshUserDB --ipmi-ip=$ipmiIPDB --ipmi-user=$ipmiUserDB --ipmi-pass=$ipmiPassDB"
+				countDownDelay 30 "  Waiting for a reboot querry to IPMI from reboot server.."
+				reboot	# in case of no reboot received from restart server, we do it manualy
 			else
 				testEndLoop
 			fi
@@ -1064,12 +1095,13 @@ startSlotJob() {
 
 	logPath="$uutTn"'_'"PN-$uutPn"'_'"Slot-$uutSlotNum"'_'"Run-"$currentRunDB'_'$jobIDDB.log
 	echo -e -n "  Creating job logs folder /root/multiCard/LogStorage/JobStorage/$jobIDDB: "; echoRes "mkdir -p /root/multiCard/LogStorage/JobStorage/$jobIDDB"
-	publicVarAssign fatal logPathFull "/root/multiCard/LogStorage/JobStorage/$jobIDDB/$logPath"
+	privateVarAssign "${FUNCNAME[0]}" logPathFull "/root/multiCard/LogStorage/JobStorage/$jobIDDB/$logPath"
 	writeDB $slotIdx --last-run-log=$logPath
 	dmsg critWarn --sil "SORT OUT multiple tests selects in one argument"
-	/root/multiCard/menu.sh --silent --uut-slot-num=$uutSlotNum --PN-choice=$uutPn --uut-pn=$uutPn --test-sel=$pciTestDB --noMasterMode --slDupSkp --ignore-dumps-fail --minor-launch 2>&1 |& tee $logPathFull
+	echo "PN=$uutPn,TN=$uutTn,MAC=$macDB,testName=$pciTestDB,currentRun=$currentRunDB,totalRuns=$totalRunsDB,failedRuns=$failRunsDB,JobID=$jobIDDB,DBID=$dbID" >$logPathFull
+	/root/multiCard/menu.sh --silent --uut-slot-num=$uutSlotNum --PN-choice=$uutPn --uut-pn=$uutPn --test-sel=$pciTestDB --noMasterMode --slDupSkp --ignore-dumps-fail --minor-launch 2>&1 |& tee -a $logPathFull
 	
-	echo "  Clening up log from excess symbols"
+	dmsg echo "  Clening up log from excess symbols"
 	logCleanup=$(cat $logPathFull | sed 's/\x1B[@A-Z\\\]^_]\|\x1B\[[0-9:;<=>?]*[-!"#$%&'"'"'()*+,.\/]*[][\\@A-Z^_`a-z{|}~]//g' 2>&1)
 	if [ -z "$logCleanup" ]; then
 		inform "  Log cleanup result is empty, retrying.."
@@ -1081,26 +1113,26 @@ startSlotJob() {
 			echo "$logCleanup" &> $logPathFull
 		fi
 	else
-		echo "  Log cleanup ok, rewriting log file"
+		dmsg echo "  Log cleanup ok, rewriting log file"
 		echo "$logCleanup" &> $logPathFull
 	fi
 	# cat $logPathFull | sed 's/\x1B[@A-Z\\\]^_]\|\x1B\[[0-9:;<=>?]*[-!"#$%&'"'"'()*+,.\/]*[][\\@A-Z^_`a-z{|}~]//g' 2>&1 |& tee $logPathFull > /dev/null
 	
 	if [ -z "$(readDB $slotIdx --total-log)" ]; then
-		echo "  Total log does not exist, creating."
-		publicVarAssign fatal slotLogPath "$uutTn"'_'"PN-$uutPn"'_'"Slot-$uutSlotNum"'_'"TOTAL-LOG_"$jobIDDB.log
+		dmsg echo "  Total log does not exist, creating."
+		privateVarAssign "${FUNCNAME[0]}" slotLogPath "$uutTn"'_'"PN-$uutPn"'_'"Slot-$uutSlotNum"'_'"TOTAL-LOG_"$jobIDDB.log
 		writeDB $slotIdx --total-log=$slotLogPath
 	else
-		publicVarAssign fatal slotLogPathFull "/root/multiCard/LogStorage/JobStorage/$jobIDDB/$(readDB $slotIdx --total-log)"
-		echo "  Checking total log path: $slotLogPathFull"
+		privateVarAssign "${FUNCNAME[0]}" slotLogPathFull "/root/multiCard/LogStorage/JobStorage/$jobIDDB/$(readDB $slotIdx --total-log)"
+		dmsg echo "  Checking total log path: $slotLogPathFull"
 		if ! [ -e "$slotLogPathFull" ]; then
 			echo "  Total log path is non-existent, recreating."
-			publicVarAssign fatal slotLogPath "$uutTn"'_'"PN-$uutPn"'_'"Slot-$uutSlotNum"'_'"TOTAL-LOG_"$jobIDDB.log
+			privateVarAssign "${FUNCNAME[0]}" slotLogPath "$uutTn"'_'"PN-$uutPn"'_'"Slot-$uutSlotNum"'_'"TOTAL-LOG_"$jobIDDB.log
 			writeDB $slotIdx --total-log=$slotLogPath
 		fi
 	fi
 
-	publicVarAssign fatal globalLogPathFull "/root/multiCard/LogStorage/GlobalLogs/$(readDB $slotIdx --global-log)"
+	privateVarAssign "${FUNCNAME[0]}" globalLogPathFull "/root/multiCard/LogStorage/GlobalLogs/$(readDB $slotIdx --global-log)"
 
 	let totalRunsDB=$(($totalRunsDB+1))
 	writeDB $slotIdx --total-runs=$totalRunsDB
@@ -1116,8 +1148,9 @@ startSlotJob() {
 		testResVerb="FAILED"
 		if [ -z "$noDebug" ]; then
 			debugInfoPath="$uutTn"'_'"PN-$uutPn"'_'"Slot-$uutSlotNum"'_'"Run-"$currentRunDB'_'debugInfo.log
-			publicVarAssign fatal debugInfoPathFull "/root/multiCard/LogStorage/JobStorage/$jobIDDB/$debugInfoPath"
-			getDebugInfo 2>&1 |& tee $debugInfoPathFull
+			privateVarAssign "${FUNCNAME[0]}" debugInfoPathFull "/root/multiCard/LogStorage/JobStorage/$jobIDDB/$debugInfoPath"
+			echo "PN=$uutPn,TN=$uutTn,MAC=$macDB,testName=$pciTestDB,currentRun=$currentRunDB,totalRuns=$totalRunsDB,failedRuns=$failRunsDB,JobID=$jobIDDB,DBID=$dbID" >$debugInfoPathFull
+			getDebugInfo 2>&1 |& tee -a $debugInfoPathFull
 		fi
 	else
 		let passRunsDB=$(($passRunsDB+1))
@@ -1166,9 +1199,9 @@ startSlotJob() {
 		uploadLogSyncServer $syncSrvIp "$logPathFull" "JobStorage/$jobIDDB"
 		uploadLogSyncServer $syncSrvIp "$slotLogPathFull" "JobStorage/$jobIDDB"
 		uploadLogSyncServer $syncSrvIp "$globalLogPathFull" "GlobalLogs"
-		echo "  Sending OneDrive sync request to sync JobStorage and GlobalLogs on server: $syncSrvIp"
-		sshSendCmdNohup $syncSrvIp $syncSrvUser "/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/JobStorage/$jobIDDB\" --retry-count=480 --retry-timeout=1"
-		sshSendCmdNohup $syncSrvIp $syncSrvUser "/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/GlobalLogs\" --retry-count=480 --retry-timeout=1"
+		#echo "  Sending OneDrive sync request to sync JobStorage and GlobalLogs on server: $syncSrvIp"
+		#sshSendCmdNohup $syncSrvIp $syncSrvUser "/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/JobStorage/$jobIDDB\" --retry-count=480 --retry-timeout=1"
+		#sshSendCmdNohup $syncSrvIp $syncSrvUser "/root/multiCard/onedriveSyncUtility.sh --lock-contents=$dbID --upload-path=\"LogStorage/GlobalLogs\" --retry-count=480 --retry-timeout=1"
 		if [ ! -z "$debugInfoPathFull" ]; then 
 			addSQLLogRecord $syncSrvIp $jobIDDB --run-failed
 			sendAlert 'Run failed!'"\nJob: $jobIDDB\nPN: $uutPn\nTN: $uutTn\nRun result: $testResVerb\nRuns left: $runsLeftDB"
@@ -1191,12 +1224,12 @@ updateSqlCounters() {
 	local slotIdx
 	local passRunsDB failRunsDB totalRunsDB currentRunDB runsLeftDB jobHexIDDB
 	privateNumAssign "slotIdx" "$1"
-	publicVarAssign fatal jobHexIDDB $(readDB $slotIdx --job-id)
-	publicNumAssign passRunsDB $(readDB $slotIdx --pass-runs)
-	publicNumAssign failRunsDB $(readDB $slotIdx --fail-runs)
-	publicNumAssign totalRunsDB $(readDB $slotIdx --total-runs)
-	publicNumAssign currentRunDB $(readDB $slotIdx --current-run)
-	publicNumAssign runsLeftDB $(readDB $slotIdx --runs-left)
+	privateVarAssign "${FUNCNAME[0]}" jobHexIDDB $(readDB $slotIdx --job-id)
+	privateNumAssign passRunsDB $(readDB $slotIdx --pass-runs)
+	privateNumAssign failRunsDB $(readDB $slotIdx --fail-runs)
+	privateNumAssign totalRunsDB $(readDB $slotIdx --total-runs)
+	privateNumAssign currentRunDB $(readDB $slotIdx --current-run)
+	privateNumAssign runsLeftDB $(readDB $slotIdx --runs-left)
 	writeSQLDB "$jobHexIDDB" --update-job-counters --totalRuns=$totalRunsDB --currentRun=$currentRunDB --runsLeft=$runsLeftDB --passedRuns=$passRunsDB --failedRuns=$failRunsDB
 	sshSendCmdNohup $syncSrvIp $syncSrvUser '/root/multiCard/sheetsSyncUtility.sh'
 }

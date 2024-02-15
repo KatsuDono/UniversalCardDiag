@@ -144,7 +144,7 @@ function setIfaceParams() {
 	local key arg args iface ifaceList txBuffMax targStateOn targState
 	local ringRxBuffMax ringTxBuffMax pauseParamsCmdRes pauseRxStateOn pauseTxStateOn pauseAutoNegStateOn
 	local ethtoolCmdFail globAutoNegParamsCmdRes globAutoNegStateOn totalState setOk runRes retLeft changesPending
-	local retryMultiedDelay
+	local retryMultiedDelay setOnly
 	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
 	for arg in ${args}
 	do
@@ -162,6 +162,7 @@ function setIfaceParams() {
 				flow) modeArg="g"; smode="flow";;
 				pause) modeArg="a"; smode="pause";;
 				global) modeArg="s"; smode="global";;
+				set-only-no-wait) let setOnly=1; let retLeft=1;;
 				*) except "Unknown key: $key"
 			esac
 		else
@@ -185,7 +186,7 @@ function setIfaceParams() {
 				privateVarAssign "${FUNCNAME[0]}" "globAutoNegParamsCmdRes" "$(ethtool $iface 2>/dev/null |grep -x ".*Auto.*negotiation:.*")"; sleep 0.5 #to not exceed request rate
 				globAutoNegStateOn=$(grep -x "^.*: on$" <<<"$globAutoNegParamsCmdRes")
 				let runRes=99
-				let retLeft=30
+				if ! isDefined setOnly; then let retLeft=30; fi
 				let goodRuns=0
 				while [ $retLeft -gt 0 -a $goodRuns -lt 2 ]; do
 					let runRes=0
@@ -233,44 +234,48 @@ function setIfaceParams() {
 								dmsg echo -e "    $org$iface$ec> TX no changes required, already ${gr}$targState$ec."
 							fi
 
-							if [ $changesPending -gt 0 ]; then 
-								# privateNumAssign "retryMultipliedDelay" "$(((11-$retLeft)*5))"
-								let retryMultipliedDelay=10
-								echo -e "    $org$iface$ec> Waiting for changes to apply.. ${yl}$retryMultipliedDelay$ec sec, retries left: $retLeft.."
-								sleep $retryMultipliedDelay
-								#checking results 
-								privateVarAssign "${FUNCNAME[0]}" "pauseParamsCmdRes" "$(ethtool -a $iface)"; sleep 0.5 #to not exceed request rate
-								pauseRxStateOn=$(grep -x "^RX.*on" <<<"$pauseParamsCmdRes")
-								pauseTxStateOn=$(grep -x "^TX.*on" <<<"$pauseParamsCmdRes")
-								pauseAutoNegStateOn=$(grep -x "^Autoneg.*on" <<<"$pauseParamsCmdRes")
-								privateVarAssign "${FUNCNAME[0]}" "globAutoNegParamsCmdRes" "$(ethtool $iface 2>/dev/null |grep -x ".*Auto.*negotiation:.*")"; sleep 0.5 #to not exceed request rate
-								globAutoNegStateOn=$(grep -x "^.*: on$" <<<"$globAutoNegParamsCmdRes")
+							if ! isDefined setOnly; then 
+								if [ $changesPending -gt 0 ]; then 
+									# privateNumAssign "retryMultipliedDelay" "$(((11-$retLeft)*5))"
+									let retryMultipliedDelay=10
+									echo -e "    $org$iface$ec> Waiting for changes to apply.. ${yl}$retryMultipliedDelay$ec sec, retries left: $retLeft.."
+									sleep $retryMultipliedDelay
+									#checking results 
+									privateVarAssign "${FUNCNAME[0]}" "pauseParamsCmdRes" "$(ethtool -a $iface)"; sleep 0.5 #to not exceed request rate
+									pauseRxStateOn=$(grep -x "^RX.*on" <<<"$pauseParamsCmdRes")
+									pauseTxStateOn=$(grep -x "^TX.*on" <<<"$pauseParamsCmdRes")
+									pauseAutoNegStateOn=$(grep -x "^Autoneg.*on" <<<"$pauseParamsCmdRes")
+									privateVarAssign "${FUNCNAME[0]}" "globAutoNegParamsCmdRes" "$(ethtool $iface 2>/dev/null |grep -x ".*Auto.*negotiation:.*")"; sleep 0.5 #to not exceed request rate
+									globAutoNegStateOn=$(grep -x "^.*: on$" <<<"$globAutoNegParamsCmdRes")
 
-								isDefined pauseRxStateOn targStateOn &>/dev/null; totalState="$?"
-								isDefined pauseTxStateOn targStateOn &>/dev/null; totalState+="$?"
-								isDefined globAutoNegStateOn pauseAutoNegStateOn &>/dev/null; totalState+="$?"
-								setOk=$(grep -x "^222$\|^002$"<<<"$totalState")
-							else
-								setOk="noChanges"
-							fi
+									isDefined pauseRxStateOn targStateOn &>/dev/null; totalState="$?"
+									isDefined pauseTxStateOn targStateOn &>/dev/null; totalState+="$?"
+									isDefined globAutoNegStateOn pauseAutoNegStateOn &>/dev/null; totalState+="$?"
+									setOk=$(grep -x "^222$\|^002$"<<<"$totalState")
+								else
+									setOk="noChanges"
+								fi
 
-							if isDefined setOk; then
-								let goodRuns++
-								if [ $changesPending -gt 0 ]; then
-									echo -e "    $org$iface$ec> ${gr}Is set ok$ec."
+								if isDefined setOk; then
+									let goodRuns++
+									if [ $changesPending -gt 0 ]; then
+										echo -e "    $org$iface$ec> ${gr}Is set ok$ec."
+									else
+										echo -e "    $org$iface$ec> ${gr}Was set ok$ec."
+									fi
+									if [ $goodRuns -lt 2 ]; then 
+										echo -e "    $org$iface$ec> ${yl}Rechecking...$ec"
+										sleep 0.5
+									else
+										ip link set up $iface
+									fi
 								else
-									echo -e "    $org$iface$ec> ${gr}Was set ok$ec."
-								fi
-								if [ $goodRuns -lt 2 ]; then 
-									echo -e "    $org$iface$ec> ${yl}Rechecking...$ec"
-									sleep 0.5
-								else
-									ip link set up $iface
+									echo -e "    $org$iface$ec> ${rd}Was NOT set ok$ec. (errC:$totalState)"
+									if [ $retLeft -gt 1 ]; then echo -e "    $org$iface$ec> ${rd}Retrying...$ec"; fi
+									let runRes++
 								fi
 							else
-								echo -e "    $org$iface$ec> ${rd}Was NOT set ok$ec. (errC:$totalState)"
-								if [ $retLeft -gt 1 ]; then echo -e "    $org$iface$ec> ${rd}Retrying...$ec"; fi
-								let runRes++
+								echo -e "    $org$iface$ec> Set only flag active, not checking for a result"
 							fi
 						;;
 						pause) 
@@ -310,50 +315,54 @@ function setIfaceParams() {
 								dmsg echo -e "    $org$iface$ec> TX no changes required, already ${gr}$targState$ec."
 							fi
 
-							if [ $changesPending -gt 0 ]; then 
-								# privateNumAssign "retryMultipliedDelay" "$(((11-$retLeft)*5))"
-								let retryMultipliedDelay=10
-								echo -e "    $org$iface$ec> Waiting for changes to apply.. ${yl}$retryMultipliedDelay$ec sec, retries left: $retLeft.."
-								sleep $retryMultiedDelay
-								#checking results 
-								privateVarAssign "${FUNCNAME[0]}" "pauseParamsCmdRes" "$(ethtool -a $iface)"; sleep 0.5 #to not exceed request rate
-								pauseRxStateOn=$(grep -x "^RX.*on" <<<"$pauseParamsCmdRes")
-								pauseTxStateOn=$(grep -x "^TX.*on" <<<"$pauseParamsCmdRes")
-								pauseAutoNegStateOn=$(grep -x "^Autoneg.*on" <<<"$pauseParamsCmdRes")
-								privateVarAssign "${FUNCNAME[0]}" "globAutoNegParamsCmdRes" "$(ethtool $iface 2>/dev/null |grep -x ".*Auto.*negotiation:.*")"; sleep 0.5 #to not exceed request rate
-								globAutoNegStateOn=$(grep -x "^.*: on$" <<<"$globAutoNegParamsCmdRes")
+							if ! isDefined setOnly; then 
+								if [ $changesPending -gt 0 ]; then 
+									# privateNumAssign "retryMultipliedDelay" "$(((11-$retLeft)*5))"
+									let retryMultipliedDelay=10
+									echo -e "    $org$iface$ec> Waiting for changes to apply.. ${yl}$retryMultipliedDelay$ec sec, retries left: $retLeft.."
+									sleep $retryMultiedDelay
+									#checking results 
+									privateVarAssign "${FUNCNAME[0]}" "pauseParamsCmdRes" "$(ethtool -a $iface)"; sleep 0.5 #to not exceed request rate
+									pauseRxStateOn=$(grep -x "^RX.*on" <<<"$pauseParamsCmdRes")
+									pauseTxStateOn=$(grep -x "^TX.*on" <<<"$pauseParamsCmdRes")
+									pauseAutoNegStateOn=$(grep -x "^Autoneg.*on" <<<"$pauseParamsCmdRes")
+									privateVarAssign "${FUNCNAME[0]}" "globAutoNegParamsCmdRes" "$(ethtool $iface 2>/dev/null |grep -x ".*Auto.*negotiation:.*")"; sleep 0.5 #to not exceed request rate
+									globAutoNegStateOn=$(grep -x "^.*: on$" <<<"$globAutoNegParamsCmdRes")
 
-								isDefined pauseRxStateOn targStateOn &>/dev/null; totalState="$?"
-								isDefined pauseTxStateOn targStateOn &>/dev/null; totalState+="$?"
-								isDefined globAutoNegStateOn targStateOn &>/dev/null; totalState+="$?"
-								isDefined pauseAutoNegStateOn targStateOn &>/dev/null; totalState+="$?"
-								setOk=$(grep -x "^2222$\|^0000$"<<<"$totalState")
-							else
-								setOk="noChanges"
-							fi
-
-							if isDefined setOk; then
-								let goodRuns++
-								if [ $changesPending -gt 0 ]; then
-									echo -e "    $org$iface$ec> ${gr}Is set ok$ec."
+									isDefined pauseRxStateOn targStateOn &>/dev/null; totalState="$?"
+									isDefined pauseTxStateOn targStateOn &>/dev/null; totalState+="$?"
+									isDefined globAutoNegStateOn targStateOn &>/dev/null; totalState+="$?"
+									isDefined pauseAutoNegStateOn targStateOn &>/dev/null; totalState+="$?"
+									setOk=$(grep -x "^2222$\|^0000$"<<<"$totalState")
 								else
-									echo -e "    $org$iface$ec> ${gr}Was set ok$ec."
+									setOk="noChanges"
 								fi
-								if [ $goodRuns -lt 2 ]; then 
-									echo -e "    $org$iface$ec> ${yl}Rechecking...$ec"
-									sleep 0.5
+
+								if isDefined setOk; then
+									let goodRuns++
+									if [ $changesPending -gt 0 ]; then
+										echo -e "    $org$iface$ec> ${gr}Is set ok$ec."
+									else
+										echo -e "    $org$iface$ec> ${gr}Was set ok$ec."
+									fi
+									if [ $goodRuns -lt 2 ]; then 
+										echo -e "    $org$iface$ec> ${yl}Rechecking...$ec"
+										sleep 0.5
+									fi
+								else
+									echo -e "    $org$iface$ec> ${rd}Was NOT set ok$ec. (errC:$totalState)"
+									if [ $retLeft -gt 1 ]; then echo -e "    $org$iface$ec> ${rd}Retrying...$ec"; fi
+									let runRes++
 								fi
 							else
-								echo -e "    $org$iface$ec> ${rd}Was NOT set ok$ec. (errC:$totalState)"
-								if [ $retLeft -gt 1 ]; then echo -e "    $org$iface$ec> ${rd}Retrying...$ec"; fi
-								let runRes++
+								echo -e "    $org$iface$ec> Set only flag active, not checking for a result"
 							fi
 						;;
 						*) except "Illegal set mode: $smode"
 					esac
 					let retLeft--
 				done
-				if isDefined ethtoolCmdFail; then
+				if isDefined ethtoolCmdFail && ! isDefined setOnly ; then
 					except "ethtool failed to set $smode on $iface to $targState (exit code: $ethtoolCmdFail)"
 				fi
 				sleep 0.2 #to not exceed request rate
