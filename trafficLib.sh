@@ -664,7 +664,7 @@ function setIrq() {
 
 function updateIfaceStats() {
 	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
-	local varName key arg args iface ifaceList vendorID devID statsCmdRes statFileName sedRes statLastByte
+	local varName key arg args iface ifaceList vendorID devID statsCmdRes statFileName sedRes statLastByte updateMode pciInfo
 	local tx_pkt_cnt tx_pkt_err tx_pkt_drop tx_byte_cnt tx_byte_err tx_byte_drop
 	local rx_pkt_cnt rx_pkt_err rx_pkt_drop rx_byte_cnt rx_byte_err rx_byte_drop
 	local allTrfVars="tx_pkt_cnt tx_pkt_err tx_pkt_drop tx_byte_cnt tx_byte_err tx_byte_drop rx_pkt_cnt rx_pkt_err rx_pkt_drop rx_byte_cnt rx_byte_err rx_byte_drop"
@@ -674,6 +674,7 @@ function updateIfaceStats() {
 		key=$(grep "^-.*" <<<"$arg" |cut -c2-)
 		if isDefined key; then
 			case "$key" in
+				update) let updateMode=1;;
 				*) except "Unknown key: $key"
 			esac
 		else
@@ -688,8 +689,9 @@ function updateIfaceStats() {
 		checkIfacesExist $ifaceList
 		for iface in $ifaceList; do
 			ifaceBusAddr=$(cat /sys/class/net/$iface/device/uevent |grep PCI_SLOT_NAME= |cut -d: -f2-)
-			vendorID=$(lspci -nms:$ifaceBusAddr |cut -d'"' -f4)
-			devID=$(lspci -nms:$ifaceBusAddr |cut -d'"' -f6)
+			pciInfo=$(lspci -nms:$ifaceBusAddr)
+			vendorID=$(cut -d'"' -f4 <<<$pciInfo)
+			devID=$(cut -d'"' -f6 <<<$pciInfo)
 			statsCmdRes="$(ethtool -S $iface)"
 			statFileName="/root/tmpTrfStats/$iface.stats"
 			if [ ! -s "$statFileName" ]; then
@@ -697,6 +699,10 @@ function updateIfaceStats() {
 				header+="tx_pkt_cnt;tx_pkt_err;tx_pkt_drop;tx_byte_cnt;tx_byte_err;tx_byte_drop;"
 				header+="rx_pkt_cnt;rx_pkt_err;rx_pkt_drop;rx_byte_cnt;rx_byte_err;rx_byte_drop;"
 				echo "$header">>"$statFileName"
+			else
+				if isDefined updateMode; then 
+					if [ $(wc -l < "$statFileName") -gt 2 ]; then sed -i '$d' "$statFileName"; fi
+				fi
 			fi
 			statLastByte=$(cat $statFileName 2>/dev/null |tail -c1 |od |awk '{print $2}' |grep -x '^000012$') #last byte need to be equal of \n
 			if ! isDefined statLastByte; then echo >>"$statFileName"; fi #moving to newline if no newline char was present at end of the line
@@ -705,14 +711,14 @@ function updateIfaceStats() {
 					tx_pkt_cnt=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_ucast_frames: .*$' |awk '$1=$1 {print $2}')
 					tx_pkt_err=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_err: .*$' |awk '$1=$1 {print $2}')
 					tx_pkt_drop=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_total_discard_pkts: .*$' |awk '$1=$1 {print $2}')
-					tx_chan_drop=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_total_discard_pkts: .*$' |awk '$1=$1 {print $2}')
+					#tx_chan_drop=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_total_discard_pkts: .*$' |awk '$1=$1 {print $2}')
 					tx_byte_cnt=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_bytes: .*$' |awk '$1=$1 {print $2}')
 					tx_byte_err=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_stat_error: .*$' |awk '$1=$1 {print $2}')
 					tx_byte_drop=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_stat_discard: .*$' |awk '$1=$1 {print $2}')
 					rx_pkt_cnt=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* rx_ucast_frames: .*$' |awk '$1=$1 {print $2}')
 					rx_pkt_err=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* rx_fcs_err_frames: .*$' |awk '$1=$1 {print $2}')
 					rx_pkt_drop=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* rx_total_discard_pkts: .*$' |awk '$1=$1 {print $2}')
-					rx_chan_drop=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_total_discard_pkts: .*$' |awk '$1=$1 {print $2}')
+					#rx_chan_drop=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* tx_total_discard_pkts: .*$' |awk '$1=$1 {print $2}')
 					rx_byte_cnt=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* rx_bytes: .*$' |awk '$1=$1 {print $2}')
 					rx_byte_err=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* rx_stat_err: .*$' |awk '$1=$1 {print $2}')
 					rx_byte_drop=$(grep -v '\[' <<<"$statsCmdRes" |grep -x '^.* rx_stat_discard: .*$' |awk '$1=$1 {print $2}')
@@ -759,7 +765,7 @@ function updateIfaceStats() {
 					dmsg inform "$varName is undefined, setting to 0"
 					eval let $varName=0
 				fi
-				echo -e "  $yl$iface$ec> $varName=$yl${!varName}$ec"
+				dmsg echo -e "  $yl$iface$ec> $varName=$yl${!varName}$ec"
 			done
 			lineAdd="$iface;$vendorID;$devID;$ifaceBusAddr;"
 			lineAdd+="$tx_pkt_cnt;$tx_pkt_err;$tx_pkt_drop;$tx_byte_cnt;$tx_byte_err;$tx_byte_drop;"
@@ -767,6 +773,7 @@ function updateIfaceStats() {
 			echo "$lineAdd">>"$statFileName"
 		done
 	fi
+	return $?
 }
 
 function compareIfaceStats() {
@@ -774,7 +781,7 @@ function compareIfaceStats() {
 	local varName key arg args iface ifaceList vendorID devID statsCmdRes statFileName
 	local tx_pkt_cnt tx_pkt_err tx_pkt_drop tx_byte_cnt tx_byte_err tx_byte_drop
 	local rx_pkt_cnt rx_pkt_err rx_pkt_drop rx_byte_cnt rx_byte_err rx_byte_drop
-	local lastLineNum secLastLineNum lastLine secLastLine preStatArr postStatArr
+	local lastLineNum secLastLineNum lastLine secLastLine preStatArr postStatArr vNum statPrintVar
 	local allTrfVars="tx_pkt_cnt tx_pkt_err tx_pkt_drop tx_byte_cnt tx_byte_err tx_byte_drop rx_pkt_cnt rx_pkt_err rx_pkt_drop rx_byte_cnt rx_byte_err rx_byte_drop"
 	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
 	initTmp "/root/tmpTrfStats"
@@ -796,6 +803,7 @@ function compareIfaceStats() {
 	if isDefined ifaceList; then
 		checkIfacesExist $ifaceList
 		for iface in $ifaceList; do
+			statPrintVar+="$iface "
 			ifaceBusAddr=$(cat /sys/class/net/$iface/device/uevent |grep PCI_SLOT_NAME= |cut -d: -f2-)
 			vendorID=$(lspci -nms:$ifaceBusAddr |cut -d'"' -f4)
 			devID=$(lspci -nms:$ifaceBusAddr |cut -d'"' -f6)
@@ -810,31 +818,44 @@ function compareIfaceStats() {
 				dmsg inform "secLastLine: $secLastLine"
 				if isDefined lastLine secLastLine; then
 					read -ra preStatArr <<< "$secLastLine"
-					read -ra postStatArr <<< "$lastLine"
+					read -ra postStatArr <<< "$lastLine" 
 					preStatArr=("${preStatArr[@]:4}") #shifing non stat values
 					postStatArr=("${postStatArr[@]:4}")
 					dmsg inform "preStatArr: ${preStatArr[*]}"
 					dmsg inform "postStatArr: ${postStatArr[*]}"
 					case "$vendorID" in
 						"14e4"|"15b3"|"8086"|*) 
-							for varName in $allTrfVars; do
-								preVal=${preStatArr[0]}
-								postVal=${postStatArr[0]}
-								if isNumber preVal postVal; then
-									compVal=$(($postVal-$preVal))
-									preStatArr=("${preStatArr[@]:1}")
-									postStatArr=("${postStatArr[@]:1}")
-									if isDefined parseMode; then
-										echo "$iface;$varName;$preVal;$postVal;$compVal"
+							if isDefined parseMode; then
+								for varName in $allTrfVars; do
+									preVal=${preStatArr[0]}
+									postVal=${postStatArr[0]}
+									if isNumber preVal postVal; then
+										compVal=$(($postVal-$preVal))
+										preStatArr=("${preStatArr[@]:1}")
+										postStatArr=("${postStatArr[@]:1}")
+										if isDefined parseMode; then
+											echo "$iface;$varName;$preVal;$postVal;$compVal"
+										# else
+										# 	echo -e "  $yl$iface$ec> $varName> Difference: $yl$compVal$ec"
+										fi
 									else
-										echo -e "  $yl$iface$ec> $varName> Difference: $yl$compVal$ec"
+										except "  $yl$iface$ec> $varName> Illegal values :$rd$preVal, $postVal$ec "
 									fi
-								else
-									except "  $yl$iface$ec> $varName> Illegal values :$rd$preVal, $postVal$ec "
-								fi
-							done
+								done
+							else
+								for vNum in 0 1 2 6 7 8; do
+									preVal=${preStatArr[$vNum]}
+									postVal=${postStatArr[$vNum]}
+									if isNumber preVal postVal; then
+										compVal=$(($postVal-$preVal))
+										statPrintVar+="$compVal "
+									fi
+								done
+								preStatArr=("${preStatArr[@]:11}")
+								postStatArr=("${postStatArr[@]:11}")
+							fi
 						;;
-						#*) except "Illegal Vendor ID: $vendorID of iface: $iface."
+						*) except "Illegal Vendor ID: $vendorID of iface: $iface."
 					esac
 				else
 					except "Illegal Vendor ID: $vendorID of iface: $iface."
@@ -842,7 +863,94 @@ function compareIfaceStats() {
 			else
 				except "Not enough data for stat comparison in file: $statFileName"
 			fi
-			if ! isDefined parseMode; then echo ;fi
+		done
+		if ! isDefined parseMode; then printIfaceStats $statPrintVar;fi
+	fi
+}
+
+function printIfaceStats() {
+	local clV iface rxCnt rxDrop rxErr txCnt txDrop txErr netCnt netIdx valIdx valArr sumErrDrop netData
+	declare -A trfData
+	shopt -s lastpipe
+	let netCnt=0
+	until [ -z "$1" ]; do
+		privateVarAssign "${FUNCNAME[0]}" iface "$1"; shift
+		privateNumAssign rxCnt "$1"; shift
+		privateNumAssign rxDrop "$1"; shift
+		privateNumAssign rxErr "$1"; shift
+		privateNumAssign txCnt "$1"; shift
+		privateNumAssign txDrop "$1"; shift
+		privateNumAssign txErr "$1"; shift
+		valArr=( $iface $rxCnt $rxDrop $rxErr $txCnt $txDrop $txErr )
+		for ((valIdx=0; valIdx<=6; valIdx++)); do
+			trfData[$netCnt,$valIdx]=${valArr[$valIdx]}
+		done
+		let netCnt++
+	done
+
+	echo -e "\n ╔═══════════════╦══════════════╦══════════════╦══════════════╦══════════════╦══════════════╦══════════════╗\n ║  Interface    ║    TX Qty    ║  TX Dropped  ║   TX Error   ║    RX Qty    ║  RX Dropped  ║   RX Error   ║"
+	for ((netIdx=0; netIdx<$netCnt; netIdx++)); do
+		netData=""
+		for ((valIdx=0; valIdx<=6; valIdx++)); do
+			netData+="${trfData[$netIdx,$valIdx]} "
+		done
+		let sumErrDrop=${trfData[$netIdx,2]}+${trfData[$netIdx,3]}+${trfData[$netIdx,5]}+${trfData[$netIdx,6]}
+		if [ $sumErrDrop -eq 0 ]; then clV=$gr; else clV=$rd; fi
+		printf " ╠═══════════════╬══════════════╬══════════════╬══════════════╬══════════════╬══════════════╬══════════════╣\n ║  $bl%-9s$ec    ║ $gr%12s$ec ║ $clV%12s$ec ║ $clV%12s$ec ║ $gr%12s$ec ║ $clV%12s$ec ║ $clV%12s$ec ║\n" $netData
+	done
+	echo -e " ╚═══════════════╩══════════════╩══════════════╩══════════════╩══════════════╩══════════════╩══════════════╝\n"
+}
+
+function startIfaceMonitor() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local key value arg args iface iperfCfgArr servRunningPID ifaceArr pidsAlive pidArr pid stats
+	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
+
+	for arg in ${args}
+	do
+		key=$(grep "^-.*" <<<"$arg" |cut -c3- |cut -f1 -d=)
+		value=$(echo $arg |cut -f2 -d=)
+		case "$key" in
+			iface)
+				if ifaceExist "$value"; then
+					ifaceArr+=($value)
+				else
+					except "Illegal interface: $value"
+				fi
+			;;
+			pid)
+				if isDefined value; then
+					pidArr+=($value)
+				else
+					except "null pid value"
+				fi
+			;;
+			*) except "Unknown key: $key"
+		esac
+	done
+	if ! isDefined {ifaceArr[*]}; then 
+		except "Interface is undefined"
+	else
+		echo -ne "\n  Getting first stats update.."
+		updateIfaceStats ${ifaceArr[*]} && echo -e "$gr done.$ec"
+		echo -n "  Getting second stats update.."
+		updateIfaceStats ${ifaceArr[*]} && echo -e "$gr done.$ec"
+		printf '\e[A\e[K\e[A\e[K'
+		let pidsAlive=-1
+		echo -e "\n\n\n\n"
+		for iface in ${ifaceArr[*]}; do echo -ne "\n\n"; done
+		while true; do
+			let pidsAlive=0
+			for pid in ${pidArr[*]}; do
+				if [ -d "/proc/$pid" ]; then let pidsAlive++; fi
+			done
+			if [[ $pidsAlive -eq 0 ]]; then break; fi
+			local returnSym="$(printf '\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K')"
+			for iface in ${ifaceArr[*]}; do returnSym+="$(printf '\e[A\e[K\e[A\e[K')"; done
+			updateIfaceStats -update ${ifaceArr[*]}
+			stats="$(compareIfaceStats ${ifaceArr[*]})"
+			if ! [ "$controlSymbols" == "1" ]; then unset returnSym; fi
+			echo -e "$returnSym$stats"
 		done
 	fi
 }
@@ -925,6 +1033,420 @@ function startIfaceDump() {
 		except "Ethernet interface list is empty"
 	fi
 	return 0
+}
+
+function initIperfSrvCfg() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local arg args key value srcIface trgIface srcIfacePort trgIfacePort i
+	local srcSrvIP srcSrvBindIP srcSrvConnIP trgSrvIP trgSrvBindIP trgSrvConnIP srvArgs addArgs clientArgs
+	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
+
+	for arg in ${args}
+	do
+		key=$(grep "^-.*" <<<"$arg" |cut -c3- |cut -f1 -d=)
+		value=$(echo $arg |cut -f2 -d=)
+		case "$key" in
+			src-iface)
+				if ifaceExist "$value"; then
+					privateVarAssign "${FUNCNAME[0]}" "srcIface" "$value"
+				else
+					except "Illegal source interface: $value"
+				fi
+			;;
+			trg-iface)
+				if ifaceExist "$value"; then
+					privateVarAssign "${FUNCNAME[0]}" "trgIface" "$value"
+				else
+					except "Illegal source interface: $value"
+				fi
+			;;
+			run-once)
+				addArgs+=("--one-off")
+			;;
+			log-path)
+				createPathForFile "$value"
+				addArgs+=("--logfile $value")
+			;;
+			*) except "Unknown key: $key"
+		esac
+	done
+	if ! isDefined srcIface trgIface; then except "Source or target interface is undefined"; fi
+
+	dmsg echo -e "  Initializing iperf3 server on interfaces: $yl$*$ec"
+	bindIfacesToNAT $srcIface $trgIface
+	echo -e "\n\n"
+	privateNumAssign "srcIfacePort" "$(tr -d [:alpha:] <<<"$srcIface" |rev |cut -c1)$(printf "%d\n" 0x$(cut -d: -f5-6 <"/sys/class/net/$srcIface/address" |tr -d ':' |rev |cut -c1-3 |rev))"
+	privateNumAssign "trgIfacePort" "$(tr -d [:alpha:] <<<"$trgIface" |rev |cut -c1)$(printf "%d\n" 0x$(cut -d: -f5-6 <"/sys/class/net/$trgIface/address" |tr -d ':' |rev |cut -c1-3 |rev))"
+	privateVarAssign "${FUNCNAME[0]}" "srcSrvIP" "$(ifconfig $srcIface |grep -m1 '.*inet .*netmask .*' |awk '{print $2}')"
+	privateVarAssign "${FUNCNAME[0]}" "srcSrvBindIP" "$(ip route list |grep -m1 "$trgIface"'.*src' |awk '{print $NF}')"
+	privateVarAssign "${FUNCNAME[0]}" "srcSrvConnIP" "$(ip route list |grep -v 'src' |grep -m1 'dev '"$trgIface" |awk '{print $1}')"
+	privateVarAssign "${FUNCNAME[0]}" "trgSrvIP" "$(ifconfig $trgIface |grep -m1 '.*inet .*netmask .*' |awk '{print $2}')"
+	privateVarAssign "${FUNCNAME[0]}" "trgSrvBindIP" "$(ip route list |grep -m1 "$srcIface"'.*src' |awk '{print $NF}')"
+	privateVarAssign "${FUNCNAME[0]}" "trgSrvConnIP" "$(ip route list |grep -v 'src' |grep -m1 'dev '"$srcIface" |awk '{print $1}')"
+
+
+	if ! isFreePort $srcIfacePort; then
+		echo -e "   Source interface $srcIface port is not free: $rd$srcIfacePort$ec.."
+		if [ $srcIfacePort -lt 100 ]; then let srcIfacePort=$srcIfacePort+1000; fi
+		if [ $srcIfacePort -gt 65000 ]; then let srcIfacePort=$srcIfacePort-1000; fi
+		for (( i=1; i<=20; i++ )); do
+			privateNumAssign "srcIfacePort" "${srcIfacePort%??}$(shuf -i 10-99 -n 1)"
+			if ! [[ $srcIfacePort -ge 0 && $srcIfacePort -le 65535 ]]; then
+				except "Invalid port number: $srcIfacePort"
+			fi
+			echo -e "   Trying different port: $yl$srcIfacePort$ec.."
+			if isFreePort $srcIfacePort; then 
+				echo -e "   Found open port: $gr$srcIfacePort$ec.."
+				break
+			else
+				echo -e "   Port is in use: $rd$srcIfacePort$ec. Trying a different port..."
+			fi
+		done
+		if ! isFreePort srcIfacePort; then
+			except "Open port wasnt found for interface: $srcIface"
+		fi
+	fi
+
+	if ! isFreePort $trgIfacePort; then
+		echo -e "   Target interface $trgIface port is not free: $rd$trgIfacePort$ec.."
+		if [ $trgIfacePort -lt 100 ]; then let trgIfacePort=$trgIfacePort+1000; fi
+		if [ $trgIfacePort -gt 65000 ]; then let trgIfacePort=$trgIfacePort-1000; fi
+		for (( i=1; i<=20; i++ )); do
+			privateNumAssign "trgIfacePort" "${trgIfacePort%??}$(shuf -i 10-99 -n 1)"
+			if ! [[ $trgIfacePort -ge 0 && $trgIfacePort -le 65535 ]]; then
+				except "Invalid port number: $trgIfacePort"
+			fi
+			echo -e "   Trying different port: $yl$trgIfacePort$ec.."
+			if isFreePort $trgIfacePort; then 
+				echo -e "   Found open port: $gr$trgIfacePort$ec.."
+				break
+			else
+				echo -e "   Port is in use: $rd$trgIfacePort$ec. Trying a different port..."
+			fi
+		done
+		if ! isFreePort $trgIfacePort; then
+			except "Open port wasnt found for interface: $trgIface"
+		fi
+	fi
+
+	# echo -e "\n   Checking params...\n\n"
+	# echo -e "  TX connection params ($yl$srcIface$ec -> $yl$trgIface$ec):"
+	# echo -e "    Srv receiving iface bind ip    -> $gr$srcSrvIP$ec"
+	# echo -e "    Cli transmitting iface bind ip -> $gr$srcSrvBindIP$ec"
+	# echo -e "    Cli server iface connection ip -> $gr$srcSrvConnIP$ec"
+	# echo -e "  RX connection params ($yl$trgIface$ec -> $yl$srcIface$ec):"
+	# echo -e "    Srv receiving iface bind ip    -> $gr$trgSrvIP$ec"
+	# echo -e "    Cli transmitting iface bind ip -> $gr$trgSrvBindIP$ec"
+	# echo -e "    Cli server iface connection ip -> $gr$trgSrvConnIP$ec\n"
+	
+	echo -e "  Iperf3 server params on $yl$srcIface$ec"
+	echo -e "    IP:   $gr$srcSrvIP$ec"
+	echo -e "    Port: $gr$srcIfacePort$ec"
+	echo -e "  Iperf3 client connection params on $yl$srcIface$ec"
+	echo -e "    Bind IP: $gr$srcSrvBindIP$ec"
+	echo -e "    Host IP: $gr$srcSrvConnIP$ec"
+	echo -e "    Port:    $gr$srcIfacePort$ec\n"
+	srvArgs=("-s" "-D" "-i 1" "-p $srcIfacePort" "-B $srcSrvIP")
+	clientArgs=("-c $srcSrvConnIP" "-i 1" "-p $srcIfacePort" "-B $srcSrvBindIP")
+	if isDefined addArgs; then srvArgs+=(${addArgs[@]}); fi
+	sendToPipe "${srcIface}_iperf_cfg" "$srcSrvIP;$srcIfacePort;$srcSrvBindIP;$srcSrvConnIP;${srvArgs[@]};${clientArgs[@]}"
+						# iperf_cfg    server IP; server port; client bind IP; client host IP; server IPerf args; client IPerf args
+	echo -e "  Iperf3 server params on $yl$trgIface$ec"
+	echo -e "    IP:   $gr$trgSrvIP$ec"
+	echo -e "    Port: $gr$trgIfacePort$ec"
+	echo -e "  Iperf3 client connection params on $yl$trgIface$ec"
+	echo -e "    Bind IP: $gr$trgSrvBindIP$ec"
+	echo -e "    Host IP: $gr$trgSrvConnIP$ec"
+	echo -e "    Port:    $gr$trgIfacePort$ec"
+	srvArgs=("-s" "-D" "-i 1" "-p $trgIfacePort" "-B $trgSrvIP")
+	clientArgs=("-c $trgSrvConnIP" "-i 1" "-p $trgIfacePort" "-B $trgSrvBindIP")
+	if isDefined addArgs; then srvArgs+=(${addArgs[@]}); fi
+	sendToPipe "${trgIface}_iperf_cfg" "$trgSrvIP;$trgIfacePort;$trgSrvBindIP;$trgSrvConnIP;${srvArgs[@]};${clientArgs[@]}"
+}		
+
+function initIperfClientCfg() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local args key value clientArgs pktQty streamQty windowSize buffSize trgIface srcIface addArgs 
+	local iperfCfgArr logPath
+	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
+
+	for arg in ${args}
+	do
+		key=$(grep "^-.*" <<<"$arg" |cut -c3- |cut -f1 -d=)
+		value=$(echo $arg |cut -f2 -d=)
+		case "$key" in
+			src-iface)
+				if ifaceExist "$value"; then
+					privateVarAssign "${FUNCNAME[0]}" "srcIface" "$value"
+				else
+					except "Illegal source interface: $value"
+				fi
+			;;
+			trg-iface) 
+				if ifaceExist "$value"; then
+					privateVarAssign "${FUNCNAME[0]}" "trgIface" "$value"
+				else
+					except "Illegal source interface: $value"
+				fi
+			;;
+			stream-qty)
+				privateNumAssign "streamQty" "$value"
+				if [ $streamQty -le 0 ]; then
+					except "Stream quantity should be greater than 0"
+				else
+					addArgs+=("--parallel $streamQty")
+				fi
+			;;
+			pkt-qty)
+				privateNumAssign "pktQty" "$value"
+				if [ $pktQty -le 0 ]; then
+					except "Packet quantity should be greater than 0"
+				else
+					addArgs+=("-k $pktQty")
+				fi
+			;;
+			window-size)
+				privateNumAssign "windowSize" "$value"
+				if [ $windowSize -le 0 ]; then
+					except "Window size should be greater than 0"
+				else
+					addArgs+=("-w ${windowSize}K")
+				fi
+			;;
+			buff-size)
+				privateNumAssign "buffSize" "$value"
+				if [ $buffSize -le 0 ]; then
+					except "Buffer size should be greater than 0"
+				else
+					addArgs+=("-l ${buffSize}K")
+				fi
+			;;
+			verbose)
+				checkDefinedVal "${FUNCNAME[0]}" value
+				addArgs+=("-V")
+			;;
+			*) except "Unknown key: $key"
+		esac
+	done
+	if ! isDefined srcIface trgIface; then except "Source or target interface is undefined"; fi
+	
+	if ! isDefined streamQty; then privateNumAssign "streamQty" 1; addArgs+=("-P $streamQty"); fi
+	if ! isDefined pktQty; then privateNumAssign "pktQty" 1000000; addArgs+=("-k $pktQty"); fi
+	if ! isDefined windowSize; then privateNumAssign "windowSize" 64; addArgs+=("-w ${windowSize}K"); fi
+	if ! isDefined buffSize; then privateNumAssign "buffSize" 128; addArgs+=("-l ${buffSize}K"); fi
+	sendToPipe "${srcIface}_iperf_cli_log" "null"
+	sendToPipe "${trgIface}_iperf_cli_log" "null"
+
+
+	echo -e "\n  Iperf3 advanced client connection params on $yl$srcIface $trgIface$ec"
+	echo -e "    Packet qty:  $gr$pktQty$ec"
+	echo -e "    Stream qty:  $gr$streamQty$ec"
+	echo -e "    Window size: $gr${windowSize}K$ec"
+	echo -e "    Buffer size: $gr${buffSize}K$ec"
+	# echo -e "    Log path:    $gr${srcIface}_iperf_cli_log$ec"
+	# echo -e "    Log path:    $gr${trgIface}_iperf_cli_log$ec"
+
+	IFS=';' read -ra iperfCfgArr <<<"$(cat ${srcIface}_iperf_cfg)"; unset IFS
+	if [ -z "${iperfCfgArr[5]}" ]; then except "base cli cmd is empty in ${srcIface}_iperf_cfg"; fi
+	IFS=' ' iperfCfgArr[5]="${iperfCfgArr[5]} ${addArgs[*]} --logfile ${srcIface}_iperf_cli_log"; unset IFS
+	IFS=';'; sendToPipe "${srcIface}_iperf_cfg" "${iperfCfgArr[*]}"; unset IFS
+	# iperf_cfg    server IP; server port; client bind IP; client host IP; server IPerf args; client IPerf args
+
+	IFS=';' read -ra iperfCfgArr <<<"$(cat ${trgIface}_iperf_cfg)"; unset IFS
+	if [ -z "${iperfCfgArr[5]}" ]; then except "base cli cmd is empty in ${trgIface}_iperf_cfg"; fi
+	IFS=' ' iperfCfgArr[5]="${iperfCfgArr[5]} ${addArgs[*]} --logfile ${trgIface}_iperf_cli_log"; unset IFS
+	IFS=';'; sendToPipe "${trgIface}_iperf_cfg" "${iperfCfgArr[*]}"; unset IFS
+}
+
+function startIperfSrv() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local key value arg args iface iperfCfgArr servRunningPID ifaceArr
+	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
+
+	for arg in ${args}
+	do
+		key=$(grep "^-.*" <<<"$arg" |cut -c3- |cut -f1 -d=)
+		value=$(echo $arg |cut -f2 -d=)
+		case "$key" in
+			iface)
+				if ifaceExist "$value"; then
+					ifaceArr+=($value)
+				else
+					except "Illegal interface: $value"
+				fi
+			;;
+			*) except "Unknown key: $key"
+		esac
+	done
+	if ! isDefined {ifaceArr[*]}; then 
+		except "Interface is undefined"
+	else
+		for iface in ${ifaceArr[*]}; do
+			IFS=';' read -ra iperfCfgArr <<<"$(cat ${iface}_iperf_cfg)"; unset IFS
+			if [ -z "${iperfCfgArr[5]}" ]; then except "base cli cmd is empty in ${iface}_iperf_cfg"; fi
+			servRunningPID=$(top -bcn1 |grep -x ".* iperf3.*${iperfCfgArr[4]}.*" |grep -v grep |awk '{print $1}')
+			if ! isDefined servRunningPID; then
+				echo -e "\n  Starting IPerf3 server on $yl$iface$ec"
+				dmsg echo -e "    Server run arguments: $bl${iperfCfgArr[4]}$ec"
+				iperf3 ${iperfCfgArr[4]} #--pidfile ${iface}_iperf_srv_pid
+				servRunningPID=$(top -bcn1 |grep -x ".* iperf3.*${iperfCfgArr[4]}.*" |grep -v grep |awk '{print $1}')
+				if isDefined servRunningPID; then
+					sendToPipe "${iface}_iperf_srv_pid" "$servRunningPID"
+					echo -e "    Server PID: $yl$(cat ${iface}_iperf_srv_pid)$ec"
+				else
+					except "Failed to start iperf3 server"
+				fi
+			else
+				echo -e "    Server aready running: PID-$yl$servRunningPID$ec"
+			fi
+		done
+	fi
+	return 0
+}
+
+function startIperfClient() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local key value arg args iface iperfCfgArr clientRunningPID ifaceArr
+	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
+
+	for arg in ${args}
+	do
+		key=$(grep "^-.*" <<<"$arg" |cut -c3- |cut -f1 -d=)
+		value=$(echo $arg |cut -f2 -d=)
+		case "$key" in
+			iface)
+				if ifaceExist "$value"; then
+					ifaceArr+=($value)
+				else
+					except "Illegal interface: $value"
+				fi
+			;;
+			*) except "Unknown key: $key"
+		esac
+	done
+	if ! isDefined {ifaceArr[*]}; then 
+		except "Interface is undefined"
+	else
+		for iface in ${ifaceArr[*]}; do
+			IFS=';' read -ra iperfCfgArr <<<"$(cat ${iface}_iperf_cfg)"; unset IFS
+			if [ -z "${iperfCfgArr[5]}" ]; then except "base cli cmd is empty in ${iface}_iperf_cfg"; fi
+			echo -e "\n  Starting IPerf3 client on $yl$iface$ec"
+			dmsg echo -e "    Client run arguments: $bl${iperfCfgArr[5]}$ec"
+			dmsg echo -e "    Log file: $yl${iface}_iperf_cli_log$ec"
+			echo >${iface}_iperf_cli_log
+			nohup iperf3 ${iperfCfgArr[5]} > /dev/null 2>&1 & disown
+			printf '\e[A\e[K'
+			clientRunningPID=$(top -bcn1 |grep -x ".* iperf3.*${iperfCfgArr[5]}.*" |grep -v grep |awk '{print $1}')
+			if isDefined clientRunningPID; then
+				sendToPipe "${iface}_iperf_cli_pid" "$clientRunningPID"
+				echo -e "    Client PID: $yl$(cat ${iface}_iperf_cli_pid)$ec"
+			else
+				echo -e "\t${rd}failed cmd: nohup iperf3 ${iperfCfgArr[5]}$ec"
+				echo -e "\t${rd}clientRunningPID=$clientRunningPID$ec"
+				echo -e "\t${rd}$(top -bcn1 |grep ".*iperf3.*")$ec"
+				except "Failed to start iperf3 client"
+			fi
+		done
+	fi
+	return 0
+}
+
+function getIperfPidsByIface() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local key value arg args iface ifaceArr pidArr pidN
+	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
+
+	for arg in ${args}
+	do
+		key=$(grep "^-.*" <<<"$arg" |cut -c3- |cut -f1 -d=)
+		value=$(echo $arg |cut -f2 -d=)
+		case "$key" in
+			iface)
+				if ifaceExist "$value"; then
+					ifaceArr+=($value)
+				else
+					except "Illegal interface: $value"
+				fi
+			;;
+			*) except "Unknown key: $key"
+		esac
+	done
+
+	for iface in ${ifaceArr[*]}; do
+		for side in cli srv; do
+			if [ -e "${iface}_iperf_${side}_pid" ]; then
+				pidN=$(cat ${iface}_iperf_${side}_pid)
+				if isDefined pidN; then
+					pidArr+=($(cat ${iface}_iperf_${side}_pid))
+				fi
+			fi
+		done
+	done
+	if isDefined pidArr; then echo -n "${pidArr[*]}"; fi
+}
+
+function testIperfTraffic() {
+	dmsg dbgWarn "### FUNC: ${FUNCNAME[0]} $(caller):  $(printCallstack)"
+	local key value arg args iface ifaceArr ifacePairArr pidList pidArr ifaceArrKeys i streamQty pktQty
+	privateVarAssign "${FUNCNAME[0]}" "args" "$*"
+
+	for arg in ${args}
+	do
+		key=$(grep "^-.*" <<<"$arg" |cut -c3- |cut -f1 -d=)
+		value=$(echo $arg |cut -f2 -d=)
+		case "$key" in
+			iface)
+				if ifaceExist "$value"; then
+					ifaceArr+=($value)
+				else
+					except "Illegal interface: $value"
+				fi
+			;;
+			stream-qty)
+				privateNumAssign "streamQty" "$value"
+				if [ $streamQty -le 0 ]; then
+					except "Stream quantity should be greater than 0"
+				fi
+			;;
+			pkt-qty)
+				privateNumAssign "pktQty" "$value"
+				if [ $pktQty -le 0 ]; then
+					except "Packet quantity should be greater than 0"
+				fi
+			;;
+			*) except "Unknown key: $key"
+		esac
+	done
+
+
+	if ! isDefined streamQty; then privateNumAssign "streamQty" 1; fi
+	if ! isDefined pktQty; then privateNumAssign "pktQty" 500000; fi
+	for ((i = 0; i < ${#ifaceArr[@]}; i += 2)); do
+		if [ ! -z "${ifaceArr[i+1]}" ]; then 
+			ifacePairArr+=( "--src-iface=${ifaceArr[i]} --trg-iface=${ifaceArr[i+1]}" )
+		else
+			except "No paired interface defined for ${ifaceArr[i]}"
+		fi
+	done
+
+	#IFS='#' echo "ifacePairArr=${ifacePairArr[*]}  ifaceArr=${ifaceArr[*]}"
+	for ((i = 0; i < ${#ifacePairArr[@]}; i += 1)); do
+		echo -e "\n\n"
+		dmsg echo -e "    Initializing pair: $yl${ifacePairArr[i]}$ec"
+		initIperfSrvCfg ${ifacePairArr[i]} --run-once
+		initIperfClientCfg ${ifacePairArr[i]} --pkt-qty=$pktQty --stream-qty=$streamQty
+	done
+	read -ra ifaceArrKeys <<<"$(printf -- "--iface=%s " "${ifaceArr[@]}")"
+	#IFS='#' echo "ifaceArr=${ifaceArr[*]}"
+	startIperfSrv ${ifaceArrKeys[*]}
+	startIperfClient ${ifaceArrKeys[*]}
+	local pidList=$(getIperfPidsByIface ${ifaceArrKeys[*]})
+	read -ra pidArr <<<"$(printf -- "--pid=%s " $pidList )"
+	#IFS='#' echo "pidArr=${pidArr[*]}"
+	startIfaceMonitor ${ifaceArrKeys[*]} ${pidArr[*]}
+	for iface in ${ifaceArr[@]}; do
+		killPipeAndWriters $iface
+	done
 }
 
 if (return 0 2>/dev/null) ; then

@@ -1,7 +1,5 @@
 #!/bin/bash
 
-echo -e '\n# arturd@silicom.co.il\n\n\e[0;47m\n\e[m\n'
-
 publicNumAssign() {
 	privateNumAssign "$1" $2
 	echo -e "  $1=$2"
@@ -34,13 +32,18 @@ privateNumAssign() {
 					let retRes++
 					except "preEval check exception, $funcName: $varName definition failed, new value is undefined!"
 				else
-					eval "let $varName=\$numInput"
+					if [[ "$varName" =~ ^[[:alnum:]_-]+$ ]]; then
+						eval "let $varName=\$numInput"
+					else
+						except "Illegal variable name: $varName"
+					fi
 				fi
 			fi
 		fi
 	else
 		except "preEval check, new value for $varName: $numInput is not a number!"
 	fi
+
 	return $retRes
 }
 
@@ -53,29 +56,34 @@ function privateVarAssign() {
 	shift
 	varVal="$*"
 
-	if [ ! "$funcName" == "beepSpk" ]; then
-		if [ "$debugShowAssignations" = "1" -o -z "$debugMode" ]; then
-			dmsg echo "funcName=$funcName  varName=$varName  varVal=$varVal"
-		fi
-	fi
 	
-	if [ -z "$funcName" ]; then
-		let retRes++
-		except "preEval check, funcName undefined!"
-	else
-		if [ -z "$varName" ]; then
-			let retRes++
-			except "preEval check, varName undefined!"
-		else
-			if [ -z "$varVal" ]; then
-				let retRes++
-				except "preEval check, new value for $varName is undefined!"
-			else
-				eval $varName=\$varVal
+		if [ ! "$funcName" == "beepSpk" ]; then
+			if [ "$debugShowAssignations" = "1" -o -z "$debugMode" ]; then
+				dmsg echo "funcName=$funcName  varName=$varName  varVal=$varVal"
 			fi
 		fi
-	fi
-	
+		
+		if [ -z "$funcName" ]; then
+			let retRes++
+			except "preEval check, funcName undefined!"
+		else
+			if [ -z "$varName" ]; then
+				let retRes++
+				except "preEval check, varName undefined!"
+			else
+				if [ -z "$varVal" ]; then
+					let retRes++
+					except "preEval check, new value for $varName is undefined!"
+				else
+					if [[ "$varName" =~ ^[[:alnum:]_-]+$ ]]; then
+						eval $varName=\$varVal
+					else
+						except "Illegal variable name: $varName"
+					fi
+				fi
+			fi
+		fi
+
 	return $retRes
 }
 
@@ -104,21 +112,24 @@ publicVarAssign() {
 			fi
 		fi
 	fi
-
-	if ! isDefined errMsg; then
-		eval $varName=\$varVal
-		echo -e "  $varNameDesc=${!varName}"
+	if [[ "$varName" =~ ^[[:alnum:]_-]+$ ]]; then
+		if ! isDefined errMsg; then
+			eval $varName=\$varVal
+			echo -e "  $varNameDesc=${!varName}"
+		else
+			case "$varSeverity" in
+				fatal) 
+					critWarn "\t$(caller): $(printCallstack)"
+					exitFail "$errMsg" 
+				;;
+				critical) critWarn "${FUNCNAME[0]} $errMsg" ;;
+				warn) warn "${FUNCNAME[0]} $errMsg" ;;
+				silent) ;;
+				*) except "varSeverity not in range: $varSeverity"
+			esac
+		fi
 	else
-		case "$varSeverity" in
-			fatal) 
-				critWarn "\t$(caller): $(printCallstack)"
-				exitFail "$errMsg" 
-			;;
-			critical) critWarn "${FUNCNAME[0]} $errMsg" ;;
-			warn) warn "${FUNCNAME[0]} $errMsg" ;;
-			silent) ;;
-			*) except "varSeverity not in range: $varSeverity"
-		esac
+		except "Illegal variable name: $varName"
 	fi
 
 	return $retRes
@@ -135,13 +146,17 @@ acquireVal() {
 	test -z "$varSrc" && exitFail "acquireVal exception, varSrc undefined!"
 	test -z "$varTarg" && exitFail "acquireVal exception, varTarg undefined!"
 	
-	test -z "${!varSrc}" && {
-		read -p "  $valDesc: " varSrcVal
-		eval $varTarg=$varSrcVal
-	} || {
-		eval $varTarg=${!varSrc}
-		echo "  $valDesc: ${!varTarg}"
-	}
+	if [[ "$varSrc$varTarg" =~ ^[[:alnum:]_-]+$ ]]; then
+		test -z "${!varSrc}" && {
+			read -p "  $valDesc: " varSrcVal
+			eval $varTarg=$varSrcVal
+		} || {
+			eval $varTarg=${!varSrc}
+			echo "  $valDesc: ${!varTarg}"
+		}
+	else
+		except "Illegal variable name: $varSrc or $varTarg"
+	fi
 }
 
 testFileExist() {
@@ -247,6 +262,29 @@ function isDefined() {
 			let statusRes++
 		fi
 	done
+	return $statusRes
+}
+
+function isFreePort() {
+	local portList=$*
+	local usedPortList statusRes isPortUsed portN
+	let statusRes=0
+	if [ -z "$portList" ]; then
+		let statusRes++
+	else
+		which netstat 2>&1 > /dev/null
+		if [ $? -eq 0 ]; then 
+			usedPortList="$(netstat -tuln |grep "^tcp .*LISTEN" |awk '{print $4}' |cut -d: -f2)"
+			for portN in $portList; do
+				isPortUsed="$(grep $portN<<<"$usedPortList" 2>/dev/null)"
+				if [ ! -z "$isPortUsed" ]; then
+					let statusRes++
+				fi
+			done
+		else
+			except "  netstat pkg is not installed!"
+		fi
+	fi
 	return $statusRes
 }
 
@@ -724,6 +762,61 @@ removeArg() {
 	local targArg
 	privateVarAssign "removeArg" "targArg" "$1"; shift
 	echo -n "$*" | sed 's/'" $targArg"'//g'
+}
+
+function sendToPipe() {
+	local pipePath pipeName pipeVal statusRes
+	privateVarAssign "${FUNCNAME[0]}" "pipeName" "$1"; shift
+	privateVarAssign "${FUNCNAME[0]}" "pipeVal" "$1"
+	let statusRes=0
+
+	dmsg inform "pipeName=$pipeName\npipeVal=$pipeVal"
+	if [[ "$pipeName" =~ ^[[:alnum:]_-]+$ ]]; then
+		pipePath="/tmp/namedPipes"
+		if [ ! -e "$pipePath" ]; then mkdir -p "$pipePath"; fi
+		if [ ! -e "$pipePath/$pipeName" ]; then 
+			#dmsg inform "creating pipe: $pipePath/$pipeName"
+			mkfifo "$pipePath/$pipeName"
+			if [ $? -eq 0 ]; then 
+				echo "$@" >$pipeName
+			else
+				except "  unable to create pipe: $pipePath/$pipeName"
+			fi
+		else
+			#dmsg inform "Writing to pipe: $pipePath/$pipeName"
+			echo "$@" >$pipeName
+			#dmsg inform "Done writing to pipe: $pipePath/$pipeName"
+		fi
+	else
+		except "  illegal pipe name: $pipeName"
+	fi
+	return $statusRes
+}
+
+killPipeAndWriters() {
+	local pipeName statusRes pid pipeList pipeN returnSym
+	privateVarAssign "${FUNCNAME[0]}" "pipeName" "$1"
+
+	if [ -p "$pipeName" ]; then
+		pipeList=$pipeName
+	else
+		pipeList=($(find /tmp/namedPipes -type p -name "*$pipeName*"))
+	fi
+
+	for pipeN in ${pipeList[*]}; do
+		if [ -p "$pipeN" ]; then
+			returnSym+="$(printf '\e[A\e[K')"
+			echo "  Removing pipe: $pipeN"
+			while read -r pid; do
+				echo "   Terminating process writing to $pipeN: $pid"
+				kill -9 "$pid"
+			done < <(lsof "$pipeN" | awk '$4 == "FIFO" {print $2}')
+			rm -f "$pipeN"
+			dmsg echo "  Removed pipe: $pipeN"
+		fi
+	done
+	if ! [ "$controlSymbols" == "1" ]; then unset returnSym; fi
+	if isDefined returnSym; then echo -ne "$returnSym"; fi 
 }
 
 checkOverload() {

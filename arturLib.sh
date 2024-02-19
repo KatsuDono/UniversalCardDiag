@@ -4149,6 +4149,7 @@ function ifaceBelongsToBridge() {
 function bindIfacesToNAT() {
 	dmsg dbgWarn "### $(caller): $(printCallstack)"
 	local ethIface srcIface trgIface srcIP1 srcIP2 trgIP1 trgIP2 srcMAC trgMAC id1 id2
+	local prefMacSrc prefMacTrg prefNetSrc prefNetTrg returnSym
 	privateVarAssign "${FUNCNAME[0]}" "srcIface" "$1"
 	privateVarAssign "${FUNCNAME[0]}" "trgIface" "$2"
 	if [ ! -z "$3" ]; then except "function overloaded"; fi
@@ -4156,64 +4157,86 @@ function bindIfacesToNAT() {
 	echo -e "  Binding interfaces: $yl$*$ec to ${gr}NAT$ec"
 	checkIfacesExist $*
 	for ethIface in $*; do
-		echo -e "  Setting iface $yl$ethIface$ec to ${yl}DOWN$ec"
+		echo -e "  Setting iface $yl$ethIface$ec to ${yl}DOWN$ec"; returnSym+="\e[A\e[K"
 		ip link set $ethIface down
-		echo -e "  Flushing iface $yl$ethIface$ec"
-		ip a flush dev $ethIface
+		purgeIfaceCfg $ethIface; returnSym+="\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K\e[A\e[K"
 	done
 
-	id1=$(echo $srcIface |cut -d. -f2 |tr -d [:alpha:])
-	let id1=$(($id1 % 127 + 1))
-	id2=$(echo $trgIface |cut -d. -f2 |tr -d [:alpha:])
-	let id2=$(($id2 % 127 + 128))
-	echo "  id1=$id1  id2=$id2"
-	srcIP1="192.1$(cut -c1<<<"$j")0.$id1.$id1"
-	srcIP2="192.1$(cut -c1<<<"$j")0.$id2.$id1"
-	trgIP1="192.1$(cut -c1<<<"$j")0.$id2.$id2"
-	trgIP2="192.1$(cut -c1<<<"$j")0.$id1.$id2"
 	srcMAC=$(cat /sys/class/net/$srcIface/address)
 	trgMAC=$(cat /sys/class/net/$trgIface/address)
-	echo -e " srcIP1: $srcIP1\n srcIP2: $srcIP2\n trgIP1: $trgIP1\n trgIP2: $trgIP2\n "
-	# lnk[$num]=$srcIface
-	# src[$num]=$srcIP1
-	# dst[$num]=$srcIP2
-	# log[$num]=$srcIP2
-	# let ++num
-	# lnk[$num]=$trgIface
-	# src[$num]=$trgIP1
-	# dst[$num]=$trgIP2
-	# log[$num]=$trgIP2
-	# let ++num
+	privateVarAssign "${FUNCNAME[0]}" "prefMacSrc" "$(printf "%d\n" 0x$(cut -d: -f6 <<<$srcMAC) |cut -c2-)"
+	privateVarAssign "${FUNCNAME[0]}" "prefMacTrg" "$(printf "%d\n" 0x$(cut -d: -f6 <<<$trgMAC) |cut -c2-)"
+	privateNumAssign "prefNetSrc" "$(echo $srcIface |tr -d [:alpha:] |rev |cut -c1)"
+	privateNumAssign "prefNetTrg" "$(echo $trgIface |tr -d [:alpha:] |rev |cut -c1)"
+	suffSrc=$(echo $srcIface |cut -d. -f2 |tr -d [:alpha:])
+	let suffSrc=$(($suffSrc % 127 + 1))
+	suffTrg=$(echo $trgIface |cut -d. -f2 |tr -d [:alpha:])
+	let suffTrg=$(($suffTrg % 127 + 128))
+	dmsg echo "  suffSrc=$suffSrc  suffTrg=$suffTrg"
+	srcIP1="1$prefMacSrc.1${prefNetSrc}0.$suffSrc.$suffSrc"
+	srcIP2="1$prefMacSrc.1${prefNetSrc}0.$suffTrg.$suffSrc"
+	trgIP1="1$prefMacTrg.1${prefNetTrg}0.$suffTrg.$suffTrg"
+	trgIP2="1$prefMacTrg.1${prefNetTrg}0.$suffSrc.$suffTrg"
+
+	dmsg echo -e "   srcIP1: $srcIP1\n srcIP2: $srcIP2\n trgIP1: $trgIP1\n trgIP2: $trgIP2\n "
 	ip address add $srcIP1/24 brd + dev $srcIface 
-	echo " Adding $srcIP1/24 on $srcIface"
+	echo "   Adding $srcIP1/24 on $srcIface"; returnSym+="\e[A\e[K"
 	ip address add $trgIP1/24 brd + dev $trgIface 
-	echo " Adding $trgIP1/24 on $trgIface"
+	echo "   Adding $trgIP1/24 on $trgIface"; returnSym+="\e[A\e[K"
 	ip link set dev $srcIface up mtu 1500 promisc off
 	ip link set dev $trgIface up mtu 1500 promisc off
 	iptables -t nat -A POSTROUTING -s $srcIP1 -d $srcIP2 -j SNAT --to-source $trgIP2 
-	echo " Setting NAT postroute SNAT Source:$srcIP1 to destination: $trgIP2"
+	echo "   Setting NAT postroute SNAT Source:$srcIP1 to destination: $trgIP2"; returnSym+="\e[A\e[K"
 	iptables -t nat -A PREROUTING -d $trgIP2 -j DNAT --to-destination $srcIP1 
-	echo " Setting NAT preroute DNAT destination:$trgIP2 forward to destination: $srcIP1"
+	echo "   Setting NAT preroute DNAT destination:$trgIP2 forward to destination: $srcIP1"; returnSym+="\e[A\e[K"
 	iptables -t nat -A POSTROUTING -s $trgIP1 -d $trgIP2 -j SNAT --to-source $srcIP2 
-	echo " Setting NAT postroute SNAT Source:$trgIP1 to destination: $srcIP2"
+	echo "   Setting NAT postroute SNAT Source:$trgIP1 to destination: $srcIP2"; returnSym+="\e[A\e[K"
 	iptables -t nat -A PREROUTING -d $srcIP2 -j DNAT --to-destination $trgIP1 
-	echo " Setting NAT preroute DNAT destination:$srcIP2 forward to destination: $trgIP1"
+	echo "   Setting NAT preroute DNAT destination:$srcIP2 forward to destination: $trgIP1"; returnSym+="\e[A\e[K"
 	ip route add $srcIP2 dev $srcIface 
-	echo " Adding route $srcIP2 on dev $srcIface"
+	echo "   Adding route $srcIP2 on dev $srcIface"; returnSym+="\e[A\e[K"
 	ip neigh add $srcIP2 lladdr $trgMAC dev $srcIface 
-	echo " Adding neighbour lladdr $trgMAC for $srcIP2 on dev $srcIface"
+	echo "   Adding neighbour lladdr $trgMAC for $srcIP2 on dev $srcIface"; returnSym+="\e[A\e[K"
 	ip route add $trgIP2 dev $trgIface 
-	echo " Adding route $trgIP2 on dev $trgIface"
+	echo "   Adding route $trgIP2 on dev $trgIface"; returnSym+="\e[A\e[K"
 	ip neigh add $trgIP2 lladdr $srcMAC dev $trgIface 
-	echo " Adding neighbour lladdr $srcMAC for $trgIP2 on dev $trgIface"
-
-
+	echo "   Adding neighbour lladdr $srcMAC for $trgIP2 on dev $trgIface"; returnSym+="\e[A\e[K"
 
 	for ethIface in $*; do
-		echo -e "  Setting iface $yl$ethIface$ec to ${gr}UP$ec"
+		echo -e "   Setting iface $yl$ethIface$ec to ${gr}UP$ec"; returnSym+="\e[A\e[K"
 		ip link set $ethIface up
 	done
-	echo "  NAT setup done."
+
+	# echo -e "\n  TX connection params ($yl$srcIface$ec -> $yl$trgIface$ec):"
+	# echo -e "   $bl Srv$ec receiving iface bind ip    -> $yl$srcIP1$ec"
+	# echo -e "   $pr Cli$ec transmitting iface bind ip -> $yl$trgIP1$ec"
+	# echo -e "   $pr Cli$ec server iface connection ip -> $yl$trgIP2$ec"
+	# echo -e "  RX connection params ($yl$trgIface$ec -> $yl$srcIface$ec):"
+	# echo -e "   $bl Srv$ec receiving iface bind ip    -> $yl$trgIP1$ec"
+	# echo -e "   $pr Cli$ec transmitting iface bind ip -> $yl$srcIP1$ec"
+	# echo -e "   $pr Cli$ec server iface connection ip -> $yl$srcIP2$ec"
+	if ! [ "$controlSymbols" == "1" ]; then unset returnSym; fi
+	echo -e "$returnSym  NAT setup ${gr}done$ec."
+}
+
+purgeIfaceCfg() {
+	dmsg dbgWarn "### $(caller): $(printCallstack)"
+	local ethIface ifaceList
+	privateVarAssign "${FUNCNAME[0]}" "ifaceList" "$*"
+
+	echo -e "  Flushing interfaces: $yl$*$ec"
+	checkIfacesExist $*
+	for ethIface in $*; do
+		echo -e "    Flushing neighbours.."
+		ip neigh flush dev $ethIface
+		echo -e "    Flushing routes.."
+		ip route flush dev $ethIface
+		echo -e "    Flushing addresses.."
+		ip address flush dev $ethIface
+		echo -e "    Setting link up."
+		ip link set dev $ethIface up
+	done
+	echo -e "  Done."
 }
 
 createVirtualIfaces() {
@@ -5430,6 +5453,7 @@ setDefaultGlobals() {
 		declare -ga dmsgStackArr=($(seq 0 1 30))
 		let dmsgStackArr[99]=-1
 	fi
+	export controlSymbols=1
 }
 
 libInit() {
@@ -5454,50 +5478,29 @@ setDebug() {
 	export noExit=1
 }
 
+libVerify() {
+	funcName=$1
+	libPath=$2
+	errName=$3
+	if ! [ "$(type -t $funcName 2>&1)" == "function" ]; then 
+		source $libPath
+		if [ $? -ne 0 ]; then 
+			echo -e "\t\e[0;31m$errName LIBRARY IS NOT LOADED! UNABLE TO PROCEED\n\e[m"
+			exit 1
+		fi
+	fi
+}
+
 if (return 0 2>/dev/null) ; then
+	libHomePath="/root/multiCard"
 	echo -e '  Loaded module: \tLib for testing (support: arturd@silicom.co.il)'
-	if ! [ "$(type -t privateVarAssign 2>&1)" == "function" ]; then 
-		source /root/multiCard/utilLib.sh
-		if [ $? -ne 0 ]; then 
-			echo -e "\t\e[0;31mUTILITY LIBRARY IS NOT LOADED! UNABLE TO PROCEED\n\e[m"
-			exit 1
-		fi
-	fi
-	if ! [ "$(type -t echoFail 2>&1)" == "function" ]; then 
-		source /root/multiCard/textLib.sh
-		if [ $? -ne 0 ]; then 
-			echo -e "\t\e[0;31mTEXT LIBRARY IS NOT LOADED! UNABLE TO PROCEED\n\e[m"
-			exit 1
-		fi
-	fi
-	if ! [ "$(type -t selectUSBBus 2>&1)" == "function" ]; then 
-		source /root/multiCard/usbLib.sh
-		if [ $? -ne 0 ]; then 
-			echo -e "\t\e[0;31mUSB LIBRARY IS NOT LOADED! UNABLE TO PROCEED\n\e[m"
-			exit 1
-		fi
-	fi
-	if ! [ "$(type -t sendKikusuiCmd 2>&1)" == "function" ]; then 
-		source /root/multiCard/kikusuiLib.sh
-		if [ $? -ne 0 ]; then 
-			echo -e "\t\e[0;31mKIKUSUI LIBRARY IS NOT LOADED! UNABLE TO PROCEED\n\e[m"
-			exit 1
-		fi
-	fi
-	if ! [ "$(type -t IPPowerSwPowerAll 2>&1)" == "function" ]; then 
-		source /root/multiCard/ippowerLib.sh
-		if [ $? -ne 0 ]; then 
-			echo -e "\t\e[0;31mIPPOWER LIBRARY IS NOT LOADED! UNABLE TO PROCEED\n\e[m"
-			exit 1
-		fi
-	fi
-	if ! [ "$(type -t createRandomFile 2>&1)" == "function" ]; then 
-		source /root/multiCard/ioLib.sh
-		if [ $? -ne 0 ]; then 
-			echo -e "\t\e[0;31mI\O LIBRARY IS NOT LOADED! UNABLE TO PROCEED\n\e[m"
-			exit 1
-		fi
-	fi
+	libVerify "privateVarAssign" "$libHomePath/utilLib.sh" "UTILITY"
+	libVerify "echoFail" "$libHomePath/textLib.sh" "TEXT"
+	libVerify "selectUSBBus" "$libHomePath/usbLib.sh" "USB"
+	libVerify "sendKikusuiCmd" "$libHomePath/kikusuiLib.sh" "KIKUSUI"
+	libVerify "IPPowerSwPowerAll" "$libHomePath/ippowerLib.sh" "IPPOWER"
+	libVerify "createRandomFile" "$libHomePath/ioLib.sh" "I\O"
+
 	libInit "$@"
 	rm -f /tmp/exitMsgExec
 else	
